@@ -231,6 +231,14 @@ const App = (() => {
       card.className  = 'song-card';
       card.innerHTML  = _songCardHTML(song);
       card.addEventListener('click', () => renderDetail(song));
+      if (Admin.isEditMode()) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'song-card-edit-btn';
+        editBtn.innerHTML = '<i data-lucide="pencil"></i>';
+        editBtn.addEventListener('click', (e) => { e.stopPropagation(); renderEdit(song, false); });
+        card.style.position = 'relative';
+        card.appendChild(editBtn);
+      }
       container.appendChild(card);
     });
     if (typeof lucide !== 'undefined') lucide.createIcons();
