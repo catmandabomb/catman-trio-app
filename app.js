@@ -650,8 +650,8 @@ const App = (() => {
         if (idx > -1) _songs[idx] = song;
       }
       await saveSongs();
-      _activeSong = song;
-      renderDetail(song);
+      _activeSong = null;
+      renderList();
     });
 
     // Cancel
