@@ -462,8 +462,9 @@ a { color: inherit; text-decoration: none; }
 }
 
 .song-card-title {
+  font-family: 'Oxanium', sans-serif;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.2px;
   color: var(--text-bright);
   grid-column: 1;
@@ -602,6 +603,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .detail-title {
+  font-family: 'Oxanium', sans-serif;
   font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -1481,9 +1483,10 @@ textarea.form-input {
 }
 
 .setlist-card-name {
+  font-family: 'Oxanium', sans-serif;
   flex: 1;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
@@ -1548,8 +1551,9 @@ textarea.form-input {
 }
 
 .setlist-song-title {
+  font-family: 'Aldrich', sans-serif;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
