@@ -29,6 +29,13 @@ const App = (() => {
 
   function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+  function highlight(text, query) {
+    if (!query) return esc(text);
+    const escaped = esc(text);
+    const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="search-hi">$1</mark>');
+  }
+
   // ─── Toast ─────────────────────────────────────────────────
 
   let _toastTimer = null;
@@ -421,6 +428,7 @@ const App = (() => {
     const charts = (a.charts || []).length;
     const audio  = (a.audio  || []).length;
     const links  = (a.links  || []).length;
+    const q = _searchText || '';
 
     const pills = [
       charts ? `<span class="asset-pill chart">${charts} chart${charts !== 1 ? 's' : ''}</span>` : '',
@@ -428,17 +436,17 @@ const App = (() => {
       links  ? `<span class="asset-pill links">${links} link${links !== 1 ? 's' : ''}</span>`    : '',
     ].filter(Boolean).join('');
 
-    const tagHtml = (song.tags || []).map(t => `<span class="song-tag">${esc(t)}</span>`).join('');
-    const bpmStr = song.bpm ? `${esc(String(song.bpm))} bpm${song.timeSig ? ' (' + esc(song.timeSig) + ')' : ''}` : '';
+    const tagHtml = (song.tags || []).map(t => `<span class="song-tag">${highlight(t, q)}</span>`).join('');
+    const bpmStr = song.bpm ? `${highlight(String(song.bpm), q)} bpm${song.timeSig ? ' (' + highlight(song.timeSig, q) + ')' : ''}` : '';
     const bpmHtml = bpmStr ? `<span class="song-card-bpm">${bpmStr}</span>` : '';
 
     const editIcon = Admin.isEditMode() ? '<button class="song-card-edit-btn"><i data-lucide="pencil"></i></button>' : '';
 
     return `
-      <div class="song-card-title-row"><span class="song-card-title">${esc(song.title) || '<em style="color:var(--text-3)">Untitled</em>'}</span>${editIcon}</div>
-      <span class="song-card-subtitle">${esc(song.subtitle)}</span>
+      <div class="song-card-title-row"><span class="song-card-title">${highlight(song.title, q) || '<em style="color:var(--text-3)">Untitled</em>'}</span>${editIcon}</div>
+      <span class="song-card-subtitle">${highlight(song.subtitle, q)}</span>
       <div class="song-card-meta">
-        <span class="song-card-key">${esc(song.key)}</span>
+        <span class="song-card-key">${highlight(song.key, q)}</span>
         ${bpmHtml}
       </div>
       <div class="song-card-footer">

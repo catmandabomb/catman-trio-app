@@ -365,6 +365,13 @@ a { color: inherit; text-decoration: none; }
   pointer-events: none;
 }
 
+.search-hi {
+  background: rgba(240,204,128,0.25);
+  color: var(--accent-bright);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 #search-input {
   width: 100%;
   background: var(--bg-2);
