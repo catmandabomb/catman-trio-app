@@ -365,12 +365,18 @@ const App = (() => {
     }
   }
 
-  function _setTopbar(title, showBack, isHtml) {
+  function _setTopbar(title, showBack, isHtml, isHome) {
     const el = document.getElementById('topbar-title');
-    if (el) { if (isHtml) el.innerHTML = title; else el.textContent = title; }
+    if (el) {
+      if (isHtml) el.innerHTML = title; else el.textContent = title;
+      el.classList.toggle('title-home', !!isHome);
+    }
     document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
     document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
     document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
+    // Version badge only visible on home page in admin mode
+    const vBadge = document.getElementById('admin-version-badge');
+    if (vBadge) vBadge.classList.toggle('hidden', !isHome || !Admin.isEditMode());
   }
 
   function _pushNav(renderFn) {
@@ -423,7 +429,7 @@ const App = (() => {
     const trioGrad   = _gradientText('Trio', [220,184,105], [235,211,150]);
     _setTopbar(
       `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}</span>`,
-      false, true
+      false, true, true
     );
     // Sync admin bar button state
     const addBtn = document.getElementById('btn-add-song');
@@ -1604,6 +1610,7 @@ const App = (() => {
       <div class="dash-header">
         <h2>Admin Dashboard</h2>
         <p>System health and data integrity overview</p>
+        <span class="dash-version">${APP_VERSION}</span>
       </div>
 
       <div class="dash-summary">
