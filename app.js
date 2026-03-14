@@ -399,7 +399,7 @@ const App = (() => {
     _revokeBlobCache();
     _navStack = [];
     _showView('list');
-    _setTopbar(_gradientText('Catman Trio', [200,160,70], [245,230,185]), false, true);
+    _setTopbar(_gradientText('Catman Trio', [215,175,90], [240,220,165]), false, true);
 
     const tagBar = document.getElementById('tag-filter-bar');
     tagBar.innerHTML = _allTags().map(t =>
