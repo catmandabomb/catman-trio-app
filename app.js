@@ -160,21 +160,41 @@ const App = (() => {
     }
   }
 
-  async function syncFromDrive() {
+  const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+  function _shouldSync() {
+    const last = parseInt(localStorage.getItem('bb_last_sync') || '0', 10);
+    return Date.now() - last > SYNC_COOLDOWN_MS;
+  }
+
+  function _markSynced() {
+    localStorage.setItem('bb_last_sync', String(Date.now()));
+  }
+
+  async function _syncAllFromDrive() {
     if (!Drive.isConfigured()) {
+      _syncDone();
+      return;
+    }
+    if (!_shouldSync()) {
       _syncDone();
       return;
     }
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
-      const songs = await Drive.loadSongs();
+      const { songs, setlists } = await Drive.loadAllData();
       if (songs !== null) {
         const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
         _songs = songs;
         _saveLocal(songs);
-        if (changed) renderList();
+        if (changed && _view === 'list') renderList();
       }
+      if (setlists !== null) {
+        _setlists = setlists;
+        _saveSetlistsLocal(setlists);
+      }
+      _markSynced();
     } catch (e) {
       console.warn('Drive sync failed, using local cache', e);
     } finally {
@@ -184,7 +204,6 @@ const App = (() => {
   }
 
   function _syncDone() {
-    // Update empty state to final message if list is still empty
     if (_songs.length === 0) {
       const t = document.getElementById('empty-title');
       const s = document.getElementById('empty-sub');
@@ -198,6 +217,7 @@ const App = (() => {
     if (Drive.isWriteConfigured()) {
       try {
         await Drive.saveSongs(_songs);
+        _markSynced();
       } catch (e) {
         showToast('Saved locally. Drive sync failed.');
         return;
@@ -253,24 +273,12 @@ const App = (() => {
     }
   }
 
-  async function syncSetlistsFromDrive() {
-    if (!Drive.isConfigured()) return;
-    try {
-      const setlists = await Drive.loadSetlists();
-      if (setlists !== null) {
-        _setlists = setlists;
-        _saveSetlistsLocal(setlists);
-      }
-    } catch (e) {
-      console.warn('Setlists sync failed, using local cache', e);
-    }
-  }
-
   async function saveSetlists() {
     _saveSetlistsLocal(_setlists);
     if (Drive.isWriteConfigured()) {
       try {
         await Drive.saveSetlists(_setlists);
+        _markSynced();
       } catch (e) {
         showToast('Saved locally. Drive sync failed.');
         return;
@@ -1278,8 +1286,7 @@ const App = (() => {
     await loadSongsInstant();
     await loadSetlistsInstant();
     renderList();
-    syncFromDrive();
-    syncSetlistsFromDrive();
+    _syncAllFromDrive();
   }
 
   return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists };

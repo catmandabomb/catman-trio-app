@@ -179,6 +179,37 @@ const Drive = (() => {
     await _saveJsonFile(SETLISTS_FILENAME, setlists);
   }
 
+  // ─── Combined load (single list query → fewer API calls) ──
+
+  async function loadAllData() {
+    if (!isConfigured()) return { songs: null, setlists: null };
+    const { folderId, apiKey } = getConfig();
+    const q = encodeURIComponent(
+      `(name='${SONGS_FILENAME}' or name='${SETLISTS_FILENAME}') and '${folderId}' in parents and trashed=false`
+    );
+    const listResp = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`
+    );
+    if (!listResp.ok) throw new Error(`Drive API ${listResp.status}`);
+    const { files } = await listResp.json();
+
+    const songsFile    = (files || []).find(f => f.name === SONGS_FILENAME);
+    const setlistsFile = (files || []).find(f => f.name === SETLISTS_FILENAME);
+
+    const [songs, setlists] = await Promise.all([
+      songsFile
+        ? fetch(`https://www.googleapis.com/drive/v3/files/${songsFile.id}?alt=media&key=${apiKey}`)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error(`Drive API ${r.status}`)))
+        : Promise.resolve([]),
+      setlistsFile
+        ? fetch(`https://www.googleapis.com/drive/v3/files/${setlistsFile.id}?alt=media&key=${apiKey}`)
+            .then(r => r.ok ? r.json() : Promise.reject(new Error(`Drive API ${r.status}`)))
+        : Promise.resolve([]),
+    ]);
+
+    return { songs, setlists };
+  }
+
   // ─── Shared JSON save helper ─────────────────────────────
 
   async function _saveJsonFile(filename, data) {
@@ -275,6 +306,7 @@ const Drive = (() => {
     saveSongs,
     loadSetlists,
     saveSetlists,
+    loadAllData,
     uploadFile,
     deleteFile,
     fetchFileAsBlob,
