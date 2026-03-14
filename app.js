@@ -1965,17 +1965,11 @@ const App = (() => {
     });
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
-    // Hide edit button unless admin token is set on this machine
-    if (!_isAdmin()) {
-      document.getElementById('btn-edit-mode').style.display = 'none';
-    }
-
     document.getElementById('btn-back').addEventListener('click', () => {
       _navigateBack();
     });
 
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
-      if (!_isAdmin()) return;
       if (Admin.isEditMode()) {
         Admin.exitEditMode();
         if (_view === 'list')              renderList();
@@ -2001,7 +1995,6 @@ const App = (() => {
     });
 
     document.getElementById('btn-add-song').addEventListener('click', () => {
-      if (!_isAdmin()) return;
       if (!Admin.isEditMode()) return;
       if (!Drive.isWriteConfigured()) {
         Admin.showDriveModal(() => {});
