@@ -29,6 +29,21 @@ const App = (() => {
 
   function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+  function _gradientText(str, from, to) {
+    const chars = str.split('');
+    const visible = chars.filter(c => c !== ' ');
+    let vi = 0;
+    return chars.map(c => {
+      if (c === ' ') return ' ';
+      const t = visible.length > 1 ? vi / (visible.length - 1) : 0;
+      vi++;
+      const r = Math.round(from[0] + (to[0] - from[0]) * t);
+      const g = Math.round(from[1] + (to[1] - from[1]) * t);
+      const b = Math.round(from[2] + (to[2] - from[2]) * t);
+      return `<span style="color:rgb(${r},${g},${b})">${esc(c)}</span>`;
+    }).join('');
+  }
+
   function highlight(text, query) {
     if (!query) return esc(text);
     const escaped = esc(text);
@@ -384,7 +399,7 @@ const App = (() => {
     _revokeBlobCache();
     _navStack = [];
     _showView('list');
-    _setTopbar('Catman Trio', false);
+    _setTopbar(_gradientText('Catman Trio', [200,160,70], [245,230,185]), false, true);
 
     const tagBar = document.getElementById('tag-filter-bar');
     tagBar.innerHTML = _allTags().map(t =>

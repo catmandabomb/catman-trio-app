@@ -136,18 +136,15 @@ a { color: inherit; text-decoration: none; }
 
 #topbar-title {
   flex: 1;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 1.2px;
+  font-family: 'Audiowide', sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--accent);
-  background-image: linear-gradient(90deg, #e8c373 0%, #f5dfa0 45%, #d4a84a 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .master-volume {
