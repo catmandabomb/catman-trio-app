@@ -51,7 +51,7 @@
   --radius-lg:    16px;
   --radius-xl:    20px;
 
-  --topbar-h:     72px;
+  --topbar-h:     90px;
   --safe-top:     env(safe-area-inset-top, 0px);
   --safe-bottom:  env(safe-area-inset-bottom, 0px);
 
@@ -119,11 +119,27 @@ a { color: inherit; text-decoration: none; }
   backdrop-filter: blur(12px) saturate(150%);
   border-bottom: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  padding-left: var(--space-md);
-  padding-right: var(--space-sm);
-  gap: 8px;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--safe-top) var(--space-sm) 0 var(--space-md);
+  gap: 4px;
   z-index: 100;
+}
+.topbar-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.topbar-row-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+#topbar-actions {
+  flex: 1;
 }
 #topbar::after {
   content: '';
@@ -158,7 +174,7 @@ a { color: inherit; text-decoration: none; }
 .volume-slider {
   -webkit-appearance: none;
   appearance: none;
-  width: 80px;
+  width: 120px;
   height: 4px;
   background: var(--bg-4);
   border-radius: 4px;
@@ -167,7 +183,7 @@ a { color: inherit; text-decoration: none; }
 }
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px; height: 12px;
+  width: 18px; height: 18px;
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
@@ -176,7 +192,7 @@ a { color: inherit; text-decoration: none; }
 }
 .volume-slider::-webkit-slider-thumb:hover { transform: scale(1.25); }
 .volume-slider::-moz-range-thumb {
-  width: 12px; height: 12px;
+  width: 18px; height: 18px;
   border-radius: 50%;
   background: var(--accent);
   border: none;
@@ -191,13 +207,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (min-width: 600px) {
-  .volume-slider { width: 100px; }
+  .volume-slider { width: 160px; }
 }
 @media (max-width: 420px) {
-  .volume-slider { width: 48px; }
+  .volume-slider { width: 90px; }
   .topbar-nav-btn { padding: 3px 8px; font-size: 10px; }
   .topbar-right { gap: 4px; }
-  #topbar { gap: 6px; }
 }
 
 .topbar-right {
