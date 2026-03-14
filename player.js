@@ -12,6 +12,9 @@
 const Player = (() => {
 
   let _active = null; // currently playing HTMLAudioElement
+  let _volume = parseFloat(localStorage.getItem('bb_volume') ?? 1);
+  if (isNaN(_volume)) _volume = 1;
+  let _audioElements = [];
 
   function _formatTime(secs) {
     if (isNaN(secs)) return '0:00';
@@ -30,6 +33,8 @@ const Player = (() => {
   function create(container, { name, blobUrl }) {
     const audio = new Audio(blobUrl);
     audio.preload = 'metadata';
+    audio.volume = _volume;
+    _audioElements.push(audio);
 
     const el = document.createElement('div');
     el.className = 'audio-player';
@@ -122,6 +127,7 @@ const Player = (() => {
         audio.src = '';
         el.remove();
         if (_active === audio) _active = null;
+        _audioElements = _audioElements.filter(a => a !== audio);
       }
     };
   }
@@ -149,6 +155,14 @@ const Player = (() => {
       .replace(/"/g, '&quot;');
   }
 
-  return { create, stopAll };
+  function setVolume(val) {
+    _volume = Math.max(0, Math.min(1, val));
+    localStorage.setItem('bb_volume', _volume);
+    _audioElements.forEach(a => { a.volume = _volume; });
+  }
+
+  function getVolume() { return _volume; }
+
+  return { create, stopAll, setVolume, getVolume };
 
 })();
