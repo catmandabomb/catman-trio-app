@@ -243,13 +243,11 @@ const App = (() => {
         _saveSetlistsLocal(setlists);
       }
       if (practice !== null) {
-        // Only overwrite local practice data with Drive data if Drive write is configured
-        // (otherwise local-only edits would be silently lost on sync)
-        if (Drive.isWriteConfigured() || _practice.length === 0) {
-          _practice = practice;
-          _migratePracticeData();
-          _savePracticeLocal(_practice);
-        }
+        // Read-only users: always pull from Drive (they can't save locally to Drive anyway)
+        // Write users: always pull from Drive (their saves go to Drive, so Drive is authoritative)
+        _practice = practice;
+        _migratePracticeData();
+        _savePracticeLocal(_practice);
       }
       _markSynced();
     } catch (e) {
