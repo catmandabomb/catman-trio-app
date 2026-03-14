@@ -384,7 +384,7 @@ const App = (() => {
     _revokeBlobCache();
     _navStack = [];
     _showView('list');
-    _setTopbar('<span class="title-dim">Catman</span> <span class="title-bright">Trio</span>', false, true);
+    _setTopbar('Catman Trio', false);
 
     const tagBar = document.getElementById('tag-filter-bar');
     tagBar.innerHTML = _allTags().map(t =>
