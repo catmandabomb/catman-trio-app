@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.44';
+  const APP_VERSION = 'v17.45';
 
   let _songs      = [];
   let _setlists   = [];
@@ -203,6 +203,7 @@ const App = (() => {
   }
 
   let _syncing = false;
+  let _lastDriveSnapshot = null; // cached Drive data from last sync
   const MANUAL_SYNC_COOLDOWN_MS = 10 * 1000; // 10 seconds per 2 clicks
   let _manualSyncHistory = []; // timestamps of recent manual syncs
 
@@ -231,7 +232,9 @@ const App = (() => {
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
-      const { songs, setlists, practice } = await Drive.loadAllData();
+      const driveData = await Drive.loadAllData();
+      _lastDriveSnapshot = driveData; // cache for dashboard diagnostic
+      const { songs, setlists, practice } = driveData;
       if (songs !== null) {
         const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
         _songs = songs;
@@ -1740,7 +1743,7 @@ const App = (() => {
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
-    // Async Drive check — verifies what's actually on Drive vs local
+    // Async Drive check — uses cached sync data if available, else fetches fresh
     (async () => {
       const el = document.getElementById('dash-drive-sync');
       if (!el) return;
@@ -1749,7 +1752,18 @@ const App = (() => {
         return;
       }
       try {
-        const { songs, setlists, practice } = await Drive.loadAllData();
+        let driveData = _lastDriveSnapshot;
+        if (!driveData) {
+          try { driveData = await Drive.loadAllData(); }
+          catch (fetchErr) {
+            el.style.borderLeftColor = '#e87c6a';
+            el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
+              `<div class="dash-alert-detail" style="font-size:12px;">Could not reach Google Drive: ${esc(String(fetchErr.message || fetchErr))}<br><br>` +
+              `Songs and practice data may still load from local cache. Try refreshing or check your connection.</div>`;
+            return;
+          }
+        }
+        const { songs, setlists, practice } = driveData;
         const driveSongs = Array.isArray(songs) ? songs.length : 0;
         const driveSetlists = Array.isArray(setlists) ? setlists.length : 0;
         const drivePersonas = Array.isArray(practice) ? practice.length : 0;
@@ -1815,7 +1829,8 @@ const App = (() => {
       } catch (e) {
         el.style.borderLeftColor = '#e87c6a';
         el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
-          `<div class="dash-alert-detail">${esc(String(e.message || e))}</div>`;
+          `<div class="dash-alert-detail" style="font-size:12px;word-break:break-all;">${esc(String(e.message || e))}<br><br>` +
+          `If this persists, try: close and reopen the app, or clear site data in Safari settings.</div>`;
       }
     })();
   }

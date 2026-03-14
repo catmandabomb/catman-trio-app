@@ -257,10 +257,26 @@ const Drive = (() => {
       const meta = { name: filename, parents: [folderId], mimeType: 'application/json' };
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', blob);
-      await driveRequest(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      const resp = await driveRequest(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
         { method: 'POST', body: form }
       );
+      // Make newly created file publicly readable so all users can sync
+      const created = await resp.json();
+      if (created && created.id) {
+        try {
+          await driveRequest(
+            `https://www.googleapis.com/drive/v3/files/${created.id}/permissions`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+            }
+          );
+        } catch (permErr) {
+          console.warn('Could not set public sharing on new file:', permErr);
+        }
+      }
     }
   }
 
