@@ -262,7 +262,6 @@ const App = (() => {
         <div class="detail-meta-row">
           ${song.key ? `<div class="detail-meta-item"><span class="detail-meta-label">Key</span><span class="detail-meta-value">${esc(song.key)}</span></div>` : ''}
           ${song.bpm ? `<div class="detail-meta-item"><span class="detail-meta-label">BPM</span><span class="detail-meta-value">${esc(String(song.bpm))}</span></div>` : ''}
-          <div class="detail-meta-item"><span class="detail-meta-label">ID</span><span style="font-size:13px;font-family:var(--font-mono);color:var(--text-3);font-weight:600">${esc(song.id)}</span></div>
         </div>
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>`;
