@@ -464,13 +464,26 @@ const App = (() => {
       });
     });
 
-    // Audio players
+    // Audio players — show skeleton placeholder while loading
     setTimeout(() => {
       container.querySelectorAll('[data-audio-container]').forEach(async el => {
-        el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Loading…</p>`;
+        el.innerHTML = `
+          <div class="audio-player audio-skeleton">
+            <div class="skeleton-text" style="width:40%;height:13px"></div>
+            <div class="audio-controls">
+              <div class="skeleton-circle"></div>
+              <div class="audio-progress-wrap">
+                <div class="skeleton-bar"></div>
+                <div style="display:flex;justify-content:space-between">
+                  <div class="skeleton-text" style="width:28px;height:10px"></div>
+                  <div class="skeleton-text" style="width:28px;height:10px"></div>
+                </div>
+              </div>
+            </div>
+          </div>`;
         try {
-          el.innerHTML = '';
           const url = await _getBlobUrl(el.dataset.audioContainer);
+          el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
           _playerRefs.push(ref);
         } catch {
