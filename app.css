@@ -342,19 +342,24 @@ a { color: inherit; text-decoration: none; }
    SUBHEADER
 ═══════════════════════════════════════════ */
 .list-subheader {
-  text-align: center;
+  display: flex;
+  align-items: center;
   color: var(--text-2);
   font-size: 13px;
   font-weight: 400;
   letter-spacing: 0.02em;
   padding: var(--space-md) var(--space-md) 0;
+  gap: 8px;
 }
-.admin-bar {
+.subheader-text {
+  flex: 1;
+  text-align: center;
+}
+.admin-buttons {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px var(--space-md) 0;
+  gap: 4px;
+  flex-shrink: 0;
 }
 #btn-edit-mode.exit-mode {
   font-size: 10px;
