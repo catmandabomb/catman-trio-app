@@ -31,9 +31,10 @@ const Player = (() => {
    * @param {string}      opts.blobUrl  — blob URL for the audio
    */
   function create(container, { name, blobUrl }) {
-    const audio = new Audio(blobUrl);
-    audio.preload = 'metadata';
+    const audio = new Audio();
+    audio.preload = 'auto';
     audio.volume = _volume;
+    audio.src = blobUrl;
     _audioElements.push(audio);
 
     const el = document.createElement('div');
@@ -77,6 +78,14 @@ const Player = (() => {
       progress.style.borderRadius = '4px';
     });
 
+    // Also update duration if it wasn't available at loadedmetadata
+    audio.addEventListener('durationchange', () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        progress.max = audio.duration;
+        duration.textContent = _formatTime(audio.duration);
+      }
+    });
+
     // Ended
     audio.addEventListener('ended', () => {
       el.classList.remove('playing');
@@ -88,18 +97,42 @@ const Player = (() => {
       _active = null;
     });
 
-    // Play/Pause button
+    // Error recovery — reset UI on audio errors
+    audio.addEventListener('error', () => {
+      el.classList.remove('playing');
+      playBtn.innerHTML = playIcon();
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
+      if (_active === audio) _active = null;
+    });
+
+    // Play/Pause button — handles Android autoplay policy gracefully
+    let _playPending = false;
+
     playBtn.addEventListener('click', () => {
       if (audio.paused) {
         if (_active && _active !== audio) {
           _active.pause();
-          // Reset other player's button — handled by their own pause listener
         }
-        audio.play();
+        _playPending = true;
         _active = audio;
         el.classList.add('playing');
         playBtn.innerHTML = pauseIcon();
         if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise.then(() => {
+            _playPending = false;
+          }).catch(() => {
+            // Play rejected (autoplay policy / audio not ready) — reset UI
+            _playPending = false;
+            el.classList.remove('playing');
+            playBtn.innerHTML = playIcon();
+            if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
+            if (_active === audio) _active = null;
+          });
+        } else {
+          _playPending = false;
+        }
       } else {
         audio.pause();
         el.classList.remove('playing');
@@ -110,6 +143,9 @@ const Player = (() => {
     });
 
     audio.addEventListener('pause', () => {
+      // Skip if play() promise is still pending — Android fires spurious pause
+      // during play negotiation; the catch handler above will reset UI if needed
+      if (_playPending) return;
       el.classList.remove('playing');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });

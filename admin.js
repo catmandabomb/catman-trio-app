@@ -44,6 +44,7 @@ const Admin = (() => {
   function enterEditMode() {
     _editMode = true;
     document.getElementById('btn-add-song').classList.remove('hidden');
+    document.getElementById('admin-dashboard-bar')?.classList.remove('hidden');
     const btn = document.getElementById('btn-edit-mode');
     btn.innerHTML = 'Exit Admin<br>Edit Mode';
     btn.classList.add('exit-mode');
@@ -52,6 +53,7 @@ const Admin = (() => {
   function exitEditMode() {
     _editMode = false;
     document.getElementById('btn-add-song').classList.add('hidden');
+    document.getElementById('admin-dashboard-bar')?.classList.add('hidden');
     const btn = document.getElementById('btn-edit-mode');
     btn.textContent = 'Edit';
     btn.classList.remove('exit-mode');

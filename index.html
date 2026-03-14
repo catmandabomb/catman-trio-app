@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.1" />
+  <link rel="stylesheet" href="app.css?v=17.2" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -54,13 +54,16 @@
     <!-- LIST VIEW -->
     <div id="view-list" class="view active">
       <div class="list-subheader" id="admin-bar">
-        <span class="subheader-text">The repository for all Catman repertoire</span>
+        <span class="subheader-text">Repository for all Catman Repertoire</span>
         <span id="admin-buttons" class="admin-buttons">
           <button id="btn-edit-mode" class="text-btn">Edit</button>
           <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
             <i data-lucide="plus"></i>
           </button>
         </span>
+      </div>
+      <div id="admin-dashboard-bar" class="admin-dashboard-bar hidden">
+        <button id="btn-admin-dashboard" class="text-btn admin-dashboard-btn">Admin Dashboard</button>
       </div>
       <div id="search-bar">
         <div class="search-input-wrap">
@@ -110,6 +113,11 @@
     <!-- SETLIST EDIT VIEW -->
     <div id="view-setlist-edit" class="view">
       <div id="setlist-edit-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- ADMIN DASHBOARD VIEW -->
+    <div id="view-dashboard" class="view">
+      <div id="dashboard-content" style="padding:16px"></div>
     </div>
 
     <!-- PRACTICE LISTS VIEW -->

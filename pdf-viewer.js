@@ -38,10 +38,11 @@ const PDFViewer = (() => {
     const containerWidth = container.clientWidth - 24; // 12px padding each side
 
     const viewport = page.getViewport({ scale: 1 });
-    const scale = Math.min(containerWidth / viewport.width, 2.5);
-    const scaled = page.getViewport({ scale });
-
     const dpr = window.devicePixelRatio || 1;
+    // Scale to fit container width, but render at higher res for crisp output on retina
+    const fitScale = containerWidth / viewport.width;
+    const scale = Math.min(fitScale, 3);
+    const scaled = page.getViewport({ scale });
     const cvs = canvas();
     cvs.width  = scaled.width * dpr;
     cvs.height = scaled.height * dpr;
