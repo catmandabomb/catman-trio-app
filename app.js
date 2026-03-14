@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.45';
+  const APP_VERSION = 'v17.46';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1964,8 +1964,9 @@ const App = (() => {
         const color = _safeColor(p.color || _hslFromName(p.name));
         const pLists = (p.practiceLists || []).filter(l => !l.archived);
         const listCount = pLists.length;
-        const editBtn = Admin.isEditMode()
-          ? `<button class="song-card-edit-btn persona-edit-btn" data-edit-persona="${esc(p.id)}"><i data-lucide="pencil"></i></button>`
+        const adminBtns = Admin.isEditMode()
+          ? `<button class="song-card-edit-btn persona-edit-btn" data-edit-persona="${esc(p.id)}" title="Edit"><i data-lucide="pencil"></i></button>` +
+            `<button class="song-card-edit-btn persona-delete-btn" data-delete-persona="${esc(p.id)}" title="Delete"><i data-lucide="trash-2"></i></button>`
           : '';
         html += `
           <div class="persona-card" data-persona-id="${esc(p.id)}">
@@ -1973,7 +1974,7 @@ const App = (() => {
             <div class="persona-card-info">
               <div class="persona-card-title-row">
                 <span class="persona-card-name">${esc(p.name)}</span>
-                ${editBtn}
+                ${adminBtns}
               </div>
               <span class="persona-card-count">${listCount} practice list${listCount !== 1 ? 's' : ''}</span>
             </div>
@@ -1986,7 +1987,7 @@ const App = (() => {
 
     container.querySelectorAll('.persona-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.persona-edit-btn')) return;
+        if (e.target.closest('.persona-edit-btn') || e.target.closest('.persona-delete-btn')) return;
         const p = _practice.find(x => x.id === card.dataset.personaId);
         if (p) renderPracticeDetail(p);
       });
@@ -1997,6 +1998,21 @@ const App = (() => {
         e.stopPropagation();
         const p = _practice.find(x => x.id === btn.dataset.editPersona);
         if (p) renderPracticeEdit(p, false);
+      });
+    });
+
+    container.querySelectorAll('.persona-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const p = _practice.find(x => x.id === btn.dataset.deletePersona);
+        if (p) {
+          Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and all their practice lists?`, async () => {
+            _practice = _practice.filter(x => x.id !== p.id);
+            await savePractice('Persona deleted.');
+            _activePersona = null;
+            renderPractice(true);
+          });
+        }
       });
     });
 
@@ -2223,6 +2239,13 @@ const App = (() => {
       </button>`;
     }
 
+    // Delete practice list button (all users)
+    html += `<div class="delete-zone" style="margin-top:24px;">
+      <button class="btn-danger" id="btn-delete-practice-list" style="font-size:12px;">
+        <i data-lucide="trash-2" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px;"></i>Delete Practice List
+      </button>
+    </div>`;
+
     if (songs.length === 0) {
       html += `<div class="empty-state" style="padding:40px 20px">
         <p>No songs yet.</p>
@@ -2277,6 +2300,19 @@ const App = (() => {
     // Wire practice mode
     document.getElementById('btn-enter-practice-mode')?.addEventListener('click', () => {
       _enterPracticeMode(persona, practiceList);
+    });
+
+    // Wire delete practice list (all users)
+    document.getElementById('btn-delete-practice-list')?.addEventListener('click', () => {
+      Admin.showConfirm('Delete Practice List', `Permanently delete "${practiceList.name || 'this practice list'}"?`, async () => {
+        const pIdx = _practice.findIndex(p => p.id === persona.id);
+        if (pIdx > -1) {
+          _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== practiceList.id);
+        }
+        await savePractice('Practice list deleted.');
+        _activePracticeList = null;
+        renderPracticeDetail(_practice.find(p => p.id === persona.id) || persona);
+      });
     });
   }
 
