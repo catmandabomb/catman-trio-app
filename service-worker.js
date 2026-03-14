@@ -2,10 +2,12 @@
  * service-worker.js
  *
  * Caches the app shell for offline access.
- * Drive files are NOT cached (they're large and user-managed).
+ * Also caches the songs JSON for fast load + offline resilience.
+ * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v1';
+const CACHE_NAME = 'catmantrio-v2';
+const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
   '/',
@@ -28,14 +30,40 @@ self.addEventListener('install', (e) => {
   self.skipWaiting();
 });
 
-// Activate: remove old caches
+// Activate: remove old caches (keep SONGS_CACHE)
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys
+        .filter(k => k !== CACHE_NAME && k !== SONGS_CACHE)
+        .map(k => caches.delete(k))
+      )
     )
   );
   self.clients.claim();
+});
+
+// Listen for messages from the app to cache/retrieve songs
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'CACHE_SONGS') {
+    const resp = new Response(JSON.stringify(e.data.songs), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    caches.open(SONGS_CACHE).then(cache => {
+      cache.put('songs-data', resp);
+    });
+  }
+
+  if (e.data && e.data.type === 'GET_CACHED_SONGS') {
+    caches.open(SONGS_CACHE).then(cache =>
+      cache.match('songs-data')
+    ).then(resp => {
+      if (resp) return resp.json();
+      return null;
+    }).then(songs => {
+      e.source.postMessage({ type: 'CACHED_SONGS', songs });
+    });
+  }
 });
 
 // Fetch: shell-first, network fallback

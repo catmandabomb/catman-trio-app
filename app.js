@@ -65,18 +65,70 @@ const App = (() => {
 
   function _saveLocal(songs) {
     localStorage.setItem('bb_songs', JSON.stringify(songs));
+    // Also push to service worker cache (separate, more resilient on iOS)
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CACHE_SONGS', songs,
+      });
+    }
   }
 
-  async function loadSongs() {
-    if (Drive.isConfigured()) {
-      try {
-        const songs = await Drive.loadSongs();
-        if (songs !== null) { _songs = songs; _saveLocal(songs); return; }
-      } catch (e) {
-        console.warn('Drive load failed, using local cache', e);
+  /**
+   * Load from service worker cache (fallback if localStorage is empty).
+   * Returns a promise that resolves with songs array or null.
+   */
+  function _loadFromSWCache() {
+    return new Promise((resolve) => {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+        return resolve(null);
       }
+      const timeout = setTimeout(() => resolve(null), 500);
+      const handler = (e) => {
+        if (e.data && e.data.type === 'CACHED_SONGS') {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve(e.data.songs);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_SONGS' });
+    });
+  }
+
+  /**
+   * Load songs instantly: try localStorage first, then SW cache fallback.
+   */
+  async function loadSongsInstant() {
+    const local = _loadLocal();
+    if (local.length > 0) {
+      _songs = local;
+      return;
     }
-    _songs = _loadLocal();
+    // localStorage empty — try service worker cache
+    const swSongs = await _loadFromSWCache();
+    if (swSongs && swSongs.length > 0) {
+      _songs = swSongs;
+      _saveLocal(swSongs); // repopulate localStorage
+    }
+  }
+
+  async function syncFromDrive() {
+    if (!Drive.isConfigured()) return;
+    const indicator = document.getElementById('sync-indicator');
+    if (indicator) indicator.classList.remove('hidden');
+    try {
+      const songs = await Drive.loadSongs();
+      if (songs !== null) {
+        const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
+        _songs = songs;
+        _saveLocal(songs);
+        if (changed) renderList();
+      }
+    } catch (e) {
+      console.warn('Drive sync failed, using local cache', e);
+    } finally {
+      if (indicator) indicator.classList.add('hidden');
+    }
   }
 
   async function saveSongs() {
@@ -613,20 +665,27 @@ const App = (() => {
 
   // ─── Platform detection ───────────────────────────────────
 
-  function _isMobile() {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  function _isAdmin() {
+    return localStorage.getItem('bb_admin') === 'catmandabomb';
   }
 
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    // One-time admin unlock: visit with ?admin=catmandabomb to set token
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('admin') === 'catmandabomb') {
+      localStorage.setItem('bb_admin', 'catmandabomb');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
-    // Hide edit button entirely on mobile
-    if (_isMobile()) {
+    // Hide edit button unless admin token is set on this machine
+    if (!_isAdmin()) {
       document.getElementById('btn-edit-mode').style.display = 'none';
     }
 
@@ -637,7 +696,7 @@ const App = (() => {
     });
 
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
-      if (_isMobile()) return;
+      if (!_isAdmin()) return;
       if (Admin.isEditMode()) {
         Admin.exitEditMode();
         if (_view === 'list')        renderList();
@@ -652,7 +711,7 @@ const App = (() => {
     });
 
     document.getElementById('btn-add-song').addEventListener('click', () => {
-      if (_isMobile()) return;
+      if (!_isAdmin()) return;
       if (!Admin.isEditMode()) return;
       if (!Drive.isWriteConfigured()) {
         Admin.showDriveModal(() => {});
@@ -669,10 +728,14 @@ const App = (() => {
       _searchTimer = setTimeout(() => renderList(), 80);
     });
 
-    try { await loadSongs(); }
-    catch (e) { console.error(e); showToast('Could not load songs.'); }
+    // Request persistent storage (prevents iOS/Android from evicting cache)
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
 
+    await loadSongsInstant();
     renderList();
+    syncFromDrive();
   }
 
   return { init, showToast, renderList, renderDetail, renderEdit };
