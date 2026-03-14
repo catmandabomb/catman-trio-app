@@ -1328,8 +1328,13 @@ const App = (() => {
       function _updateVolIcon() {
         const v = parseFloat(volSlider.value);
         const name = v === 0 ? 'volume-x' : v < 0.5 ? 'volume-1' : 'volume-2';
-        volIcon.setAttribute('data-lucide', name);
-        if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', attrs: {}, nodes: [volIcon.parentElement] });
+        // Lucide replaces <i> with <svg>, so we must swap the element each time
+        const oldIcon = volWrap.querySelector('[data-lucide]') || volWrap.querySelector('svg');
+        const newIcon = document.createElement('i');
+        newIcon.setAttribute('data-lucide', name);
+        newIcon.style.cssText = 'width:14px;height:14px;opacity:0.6;flex-shrink:0;';
+        if (oldIcon) oldIcon.replaceWith(newIcon);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [volWrap] });
       }
       _updateVolIcon();
       volSlider.addEventListener('input', function() {
