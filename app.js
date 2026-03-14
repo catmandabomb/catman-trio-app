@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.41';
+  const APP_VERSION = 'v17.42';
 
   let _songs      = [];
   let _setlists   = [];
@@ -239,15 +239,19 @@ const App = (() => {
         if (changed && _view === 'list') renderList();
       }
       if (setlists !== null) {
-        _setlists = setlists;
-        _saveSetlistsLocal(setlists);
+        if (setlists.length > 0 || _setlists.length === 0) {
+          _setlists = setlists;
+          _saveSetlistsLocal(setlists);
+        }
       }
       if (practice !== null) {
-        // Read-only users: always pull from Drive (they can't save locally to Drive anyway)
-        // Write users: always pull from Drive (their saves go to Drive, so Drive is authoritative)
-        _practice = practice;
-        _migratePracticeData();
-        _savePracticeLocal(_practice);
+        // Only overwrite local with Drive data if Drive actually has data,
+        // OR if local is also empty. Never wipe local data with an empty Drive response.
+        if (practice.length > 0 || _practice.length === 0) {
+          _practice = practice;
+          _migratePracticeData();
+          _savePracticeLocal(_practice);
+        }
       }
       _markSynced();
     } catch (e) {
@@ -272,18 +276,20 @@ const App = (() => {
     }
   }
 
-  async function saveSongs() {
+  async function saveSongs(toastMsg) {
     _saveLocal(_songs);
     if (Drive.isWriteConfigured()) {
       try {
         await Drive.saveSongs(_songs);
         _markSynced();
+        showToast(toastMsg || 'Saved.');
       } catch (e) {
-        showToast('Saved locally. Drive sync failed.');
-        return;
+        console.error('Drive songs save failed', e);
+        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
       }
+    } else {
+      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
     }
-    showToast('Saved.');
   }
 
   // ─── Setlists data ─────────────────────────────────────
@@ -333,18 +339,20 @@ const App = (() => {
     }
   }
 
-  async function saveSetlists() {
+  async function saveSetlists(toastMsg) {
     _saveSetlistsLocal(_setlists);
     if (Drive.isWriteConfigured()) {
       try {
         await Drive.saveSetlists(_setlists);
         _markSynced();
+        showToast(toastMsg || 'Saved.');
       } catch (e) {
-        showToast('Saved locally. Drive sync failed.');
-        return;
+        console.error('Drive setlists save failed', e);
+        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
       }
+    } else {
+      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
     }
-    showToast('Setlist saved.');
   }
 
   // ─── View management & nav stack ─────────────────────────
@@ -1595,14 +1603,16 @@ const App = (() => {
       });
     }
 
-    // Drive config — only report if there's an ACTUAL problem
-    // "not configured" = no API key or folder ID → truly can't read from Drive
-    // We do NOT report on clientId here — the app can function fully
-    // with just apiKey+folderId for shared-folder workflows.
+    // Drive config checks
     if (!Drive.isConfigured()) {
-      info.push({
+      warnings.push({
         title: 'Drive not connected',
         detail: 'No API key or folder ID set. Songs load from local cache only. Fix: Open the Drive Setup modal and enter your credentials.'
+      });
+    } else if (!Drive.isWriteConfigured()) {
+      warnings.push({
+        title: 'Drive is read-only — changes won\'t sync',
+        detail: 'OAuth Client ID is not set. All saves are local-only and won\'t be visible to other users. Fix: Set up an OAuth Client ID in Google Cloud Console and enter it in the Drive Setup modal.'
       });
     }
 
@@ -1856,15 +1866,19 @@ const App = (() => {
     if (changed) _savePracticeLocal(_practice);
   }
 
-  async function savePractice() {
+  async function savePractice(toastMsg) {
     _savePracticeLocal(_practice);
     if (Drive.isWriteConfigured()) {
-      try { await Drive.savePractice(_practice); } catch (e) {
-        showToast('Saved locally. Drive sync failed.');
-        return;
+      try {
+        await Drive.savePractice(_practice);
+        showToast(toastMsg || 'Saved.');
+      } catch (e) {
+        console.error('Drive practice save failed', e);
+        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
       }
+    } else {
+      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
     }
-    showToast('Practice list saved.');
   }
 
   // ─── PRACTICE — Persona List View ────────────────────────
@@ -2319,13 +2333,14 @@ const App = (() => {
       if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
       _saving = true;
       p.color = p.color || _hslFromName(p.name);
-      if (_editPersonaIsNew) {
+      const isNew = _editPersonaIsNew;
+      if (isNew) {
         _practice.push(p);
       } else {
         const idx = _practice.findIndex(x => x.id === p.id);
         if (idx > -1) _practice[idx] = p;
       }
-      await savePractice();
+      await savePractice(isNew ? 'Persona created.' : 'Persona saved.');
       _saving = false;
       _activePersona = null;
       renderPractice();
