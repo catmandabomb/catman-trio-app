@@ -2049,12 +2049,12 @@ const App = (() => {
       <div class="install-gate-content">
         <div class="install-gate-logo">CT</div>
         <h1 class="install-gate-title">Catman Trio</h1>
-        <p class="install-gate-subtitle">This app works best when installed on your home screen.</p>
+        <p class="install-gate-subtitle">Welcome to the Catman Trio App. To access this app, add it to your home screen by following the steps below.</p>
         <div class="install-gate-card">
           <h2 class="install-gate-card-title">How to install</h2>
           ${steps}
         </div>
-        <p class="install-gate-footer">Once installed, the app works offline and launches in full screen — just like a native app.</p>
+        <p class="install-gate-footer">Once installed, the app launches in full screen and works offline — just like a native app.</p>
       </div>`;
     document.body.appendChild(gate);
   }
