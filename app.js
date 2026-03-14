@@ -294,10 +294,17 @@ const App = (() => {
   // ─── View management & nav stack ─────────────────────────
 
   function _showView(name) {
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.getElementById(`view-${name}`).classList.add('active');
-    document.getElementById(`view-${name}`).scrollTop = 0;
-    _view = name;
+    const swap = () => {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById(`view-${name}`).classList.add('active');
+      document.getElementById(`view-${name}`).scrollTop = 0;
+      _view = name;
+    };
+    if (document.startViewTransition) {
+      document.startViewTransition(swap);
+    } else {
+      swap();
+    }
   }
 
   function _setTopbar(title, showBack) {

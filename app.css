@@ -1,4 +1,12 @@
 /* ═══════════════════════════════════════════
+   VIEW TRANSITIONS
+═══════════════════════════════════════════ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+}
+
+/* ═══════════════════════════════════════════
    CSS VARIABLES & RESET
 ═══════════════════════════════════════════ */
 :root {
