@@ -1314,6 +1314,13 @@ const App = (() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
+    // Load Audiowide font dynamically (bypasses SW cache of old index.html)
+    if (!document.querySelector('link[href*="Audiowide"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Audiowide&display=swap';
+      document.head.appendChild(link);
+    }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
     // Hide edit button unless admin token is set on this machine
