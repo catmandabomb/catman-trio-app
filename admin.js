@@ -94,6 +94,17 @@ const Admin = (() => {
     };
   }
 
+  function newSetlist(existingSetlists) {
+    const now = new Date().toISOString();
+    return {
+      id:        generateId(existingSetlists),
+      name:      '',
+      songs:     [],   // [{ id, comment }]
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
   // ─── Password modal ───────────────────────────────────────
 
   function showPasswordModal(onSuccess) {
@@ -196,6 +207,7 @@ const Admin = (() => {
     exitEditMode,
     generateId,
     newSong,
+    newSetlist,
     checkPassword,
     setPassword,
     showPasswordModal,

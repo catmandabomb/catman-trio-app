@@ -46,6 +46,11 @@
           <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
         </div>
       </div>
+      <div style="padding:12px 16px 0;text-align:center;">
+        <button id="btn-setlists" class="btn-ghost" style="width:100%;max-width:320px;">
+          <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Setlists
+        </button>
+      </div>
       <div id="sync-indicator" class="sync-indicator hidden">
         <i data-lucide="refresh-cw" class="sync-spinner"></i>
         <span>Syncing songs…</span>
@@ -70,6 +75,21 @@
     <!-- EDIT SONG VIEW -->
     <div id="view-edit" class="view">
       <div id="edit-content"></div>
+    </div>
+
+    <!-- SETLISTS LIST VIEW -->
+    <div id="view-setlists" class="view">
+      <div id="setlists-list" style="padding:16px"></div>
+    </div>
+
+    <!-- SETLIST DETAIL VIEW -->
+    <div id="view-setlist-detail" class="view">
+      <div id="setlist-detail-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- SETLIST EDIT VIEW -->
+    <div id="view-setlist-edit" class="view">
+      <div id="setlist-edit-content" style="padding:20px 16px"></div>
     </div>
 
   </main>

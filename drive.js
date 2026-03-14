@@ -15,7 +15,8 @@
 
 const Drive = (() => {
 
-  const SONGS_FILENAME = 'catmantrio_songs.json';
+  const SONGS_FILENAME    = 'catmantrio_songs.json';
+  const SETLISTS_FILENAME = 'catmantrio_setlists.json';
   const SCOPES = 'https://www.googleapis.com/auth/drive';
 
   let _accessToken = null;
@@ -152,13 +153,41 @@ const Drive = (() => {
   }
 
   async function saveSongs(songs) {
+    await _saveJsonFile(SONGS_FILENAME, songs);
+  }
+
+  // ─── Setlists JSON ──────────────────────────────────────
+
+  async function loadSetlists() {
+    if (!isConfigured()) return null;
+    try {
+      const file = await findFilePublic(SETLISTS_FILENAME);
+      if (!file) return [];
+      const { apiKey } = getConfig();
+      const resp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
+      );
+      if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      console.error('loadSetlists error', e);
+      throw e;
+    }
+  }
+
+  async function saveSetlists(setlists) {
+    await _saveJsonFile(SETLISTS_FILENAME, setlists);
+  }
+
+  // ─── Shared JSON save helper ─────────────────────────────
+
+  async function _saveJsonFile(filename, data) {
     const { folderId } = getConfig();
-    const existing = await findFile(SONGS_FILENAME);
-    const content = JSON.stringify(songs, null, 2);
+    const existing = await findFile(filename);
+    const content = JSON.stringify(data, null, 2);
     const blob = new Blob([content], { type: 'application/json' });
 
     if (existing) {
-      // Update existing file
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
       form.append('file', blob);
@@ -167,9 +196,8 @@ const Drive = (() => {
         { method: 'PATCH', body: form }
       );
     } else {
-      // Create new file
       const form = new FormData();
-      const meta = { name: SONGS_FILENAME, parents: [folderId], mimeType: 'application/json' };
+      const meta = { name: filename, parents: [folderId], mimeType: 'application/json' };
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', blob);
       await driveRequest(
@@ -245,6 +273,8 @@ const Drive = (() => {
     signOut,
     loadSongs,
     saveSongs,
+    loadSetlists,
+    saveSetlists,
     uploadFile,
     deleteFile,
     fetchFileAsBlob,

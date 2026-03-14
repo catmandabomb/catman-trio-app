@@ -5,6 +5,7 @@
 const App = (() => {
 
   let _songs      = [];
+  let _setlists   = [];
   let _view       = 'list';
   let _activeSong = null;
   let _editSong   = null;
@@ -13,6 +14,10 @@ const App = (() => {
   let _activeTag  = null;
   let _blobCache  = {};
   let _playerRefs = [];
+  let _navStack   = [];
+  let _activeSetlist = null;
+  let _editSetlist   = null;
+  let _editSetlistIsNew = false;
 
   // ─── Utility ──────────────────────────────────────────────
 
@@ -54,6 +59,49 @@ const App = (() => {
     const url = await Drive.fetchFileAsBlob(driveId);
     _blobCache[driveId] = url;
     return url;
+  }
+
+  // ─── Download helper ────────────────────────────────────
+
+  function _isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  async function _downloadFile(driveId, filename, btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = '<span class="dl-spinner"></span>';
+
+    try {
+      const url = await _getBlobUrl(driveId);
+      if (_isIOS()) {
+        window.open(url, '_blank');
+        showToast('Tap and hold to save');
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      btnEl.innerHTML = '<i data-lucide="check" class="dl-icon"></i>';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      setTimeout(() => {
+        btnEl.innerHTML = '<i data-lucide="download" class="dl-icon"></i><span class="dl-spinner hidden"></span>';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        btnEl.disabled = false;
+      }, 1500);
+    } catch (e) {
+      btnEl.innerHTML = '<i data-lucide="x" class="dl-icon"></i>';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      showToast('Download failed');
+      setTimeout(() => {
+        btnEl.innerHTML = '<i data-lucide="download" class="dl-icon"></i><span class="dl-spinner hidden"></span>';
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        btnEl.disabled = false;
+      }, 1500);
+    }
   }
 
   // ─── Data ──────────────────────────────────────────────────
@@ -158,7 +206,80 @@ const App = (() => {
     showToast('Saved.');
   }
 
-  // ─── View management ──────────────────────────────────────
+  // ─── Setlists data ─────────────────────────────────────
+
+  function _loadSetlistsLocal() {
+    try { return JSON.parse(localStorage.getItem('bb_setlists') || '[]'); }
+    catch { return []; }
+  }
+
+  function _saveSetlistsLocal(setlists) {
+    localStorage.setItem('bb_setlists', JSON.stringify(setlists));
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CACHE_SETLISTS', setlists,
+      });
+    }
+  }
+
+  function _loadSetlistsFromSWCache() {
+    return new Promise((resolve) => {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+        return resolve(null);
+      }
+      const timeout = setTimeout(() => resolve(null), 500);
+      const handler = (e) => {
+        if (e.data && e.data.type === 'CACHED_SETLISTS') {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve(e.data.setlists);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_SETLISTS' });
+    });
+  }
+
+  async function loadSetlistsInstant() {
+    const local = _loadSetlistsLocal();
+    if (local.length > 0) {
+      _setlists = local;
+      return;
+    }
+    const swSetlists = await _loadSetlistsFromSWCache();
+    if (swSetlists && swSetlists.length > 0) {
+      _setlists = swSetlists;
+      _saveSetlistsLocal(swSetlists);
+    }
+  }
+
+  async function syncSetlistsFromDrive() {
+    if (!Drive.isConfigured()) return;
+    try {
+      const setlists = await Drive.loadSetlists();
+      if (setlists !== null) {
+        _setlists = setlists;
+        _saveSetlistsLocal(setlists);
+      }
+    } catch (e) {
+      console.warn('Setlists sync failed, using local cache', e);
+    }
+  }
+
+  async function saveSetlists() {
+    _saveSetlistsLocal(_setlists);
+    if (Drive.isWriteConfigured()) {
+      try {
+        await Drive.saveSetlists(_setlists);
+      } catch (e) {
+        showToast('Saved locally. Drive sync failed.');
+        return;
+      }
+    }
+    showToast('Setlist saved.');
+  }
+
+  // ─── View management & nav stack ─────────────────────────
 
   function _showView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -172,6 +293,20 @@ const App = (() => {
     document.getElementById('btn-back').classList.toggle('hidden', !showBack);
     const addBtn = document.getElementById('btn-add-song');
     addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
+  }
+
+  function _pushNav(renderFn) {
+    _navStack.push(renderFn);
+  }
+
+  function _navigateBack() {
+    Player.stopAll();
+    if (_navStack.length > 0) {
+      const prev = _navStack.pop();
+      prev();
+    } else {
+      renderList();
+    }
   }
 
   // ─── LIST VIEW ─────────────────────────────────────────────
@@ -200,6 +335,7 @@ const App = (() => {
 
   function renderList() {
     _revokeBlobCache();
+    _navStack = [];
     _showView('list');
     _setTopbar('Catman Trio', false);
 
@@ -275,10 +411,11 @@ const App = (() => {
 
   // ─── DETAIL VIEW ───────────────────────────────────────────
 
-  function renderDetail(song) {
+  function renderDetail(song, skipNavPush) {
     _revokeBlobCache();
     Player.stopAll();
     _activeSong = song;
+    if (!skipNavPush) _pushNav(() => renderList());
     _showView('detail');
     _setTopbar(song.title || 'Song', true);
 
@@ -321,6 +458,13 @@ const App = (() => {
         }
       });
     }, 0);
+
+    // Download buttons
+    container.querySelectorAll('.dl-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _downloadFile(btn.dataset.dlId, btn.dataset.dlName, btn);
+      });
+    });
   }
 
   function _buildDetailHTML(song) {
@@ -354,13 +498,19 @@ const App = (() => {
         <div class="detail-section-label">Charts</div>
         <div class="file-list">
           ${charts.map(c => `
-            <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
-              <div class="file-item-icon pdf">
-                <i data-lucide="file-text"></i>
-              </div>
-              <span class="file-item-name">${esc(c.name)}</span>
-              <i data-lucide="chevron-right" class="file-item-arrow"></i>
-            </button>`).join('')}
+            <div class="file-item-row">
+              <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
+                <div class="file-item-icon pdf">
+                  <i data-lucide="file-text"></i>
+                </div>
+                <span class="file-item-name">${esc(c.name)}</span>
+                <i data-lucide="chevron-right" class="file-item-arrow"></i>
+              </button>
+              <button class="dl-btn" data-dl-id="${esc(c.driveId)}" data-dl-name="${esc(c.name)}" aria-label="Download">
+                <i data-lucide="download" class="dl-icon"></i>
+                <span class="dl-spinner hidden"></span>
+              </button>
+            </div>`).join('')}
         </div>
       </div>`;
     }
@@ -369,7 +519,14 @@ const App = (() => {
       html += `<div class="detail-section">
         <div class="detail-section-label">Demo Recordings</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          ${audio.map(a => `<div data-audio-container="${esc(a.driveId)}" data-name="${esc(a.name)}"></div>`).join('')}
+          ${audio.map(a => `
+            <div class="audio-row">
+              <div class="audio-row-player" data-audio-container="${esc(a.driveId)}" data-name="${esc(a.name)}"></div>
+              <button class="dl-btn" data-dl-id="${esc(a.driveId)}" data-dl-name="${esc(a.name)}" aria-label="Download">
+                <i data-lucide="download" class="dl-icon"></i>
+                <span class="dl-spinner hidden"></span>
+              </button>
+            </div>`).join('')}
         </div>
       </div>`;
     }
@@ -431,6 +588,9 @@ const App = (() => {
     _editSong  = deepClone(song);
     _editIsNew = isNew;
     if (!_editSong.assets) _editSong.assets = { charts: [], audio: [], links: [] };
+    if (!isNew && _activeSong) {
+      _pushNav(() => renderDetail(_activeSong, true));
+    }
     _showView('edit');
     _setTopbar(isNew ? 'New Song' : 'Edit Song', true);
     document.getElementById('edit-content').innerHTML = _buildEditHTML(_editSong);
@@ -656,7 +816,7 @@ const App = (() => {
 
     // Cancel
     document.getElementById('ef-cancel').addEventListener('click', () => {
-      _editIsNew ? renderList() : renderDetail(_activeSong);
+      _editIsNew ? renderList() : renderDetail(_activeSong, true);
     });
 
     // Delete
@@ -698,6 +858,356 @@ const App = (() => {
     return localStorage.getItem('bb_admin') === 'catmandabomb';
   }
 
+  // ─── SETLISTS LIST VIEW ──────────────────────────────────
+
+  function renderSetlists(skipNavReset) {
+    _revokeBlobCache();
+    if (!skipNavReset) {
+      _navStack = [];
+      _pushNav(() => renderList());
+    }
+    _showView('setlists');
+    _setTopbar('Setlists', true);
+
+    const container = document.getElementById('setlists-list');
+    const sorted = [..._setlists].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+    let html = '';
+
+    if (Admin.isEditMode()) {
+      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-setlist">+ New Setlist</button>`;
+    }
+
+    if (sorted.length === 0) {
+      html += `<div class="empty-state" style="padding:40px 20px">
+        <p>No setlists yet.</p>
+        <p class="muted">${Admin.isEditMode() ? 'Create one above.' : 'Setlists will appear here.'}</p>
+      </div>`;
+    } else {
+      sorted.forEach(sl => {
+        const count = (sl.songs || []).length;
+        const editBtn = Admin.isEditMode()
+          ? `<button class="song-card-edit-btn setlist-edit-btn" data-edit-setlist="${esc(sl.id)}"><i data-lucide="pencil"></i></button>`
+          : '';
+        html += `
+          <div class="setlist-card" data-setlist-id="${esc(sl.id)}">
+            <div class="setlist-card-title-row">
+              <span class="setlist-card-name">${esc(sl.name) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
+              ${editBtn}
+            </div>
+            <span class="setlist-card-count">${count} song${count !== 1 ? 's' : ''}</span>
+          </div>`;
+      });
+    }
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire card clicks
+    container.querySelectorAll('.setlist-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.setlist-edit-btn')) return;
+        const sl = _setlists.find(s => s.id === card.dataset.setlistId);
+        if (sl) renderSetlistDetail(sl);
+      });
+    });
+
+    // Wire edit buttons
+    container.querySelectorAll('.setlist-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sl = _setlists.find(s => s.id === btn.dataset.editSetlist);
+        if (sl) renderSetlistEdit(sl, false, true);
+      });
+    });
+
+    // Wire new setlist
+    document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
+      if (!Drive.isWriteConfigured()) {
+        Admin.showDriveModal(() => {});
+        showToast('Configure Drive, then try again.');
+        return;
+      }
+      renderSetlistEdit(Admin.newSetlist(_setlists), true);
+    });
+  }
+
+  // ─── SETLIST DETAIL VIEW ─────────────────────────────────
+
+  function renderSetlistDetail(setlist, skipNavPush) {
+    _revokeBlobCache();
+    Player.stopAll();
+    _activeSetlist = setlist;
+    if (!skipNavPush) _pushNav(() => renderSetlists());
+    _showView('setlist-detail');
+    _setTopbar(setlist.name || 'Setlist', true);
+
+    const container = document.getElementById('setlist-detail-content');
+    const songs = setlist.songs || [];
+
+    let html = `<div class="detail-header">
+      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button></div>` : ''}
+      <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
+      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}</div>
+    </div>`;
+
+    if (songs.length === 0) {
+      html += `<div class="empty-state" style="padding:40px 20px">
+        <p>Empty setlist.</p>
+        <p class="muted">${Admin.isEditMode() ? 'Edit to add songs.' : 'No songs added yet.'}</p>
+      </div>`;
+    } else {
+      html += `<div class="setlist-song-list">`;
+      songs.forEach((entry, i) => {
+        const song = _songs.find(s => s.id === entry.id);
+        if (song) {
+          html += `
+            <div class="setlist-song-row" data-song-id="${esc(song.id)}">
+              <span class="setlist-song-num">${i + 1}</span>
+              <div class="setlist-song-info">
+                <span class="setlist-song-title">${esc(song.title)}</span>
+                <span class="setlist-song-meta">
+                  ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}${(song.key || song.bpm) && song.timeSig ? ' · ' : ''}${song.timeSig ? esc(song.timeSig) : ''}
+                </span>
+                ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
+              </div>
+              <i data-lucide="chevron-right" class="file-item-arrow"></i>
+            </div>`;
+        } else {
+          html += `
+            <div class="setlist-song-row setlist-song-missing">
+              <span class="setlist-song-num">${i + 1}</span>
+              <div class="setlist-song-info">
+                <span class="setlist-song-title" style="color:var(--text-3);font-style:italic">Song not found</span>
+              </div>
+            </div>`;
+        }
+      });
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire song clicks
+    container.querySelectorAll('.setlist-song-row:not(.setlist-song-missing)').forEach(row => {
+      row.addEventListener('click', () => {
+        const song = _songs.find(s => s.id === row.dataset.songId);
+        if (song) {
+          _pushNav(() => renderSetlistDetail(setlist));
+          renderDetail(song, true);
+        }
+      });
+    });
+
+    // Wire edit button
+    container.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
+      renderSetlistEdit(setlist, false);
+    });
+    if (!Admin.isEditMode()) {
+      container.querySelector('.detail-edit-bar')?.remove();
+    }
+  }
+
+  // ─── SETLIST EDIT VIEW ───────────────────────────────────
+
+  function renderSetlistEdit(setlist, isNew, backToList) {
+    _revokeBlobCache();
+    Player.stopAll();
+    _editSetlist = deepClone(setlist);
+    _editSetlistIsNew = isNew;
+    if (!_editSetlist.songs) _editSetlist.songs = [];
+
+    if (isNew || backToList) {
+      _pushNav(() => renderSetlists());
+    } else {
+      _pushNav(() => renderSetlistDetail(setlist));
+    }
+    _showView('setlist-edit');
+    _setTopbar(isNew ? 'New Setlist' : 'Edit Setlist', true);
+
+    const container = document.getElementById('setlist-edit-content');
+    container.innerHTML = _buildSetlistEditHTML();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    _wireSetlistEditForm();
+  }
+
+  function _buildSetlistEditHTML() {
+    const sl = _editSetlist;
+    return `
+      <div class="edit-section">
+        <div class="edit-section-title">Setlist Info</div>
+        <div class="form-field">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="slf-name" type="text" value="${esc(sl.name)}" placeholder="e.g. Sally's Bar 12/3/25 Setlist" maxlength="200" />
+        </div>
+      </div>
+
+      <div class="edit-section">
+        <div class="edit-section-title">Songs in Setlist</div>
+        <div id="slf-selected-songs" class="setlist-edit-selected"></div>
+        <div class="setlist-empty-msg ${sl.songs.length ? 'hidden' : ''}" id="slf-empty-msg">No songs added yet. Use the picker below.</div>
+      </div>
+
+      <div class="edit-section">
+        <div class="edit-section-title">Add Songs</div>
+        <div class="form-field">
+          <input class="form-input" id="slf-picker-search" type="text" placeholder="Search songs to add…" autocomplete="off" />
+        </div>
+        <div id="slf-picker-list" class="setlist-picker-list"></div>
+      </div>
+
+      <div class="edit-form-actions">
+        <button class="btn-primary" id="slf-save">Save Setlist</button>
+        <button class="btn-secondary" id="slf-cancel">Cancel</button>
+      </div>
+
+      ${!_editSetlistIsNew ? `<div class="delete-zone"><button class="btn-danger" id="slf-delete">Delete Setlist</button></div>` : ''}
+    `;
+  }
+
+  function _wireSetlistEditForm() {
+    const sl = _editSetlist;
+
+    function _renderSelectedSongs() {
+      const container = document.getElementById('slf-selected-songs');
+      const emptyMsg = document.getElementById('slf-empty-msg');
+      emptyMsg.classList.toggle('hidden', sl.songs.length > 0);
+
+      container.innerHTML = sl.songs.map((entry, i) => {
+        const song = _songs.find(s => s.id === entry.id);
+        const title = song ? esc(song.title) : '<em style="color:var(--text-3)">Song not found</em>';
+        const key = song && song.key ? esc(song.key) : '';
+        return `
+          <div class="setlist-edit-row" data-idx="${i}">
+            <span class="setlist-song-num">${i + 1}</span>
+            <div class="setlist-edit-row-info">
+              <div class="setlist-edit-row-header">
+                <span class="setlist-edit-row-title">${title}</span>
+                ${key ? `<span class="setlist-edit-row-key">${key}</span>` : ''}
+              </div>
+              <div class="setlist-edit-comment-wrap">
+                <input class="form-input setlist-comment-input" type="text"
+                  value="${esc(entry.comment || '')}" placeholder="Add note…"
+                  maxlength="300" data-comment-idx="${i}" />
+              </div>
+            </div>
+            <div class="setlist-edit-row-actions">
+              <button class="icon-btn sl-move-up" data-idx="${i}" ${i === 0 ? 'disabled' : ''}><i data-lucide="chevron-up"></i></button>
+              <button class="icon-btn sl-move-down" data-idx="${i}" ${i === sl.songs.length - 1 ? 'disabled' : ''}><i data-lucide="chevron-down"></i></button>
+              <button class="icon-btn sl-remove" data-idx="${i}" style="color:var(--red)"><i data-lucide="x"></i></button>
+            </div>
+          </div>`;
+      }).join('');
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+
+      // Wire actions
+      container.querySelectorAll('.sl-move-up').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.idx);
+          if (idx > 0) { [sl.songs[idx - 1], sl.songs[idx]] = [sl.songs[idx], sl.songs[idx - 1]]; _renderSelectedSongs(); _renderPicker(); }
+        });
+      });
+      container.querySelectorAll('.sl-move-down').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.idx);
+          if (idx < sl.songs.length - 1) { [sl.songs[idx], sl.songs[idx + 1]] = [sl.songs[idx + 1], sl.songs[idx]]; _renderSelectedSongs(); _renderPicker(); }
+        });
+      });
+      container.querySelectorAll('.sl-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sl.songs.splice(parseInt(btn.dataset.idx), 1);
+          _renderSelectedSongs();
+          _renderPicker();
+        });
+      });
+      container.querySelectorAll('.setlist-comment-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const idx = parseInt(input.dataset.commentIdx);
+          sl.songs[idx].comment = input.value;
+        });
+      });
+    }
+
+    function _renderPicker() {
+      const search = (document.getElementById('slf-picker-search')?.value || '').toLowerCase();
+      const selectedIds = new Set(sl.songs.map(e => e.id));
+      let available = [..._songs]
+        .filter(s => !selectedIds.has(s.id))
+        .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+      if (search) {
+        available = available.filter(s =>
+          (s.title || '').toLowerCase().includes(search) ||
+          (s.key || '').toLowerCase().includes(search) ||
+          (s.tags || []).some(t => t.toLowerCase().includes(search))
+        );
+      }
+
+      const container = document.getElementById('slf-picker-list');
+      if (available.length === 0) {
+        container.innerHTML = `<div class="muted" style="font-size:13px;padding:8px 0">${search ? 'No matching songs.' : 'All songs added.'}</div>`;
+        return;
+      }
+
+      container.innerHTML = available.map(s => `
+        <div class="setlist-picker-row" data-pick-id="${esc(s.id)}">
+          <div class="setlist-picker-info">
+            <span class="setlist-picker-title">${esc(s.title)}</span>
+            <span class="setlist-picker-meta">
+              ${s.key ? esc(s.key) : ''}${s.key && s.bpm ? ' · ' : ''}${s.bpm ? esc(String(s.bpm)) + ' bpm' : ''}${(s.key || s.bpm) && s.timeSig ? ' · ' : ''}${s.timeSig ? esc(s.timeSig) : ''}
+            </span>
+          </div>
+          <button class="btn-ghost sl-add-btn" data-pick-id="${esc(s.id)}">Add</button>
+        </div>
+      `).join('');
+
+      container.querySelectorAll('.sl-add-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sl.songs.push({ id: btn.dataset.pickId, comment: '' });
+          _renderSelectedSongs();
+          _renderPicker();
+        });
+      });
+    }
+
+    _renderSelectedSongs();
+    _renderPicker();
+
+    document.getElementById('slf-picker-search').addEventListener('input', () => _renderPicker());
+
+    // Save
+    document.getElementById('slf-save').addEventListener('click', async () => {
+      sl.name = document.getElementById('slf-name').value.trim();
+      if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
+      sl.updatedAt = new Date().toISOString();
+      if (_editSetlistIsNew) {
+        _setlists.push(sl);
+      } else {
+        const idx = _setlists.findIndex(s => s.id === sl.id);
+        if (idx > -1) _setlists[idx] = sl;
+      }
+      await saveSetlists();
+      _activeSetlist = null;
+      renderSetlists();
+    });
+
+    // Cancel
+    document.getElementById('slf-cancel').addEventListener('click', () => {
+      _navigateBack();
+    });
+
+    // Delete
+    document.getElementById('slf-delete')?.addEventListener('click', () => {
+      Admin.showConfirm('Delete Setlist', `Permanently delete "${sl.name || 'this setlist'}"?`, async () => {
+        _setlists = _setlists.filter(s => s.id !== sl.id);
+        await saveSetlists();
+        _activeSetlist = null;
+        renderSetlists();
+      });
+    });
+  }
+
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
@@ -712,22 +1222,26 @@ const App = (() => {
     }
 
     document.getElementById('btn-back').addEventListener('click', () => {
-      Player.stopAll();
-      if (_view === 'detail') renderList();
-      else if (_view === 'edit') renderList();
+      _navigateBack();
     });
 
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
       if (!_isAdmin()) return;
       if (Admin.isEditMode()) {
         Admin.exitEditMode();
-        if (_view === 'list')        renderList();
-        else if (_view === 'detail') renderDetail(_activeSong);
+        if (_view === 'list')              renderList();
+        else if (_view === 'detail')       renderDetail(_activeSong, true);
+        else if (_view === 'edit')         { _activeSong = null; renderList(); }
+        else if (_view === 'setlists')     renderSetlists(true);
+        else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
+        else if (_view === 'setlist-edit') renderSetlists();
       } else {
         Admin.showPasswordModal(() => {
           Admin.enterEditMode();
-          if (_view === 'list')        renderList();
-          else if (_view === 'detail') renderDetail(_activeSong);
+          if (_view === 'list')              renderList();
+          else if (_view === 'detail')       renderDetail(_activeSong, true);
+          else if (_view === 'setlists')     renderSetlists(true);
+          else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
         });
       }
     });
@@ -755,12 +1269,19 @@ const App = (() => {
       navigator.storage.persist().catch(() => {});
     }
 
+    // Setlists button
+    document.getElementById('btn-setlists').addEventListener('click', () => {
+      renderSetlists();
+    });
+
     await loadSongsInstant();
+    await loadSetlistsInstant();
     renderList();
     syncFromDrive();
+    syncSetlistsFromDrive();
   }
 
-  return { init, showToast, renderList, renderDetail, renderEdit };
+  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists };
 
 })();
 
