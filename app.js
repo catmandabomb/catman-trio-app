@@ -372,9 +372,9 @@ const App = (() => {
     document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
     document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
     document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
-    // Version badge only visible on home page in admin mode
+    // Version badge visible on home page for all users
     const vBadge = document.getElementById('admin-version-badge');
-    if (vBadge) vBadge.classList.toggle('hidden', !isHome || !Admin.isEditMode());
+    if (vBadge) vBadge.classList.toggle('hidden', !isHome);
   }
 
   function _pushNav(renderFn) {
@@ -2712,7 +2712,7 @@ const App = (() => {
     });
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
-    // Populate admin version badge (hidden until admin mode entered)
+    // Populate version badge (shown on home page for all users)
     const vBadge = document.getElementById('admin-version-badge');
     if (vBadge) vBadge.textContent = APP_VERSION;
 
