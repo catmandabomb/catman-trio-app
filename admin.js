@@ -45,14 +45,18 @@ const Admin = (() => {
     _editMode = true;
     document.getElementById('edit-mode-badge').classList.remove('hidden');
     document.getElementById('btn-add-song').classList.remove('hidden');
-    document.getElementById('btn-edit-mode').textContent = 'Done';
+    const btn = document.getElementById('btn-edit-mode');
+    btn.innerHTML = 'Exit Admin<br>Edit Mode';
+    btn.classList.add('exit-mode');
   }
 
   function exitEditMode() {
     _editMode = false;
     document.getElementById('edit-mode-badge').classList.add('hidden');
     document.getElementById('btn-add-song').classList.add('hidden');
-    document.getElementById('btn-edit-mode').textContent = 'Edit';
+    const btn = document.getElementById('btn-edit-mode');
+    btn.textContent = 'Edit';
+    btn.classList.remove('exit-mode');
   }
 
   // ─── ID generation ────────────────────────────────────────
