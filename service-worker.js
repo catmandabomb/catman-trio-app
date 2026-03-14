@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.2';
+const CACHE_NAME = 'catmantrio-v17.3';
 const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
@@ -56,7 +56,7 @@ self.addEventListener('message', (e) => {
     });
     caches.open(SONGS_CACHE).then(cache => {
       cache.put('songs-data', resp);
-    });
+    }).catch(err => console.warn('SW: cache songs error', err));
   }
 
   if (e.data && e.data.type === 'GET_CACHED_SONGS') {
@@ -67,7 +67,7 @@ self.addEventListener('message', (e) => {
       return null;
     }).then(songs => {
       if (e.source) e.source.postMessage({ type: 'CACHED_SONGS', songs });
-    });
+    }).catch(err => console.warn('SW: get cached songs error', err));
   }
 
   if (e.data && e.data.type === 'CACHE_SETLISTS') {
@@ -76,7 +76,7 @@ self.addEventListener('message', (e) => {
     });
     caches.open(SONGS_CACHE).then(cache => {
       cache.put('setlists-data', resp);
-    });
+    }).catch(err => console.warn('SW: cache setlists error', err));
   }
 
   if (e.data && e.data.type === 'GET_CACHED_SETLISTS') {
@@ -87,7 +87,7 @@ self.addEventListener('message', (e) => {
       return null;
     }).then(setlists => {
       if (e.source) e.source.postMessage({ type: 'CACHED_SETLISTS', setlists });
-    });
+    }).catch(err => console.warn('SW: get cached setlists error', err));
   }
 
   if (e.data && e.data.type === 'CACHE_PRACTICE') {
@@ -96,7 +96,7 @@ self.addEventListener('message', (e) => {
     });
     caches.open(SONGS_CACHE).then(cache => {
       cache.put('practice-data', resp);
-    });
+    }).catch(err => console.warn('SW: cache practice error', err));
   }
 
   if (e.data && e.data.type === 'GET_CACHED_PRACTICE') {
@@ -107,7 +107,7 @@ self.addEventListener('message', (e) => {
       return null;
     }).then(practice => {
       if (e.source) e.source.postMessage({ type: 'CACHED_PRACTICE', practice });
-    });
+    }).catch(err => console.warn('SW: get cached practice error', err));
   }
 });
 

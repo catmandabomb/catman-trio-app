@@ -32,7 +32,7 @@ const PDFViewer = (() => {
   async function _renderPage(num) {
     if (!_pdfDoc || _rendering) return;
     _rendering = true;
-
+    try {
     const page = await _pdfDoc.getPage(num);
     const container = document.getElementById('pdf-canvas-container');
     const containerWidth = container.clientWidth - 24; // 12px padding each side
@@ -57,8 +57,12 @@ const PDFViewer = (() => {
       viewport: scaled,
     }).promise;
 
-    _rendering = false;
     _updateNav();
+    } catch (e) {
+      console.error('PDF render error', e);
+    } finally {
+      _rendering = false;
+    }
   }
 
   /**
@@ -67,6 +71,8 @@ const PDFViewer = (() => {
    * @param {string} name    — display filename
    */
   async function open(url, name) {
+    // Revoke previous blob URL if re-opening without close
+    if (_blobUrl && _blobUrl !== url) { try { URL.revokeObjectURL(_blobUrl); } catch(_){} }
     _pdfDoc   = null;
     _pageNum  = 1;
     _blobUrl  = url;

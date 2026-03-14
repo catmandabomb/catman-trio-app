@@ -114,9 +114,11 @@ const Drive = (() => {
 
   // ─── Find file by name in folder ──────────────────────────
 
+  function _escQuery(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+
   async function findFile(name) {
     const { folderId, apiKey } = getConfig();
-    const q = encodeURIComponent(`name='${name}' and '${folderId}' in parents and trashed=false`);
+    const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
     const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
     const resp = await driveRequest(url);
     const data = await resp.json();
@@ -127,7 +129,7 @@ const Drive = (() => {
 
   async function findFilePublic(name) {
     const { folderId, apiKey } = getConfig();
-    const q = encodeURIComponent(`name='${name}' and '${folderId}' in parents and trashed=false`);
+    const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
     const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
@@ -210,7 +212,7 @@ const Drive = (() => {
     if (!isConfigured()) return { songs: null, setlists: null, practice: null };
     const { folderId, apiKey } = getConfig();
     const q = encodeURIComponent(
-      `(name='${SONGS_FILENAME}' or name='${SETLISTS_FILENAME}' or name='${PRACTICE_FILENAME}') and '${folderId}' in parents and trashed=false`
+      `(name='${_escQuery(SONGS_FILENAME)}' or name='${_escQuery(SETLISTS_FILENAME)}' or name='${_escQuery(PRACTICE_FILENAME)}') and '${_escQuery(folderId)}' in parents and trashed=false`
     );
     const listResp = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`

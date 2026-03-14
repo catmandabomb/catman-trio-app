@@ -152,16 +152,28 @@ a { color: inherit; text-decoration: none; }
 }
 
 #topbar-title {
-  flex: 1;
   font-family: 'Audiowide', sans-serif;
-  font-size: 17px;
   font-weight: 400;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--accent);
+  line-height: 1.1;
+  white-space: normal;
+  /* shrink to content width so "Trio" centers under "Catman" */
+  width: min-content;
+  flex-shrink: 0;
+  margin-right: auto;
+}
+.title-catman {
+  font-size: 15px;
+  display: block;
+  white-space: nowrap;
+}
+.title-trio {
+  font-size: 14px;
+  display: block;
+  text-align: center;
 }
 
 .master-volume {
@@ -211,7 +223,7 @@ a { color: inherit; text-decoration: none; }
 }
 @media (max-width: 420px) {
   .volume-slider { width: 90px; }
-  .topbar-nav-btn { padding: 3px 6px; font-size: 10px; }
+  .topbar-nav-btn { padding: 2px 4px; font-size: 10px; }
   .topbar-right { gap: 4px; }
 }
 
@@ -233,7 +245,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .topbar-nav-btn {
-  padding: 4px 8px;
+  padding: 3px 5px;
   font-size: 11px;
   white-space: nowrap;
   min-width: 0;
@@ -363,12 +375,12 @@ a { color: inherit; text-decoration: none; }
   font-size: 13px;
   font-weight: 400;
   letter-spacing: 0.02em;
-  padding: var(--space-md) var(--space-md) 0;
+  padding: var(--space-md) var(--space-md) 0 var(--space-sm);
   gap: 8px;
 }
 .subheader-text {
   flex: 1;
-  text-align: center;
+  text-align: left;
 }
 .admin-buttons {
   display: flex;
@@ -388,8 +400,8 @@ a { color: inherit; text-decoration: none; }
 ═══════════════════════════════════════════ */
 .admin-dashboard-bar {
   display: flex;
-  justify-content: center;
-  padding: 6px 16px 0;
+  justify-content: flex-end;
+  padding: 4px var(--space-md) 0;
 }
 .admin-dashboard-btn {
   font-size: 11px !important;
@@ -586,7 +598,7 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 500;
-  padding: 6px 14px;
+  padding: 5px 10px;
   border-radius: 100px;
   background: var(--bg-2);
   color: var(--text-3);
@@ -775,7 +787,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 11px;
   color: var(--text-3);
   background: var(--tag-bg);
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 100px;
   border: 1px solid var(--border);
 }
@@ -868,7 +880,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
   color: var(--accent);
   background: var(--accent-bg);
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: 100px;
   border: 1px solid rgba(232,195,115,0.2);
   font-weight: 500;
@@ -1358,7 +1370,7 @@ textarea.form-input {
   background: none;
   border: none;
   outline: none;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text);
   min-width: 80px;
   flex: 1;
@@ -1622,7 +1634,7 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 9px 12px;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text);
   outline: none;
   transition: border-color 0.15s;
@@ -1899,7 +1911,7 @@ textarea.form-input {
 
 .setlist-comment-input {
   padding: 6px 10px !important;
-  font-size: 12px !important;
+  font-size: 16px !important;
   font-style: italic;
 }
 
@@ -1912,6 +1924,9 @@ textarea.form-input {
 .setlist-edit-row-actions .icon-btn {
   width: 28px;
   height: 28px;
+  /* 44px minimum touch target via padding even though visual size is 28px */
+  min-width: 44px;
+  min-height: 44px;
 }
 .setlist-edit-row-actions .icon-btn:disabled {
   opacity: 0.25;

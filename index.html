@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.2" />
+  <link rel="stylesheet" href="app.css?v=17.3" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -30,7 +30,7 @@
       <button id="btn-back" class="icon-btn hidden" aria-label="Back">
         <i data-lucide="chevron-left"></i>
       </button>
-      <div id="topbar-title">Catman Trio</div>
+      <div id="topbar-title"><span class="title-catman">Catman</span><br><span class="title-trio">Trio</span></div>
       <div class="topbar-right">
         <button id="btn-practice" class="btn-ghost topbar-nav-btn">
           <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
@@ -70,7 +70,7 @@
           <i data-lucide="search" class="search-icon"></i>
           <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
         </div>
-        <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive">
+        <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
           <i data-lucide="refresh-cw"></i>
         </button>
       </div>
@@ -193,15 +193,15 @@
       <h2>Google Drive Setup</h2>
       <p class="muted">Paste your credentials to connect Drive. Stored locally on this device only.</p>
       <div class="drive-field">
-        <label>API Key</label>
+        <label for="drive-api-key">API Key</label>
         <input type="text" id="drive-api-key" placeholder="AIza…" autocomplete="off" />
       </div>
       <div class="drive-field">
-        <label>OAuth Client ID</label>
+        <label for="drive-client-id">OAuth Client ID</label>
         <input type="text" id="drive-client-id" placeholder="….apps.googleusercontent.com" autocomplete="off" />
       </div>
       <div class="drive-field">
-        <label>Songs Folder ID <span class="muted">(from Drive URL)</span></label>
+        <label for="drive-folder-id">Songs Folder ID <span class="muted">(from Drive URL)</span></label>
         <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" />
       </div>
       <div class="modal-actions">

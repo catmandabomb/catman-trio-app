@@ -18,6 +18,7 @@ const App = (() => {
   let _activeSetlist = null;
   let _editSetlist   = null;
   let _editSetlistIsNew = false;
+  let _saving = false; // Double-click save guard
 
   // ─── Utility ──────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ const App = (() => {
   let _toastTimer = null;
   function showToast(msg, duration = 3000) {
     const el = document.getElementById('toast');
+    if (!el) return;
     el.textContent = msg;
     el.classList.remove('hidden');
     el.classList.add('show');
@@ -358,11 +360,10 @@ const App = (() => {
 
   function _setTopbar(title, showBack, isHtml) {
     const el = document.getElementById('topbar-title');
-    if (isHtml) el.innerHTML = title;
-    else el.textContent = title;
-    document.getElementById('btn-back').classList.toggle('hidden', !showBack);
-    document.getElementById('btn-setlists').classList.toggle('hidden', showBack);
-    document.getElementById('btn-practice').classList.toggle('hidden', showBack);
+    if (el) { if (isHtml) el.innerHTML = title; else el.textContent = title; }
+    document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
+    document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
+    document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
   }
 
   function _pushNav(renderFn) {
@@ -917,6 +918,7 @@ const App = (() => {
 
     // Save
     document.getElementById('ef-save').addEventListener('click', async () => {
+      if (_saving) return;
       song.title    = document.getElementById('ef-title').value.trim();
       song.subtitle = document.getElementById('ef-subtitle').value.trim();
       song.key      = document.getElementById('ef-key').value.trim();
@@ -929,6 +931,7 @@ const App = (() => {
 
       if (!song.title) { showToast('Title is required.'); document.getElementById('ef-title').focus(); return; }
 
+      _saving = true;
       if (_editIsNew) {
         _songs.push(song);
       } else {
@@ -936,6 +939,7 @@ const App = (() => {
         if (idx > -1) _songs[idx] = song;
       }
       await saveSongs();
+      _saving = false;
       _activeSong = null;
       renderList();
     });
@@ -1313,15 +1317,15 @@ const App = (() => {
       // Wire actions
       container.querySelectorAll('.sl-remove').forEach(btn => {
         btn.addEventListener('click', () => {
-          sl.songs.splice(parseInt(btn.dataset.idx), 1);
+          sl.songs.splice(parseInt(btn.dataset.idx, 10), 1);
           _renderSelectedSongs();
           _renderPicker();
         });
       });
       container.querySelectorAll('.setlist-comment-input').forEach(input => {
         input.addEventListener('input', () => {
-          const idx = parseInt(input.dataset.commentIdx);
-          sl.songs[idx].comment = input.value;
+          const idx = parseInt(input.dataset.commentIdx, 10);
+          if (sl.songs[idx]) sl.songs[idx].comment = input.value;
         });
       });
     }
@@ -1375,8 +1379,10 @@ const App = (() => {
 
     // Save
     document.getElementById('slf-save').addEventListener('click', async () => {
+      if (_saving) return;
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
+      _saving = true;
       sl.gigDate = document.getElementById('slf-gig-date').value || '';
       if (typeof sl.archived === 'undefined') sl.archived = false;
       sl.updatedAt = new Date().toISOString();
@@ -1387,6 +1393,7 @@ const App = (() => {
         if (idx > -1) _setlists[idx] = sl;
       }
       await saveSetlists();
+      _saving = false;
       _activeSetlist = null;
       renderSetlists();
     });
@@ -2215,8 +2222,10 @@ const App = (() => {
 
     // Save
     document.getElementById('pf-save').addEventListener('click', async () => {
+      if (_saving) return;
       p.name = document.getElementById('pf-name').value.trim();
       if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
+      _saving = true;
       p.color = p.color || _hslFromName(p.name);
       if (_editPersonaIsNew) {
         _practice.push(p);
@@ -2225,6 +2234,7 @@ const App = (() => {
         if (idx > -1) _practice[idx] = p;
       }
       await savePractice();
+      _saving = false;
       _activePersona = null;
       renderPractice();
     });
@@ -2329,13 +2339,14 @@ const App = (() => {
 
       songContainer.querySelectorAll('.sl-remove').forEach(btn => {
         btn.addEventListener('click', () => {
-          pl.songs.splice(parseInt(btn.dataset.idx), 1);
+          pl.songs.splice(parseInt(btn.dataset.idx, 10), 1);
           _renderPLSongs();
         });
       });
       songContainer.querySelectorAll('.practice-comment-input').forEach(input => {
         input.addEventListener('input', () => {
-          pl.songs[parseInt(input.dataset.commentIdx)].comment = input.value;
+          const idx = parseInt(input.dataset.commentIdx, 10);
+          if (pl.songs[idx]) pl.songs[idx].comment = input.value;
         });
       });
     }
@@ -2344,17 +2355,20 @@ const App = (() => {
 
     // Save
     document.getElementById('pl-save').addEventListener('click', async () => {
+      if (_saving) return;
       pl.name = document.getElementById('pl-name').value.trim();
       if (!pl.name) { showToast('Name is required.'); document.getElementById('pl-name').focus(); return; }
+      _saving = true;
       // Update the practice list inside the persona
       const pIdx = _practice.findIndex(p => p.id === persona.id);
       if (pIdx > -1) {
-        const plIdx = _practice[pIdx].practiceLists.findIndex(l => l.id === pl.id);
+        const plIdx = (_practice[pIdx].practiceLists || []).findIndex(l => l.id === pl.id);
         if (plIdx > -1) {
           _practice[pIdx].practiceLists[plIdx] = pl;
         }
       }
       await savePractice();
+      _saving = false;
       // Navigate back to the updated list detail
       const updatedPersona = _practice.find(p => p.id === persona.id) || persona;
       const updatedPL = (updatedPersona.practiceLists || []).find(l => l.id === pl.id) || pl;
@@ -2718,7 +2732,27 @@ const App = (() => {
     }
 
     // Refresh button — full hard refresh: clear SW cache + reload for fresh source + data
+    // Throttle: max 2 refreshes per 10 seconds
+    const REFRESH_WINDOW = 10000;
+    const REFRESH_MAX = 2;
+    let _refreshTimes = [];
+    try {
+      const raw = sessionStorage.getItem('bb_refresh_times');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) _refreshTimes = parsed.filter(t => typeof t === 'number' && isFinite(t));
+      }
+    } catch (_) { /* corrupted or unavailable — start fresh */ }
     document.getElementById('btn-refresh').addEventListener('click', async () => {
+      const now = Date.now();
+      _refreshTimes = _refreshTimes.filter(t => now - t < REFRESH_WINDOW);
+      if (_refreshTimes.length >= REFRESH_MAX) {
+        showToast('Slow down — too many refreshes. Try again in a few seconds.');
+        return;
+      }
+      _refreshTimes.push(now);
+      try { sessionStorage.setItem('bb_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
+
       showToast('Refreshing app…');
       try {
         // Wipe all service worker caches so fresh files are fetched on reload
@@ -2756,7 +2790,8 @@ const App = (() => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
-    if (isIOS) {
+    if (!volWrap || !volSlider) { /* elements missing, skip volume setup */ }
+    else if (isIOS) {
       volWrap.style.display = 'none';
     } else {
       volSlider.value = Player.getVolume();
@@ -2783,6 +2818,7 @@ const App = (() => {
     await loadPracticeInstant();
     _migratePracticeData();
     renderList();
+    Admin.restoreEditMode();
     _syncAllFromDrive();
   }
 

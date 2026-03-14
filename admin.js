@@ -43,20 +43,31 @@ const Admin = (() => {
 
   function enterEditMode() {
     _editMode = true;
-    document.getElementById('btn-add-song').classList.remove('hidden');
+    try { sessionStorage.setItem('bb_admin_active', '1'); } catch (_) {}
+    document.getElementById('btn-add-song')?.classList.remove('hidden');
     document.getElementById('admin-dashboard-bar')?.classList.remove('hidden');
     const btn = document.getElementById('btn-edit-mode');
-    btn.innerHTML = 'Exit Admin<br>Edit Mode';
-    btn.classList.add('exit-mode');
+    if (btn) { btn.innerHTML = 'Exit Admin<br>Edit Mode'; btn.classList.add('exit-mode'); }
   }
 
   function exitEditMode() {
     _editMode = false;
-    document.getElementById('btn-add-song').classList.add('hidden');
+    try { sessionStorage.removeItem('bb_admin_active'); } catch (_) {}
+    document.getElementById('btn-add-song')?.classList.add('hidden');
     document.getElementById('admin-dashboard-bar')?.classList.add('hidden');
     const btn = document.getElementById('btn-edit-mode');
-    btn.textContent = 'Edit';
-    btn.classList.remove('exit-mode');
+    if (btn) { btn.textContent = 'Edit'; btn.classList.remove('exit-mode'); }
+  }
+
+  /** Restore admin mode from sessionStorage (survives refresh, not tab close) */
+  function restoreEditMode() {
+    try {
+      if (sessionStorage.getItem('bb_admin_active') === '1') {
+        enterEditMode();
+        return true;
+      }
+    } catch (_) { /* sessionStorage unavailable */ }
+    return false;
   }
 
   // ─── ID generation ────────────────────────────────────────
@@ -113,7 +124,9 @@ const Admin = (() => {
 
   // ─── Password modal ───────────────────────────────────────
 
+  let _pwCleanup = null;
   function showPasswordModal(onSuccess) {
+    if (_pwCleanup) _pwCleanup(); // Clean up any prior open
     const overlay = document.getElementById('modal-password');
     const input   = document.getElementById('password-input');
     const error   = document.getElementById('password-error');
@@ -152,12 +165,16 @@ const Admin = (() => {
       document.getElementById('btn-password-confirm').removeEventListener('click', confirm);
       document.getElementById('btn-password-cancel').removeEventListener('click', cancel);
       input.removeEventListener('keydown', keydown);
+      _pwCleanup = null;
     }
+    _pwCleanup = cleanup;
   }
 
   // ─── Confirm modal ────────────────────────────────────────
 
+  let _confirmCleanup = null;
   function showConfirm(title, message, onConfirm) {
+    if (_confirmCleanup) _confirmCleanup();
     const overlay = document.getElementById('modal-confirm');
     document.getElementById('confirm-title').textContent   = title;
     document.getElementById('confirm-message').textContent = message;
@@ -172,12 +189,16 @@ const Admin = (() => {
     function cleanup() {
       document.getElementById('btn-confirm-ok').removeEventListener('click', ok);
       document.getElementById('btn-confirm-cancel').removeEventListener('click', cancel);
+      _confirmCleanup = null;
     }
+    _confirmCleanup = cleanup;
   }
 
   // ─── Drive setup modal ────────────────────────────────────
 
+  let _driveCleanup = null;
   function showDriveModal(onSave) {
+    if (_driveCleanup) _driveCleanup();
     const overlay  = document.getElementById('modal-drive');
     const cfg      = Drive.getConfig();
     document.getElementById('drive-api-key').value   = cfg.apiKey;
@@ -204,13 +225,16 @@ const Admin = (() => {
     function cleanup() {
       document.getElementById('btn-drive-save').removeEventListener('click', save);
       document.getElementById('btn-drive-cancel').removeEventListener('click', cancel);
+      _driveCleanup = null;
     }
+    _driveCleanup = cleanup;
   }
 
   return {
     isEditMode,
     enterEditMode,
     exitEditMode,
+    restoreEditMode,
     generateId,
     newSong,
     newSetlist,
