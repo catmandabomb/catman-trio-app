@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v14.8';
+const CACHE_NAME = 'catmantrio-v14.9';
 const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
