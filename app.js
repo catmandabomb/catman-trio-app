@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.4';
+  const APP_VERSION = 'v17.41';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1709,8 +1709,69 @@ const App = (() => {
       </div>
     `;
 
+    // Drive sync diagnostic — runs async after initial render
+    html += `
+      <div class="dash-section">
+        <div class="dash-section-title">Drive Sync Status</div>
+        <div id="dash-drive-sync" class="dash-alert info" style="border-left-color:var(--accent-dim)">
+          <div class="dash-alert-detail">Checking Drive…</div>
+        </div>
+      </div>
+    `;
+
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Async Drive check — verifies what's actually on Drive vs local
+    (async () => {
+      const el = document.getElementById('dash-drive-sync');
+      if (!el) return;
+      if (!Drive.isConfigured()) {
+        el.innerHTML = '<div class="dash-alert-title">Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>';
+        return;
+      }
+      try {
+        const { songs, setlists, practice } = await Drive.loadAllData();
+        const driveSongs = Array.isArray(songs) ? songs.length : 0;
+        const driveSetlists = Array.isArray(setlists) ? setlists.length : 0;
+        const drivePersonas = Array.isArray(practice) ? practice.length : 0;
+        const drivePLists = Array.isArray(practice)
+          ? practice.reduce((sum, p) => sum + (p.practiceLists || p.lists || []).length, 0) : 0;
+
+        const localSongs = _songs.length;
+        const localSetlists = _setlists.length;
+        const localPersonas = _practice.length;
+        const localPLists = _practice.reduce((sum, p) => sum + (p.practiceLists || []).length, 0);
+
+        const songMatch = driveSongs === localSongs;
+        const setlistMatch = driveSetlists === localSetlists;
+        const personaMatch = drivePersonas === localPersonas;
+        const plistMatch = drivePLists === localPLists;
+        const allMatch = songMatch && setlistMatch && personaMatch && plistMatch;
+
+        const row = (label, local, drive, match) =>
+          `<div style="display:flex;justify-content:space-between;padding:2px 0;">` +
+          `<span>${label}</span>` +
+          `<span style="color:${match ? 'var(--text-3)' : '#e87c6a'};">${local} local / ${drive} on Drive${match ? '' : ' ⚠'}</span>` +
+          `</div>`;
+
+        el.style.borderLeftColor = allMatch ? 'var(--accent-dim)' : '#e87c6a';
+        el.innerHTML =
+          `<div class="dash-alert-title">${allMatch ? 'In Sync' : 'Out of Sync'}</div>` +
+          `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
+          row('Songs', localSongs, driveSongs, songMatch) +
+          row('Setlists', localSetlists, driveSetlists, setlistMatch) +
+          row('Personas', localPersonas, drivePersonas, personaMatch) +
+          row('Practice Lists', localPLists, drivePLists, plistMatch) +
+          `</div>` +
+          `<div class="dash-alert-detail" style="margin-top:6px;font-size:11px;color:var(--text-3);">` +
+          `Write access: ${Drive.isWriteConfigured() ? 'Yes' : 'No (read-only)'}</div>`;
+      } catch (e) {
+        el.style.borderLeftColor = '#e87c6a';
+        el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
+          `<div class="dash-alert-detail">${esc(String(e.message || e))}</div>`;
+      }
+    })();
   }
 
   // ─── PRACTICE LISTS — Data ─────────────────────────────────
