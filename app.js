@@ -172,8 +172,8 @@ const App = (() => {
   }
 
   let _syncing = false;
-  const MANUAL_SYNC_COOLDOWN_MS = 15 * 1000; // 15 seconds between manual refreshes
-  let _lastManualSync = 0;
+  const MANUAL_SYNC_COOLDOWN_MS = 10 * 1000; // 10 seconds per 2 clicks
+  let _manualSyncHistory = []; // timestamps of recent manual syncs
 
   async function _syncAllFromDrive(force) {
     if (!Drive.isConfigured()) {
@@ -187,11 +187,13 @@ const App = (() => {
     }
     if (force) {
       const now = Date.now();
-      if (now - _lastManualSync < MANUAL_SYNC_COOLDOWN_MS) {
+      // Keep only clicks within the cooldown window
+      _manualSyncHistory = _manualSyncHistory.filter(t => now - t < MANUAL_SYNC_COOLDOWN_MS);
+      if (_manualSyncHistory.length >= 2) {
         showToast('Please wait a moment before refreshing again.');
         return;
       }
-      _lastManualSync = now;
+      _manualSyncHistory.push(now);
     }
     _syncing = true;
     const indicator = document.getElementById('sync-indicator');
