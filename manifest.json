@@ -2,20 +2,20 @@
   "name": "Catman Trio",
   "short_name": "Catman Trio",
   "description": "Song reference app for Catman Trio — charts, demos, notes, and links in one place.",
-  "start_url": "/index.html",
+  "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0e0e10",
   "theme_color": "#0e0e10",
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
