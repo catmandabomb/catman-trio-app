@@ -1,5 +1,10 @@
 # Personal folders
 zz*/
+BRAINSTORM_*.md
+font-swatch.html
+
+# Claude session files
+.claude/
 
 # OS files
 Thumbs.db

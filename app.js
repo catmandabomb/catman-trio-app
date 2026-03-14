@@ -411,7 +411,13 @@ const App = (() => {
     _revokeBlobCache();
     _navStack = [];
     _showView('list');
-    _setTopbar(_gradientText('Catman Trio', [215,175,90], [240,220,165]), false, true);
+    // Two-line title: CATMAN gradient 1→6, TRIO gradient matching positions 2→5
+    const catmanGrad = _gradientText('Catman', [215,175,90], [240,220,165]);
+    const trioGrad   = _gradientText('Trio', [220,184,105], [235,211,150]);
+    _setTopbar(
+      `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}</span>`,
+      false, true
+    );
     // Sync admin bar button state
     const addBtn = document.getElementById('btn-add-song');
     if (addBtn) addBtn.classList.toggle('hidden', !Admin.isEditMode());
