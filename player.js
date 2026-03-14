@@ -31,10 +31,13 @@ const Player = (() => {
    * @param {string}      opts.blobUrl  — blob URL for the audio
    */
   function create(container, { name, blobUrl }) {
-    const audio = new Audio();
+    const audio = document.createElement('audio');
     audio.preload = 'auto';
+    audio.setAttribute('playsinline', '');
+    audio.setAttribute('webkit-playsinline', '');
     audio.volume = _volume;
     audio.src = blobUrl;
+    audio.style.display = 'none';
     _audioElements.push(audio);
 
     const el = document.createElement('div');
@@ -156,6 +159,7 @@ const Player = (() => {
       audio.currentTime = parseFloat(progress.value);
     });
 
+    container.appendChild(audio);  // Audio element must be in DOM for iOS
     container.appendChild(el);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
 
@@ -164,7 +168,9 @@ const Player = (() => {
       audio,
       destroy() {
         audio.pause();
-        audio.src = '';
+        audio.removeAttribute('src');
+        audio.load(); // Release resources
+        audio.remove();
         el.remove();
         if (_active === audio) _active = null;
         _audioElements = _audioElements.filter(a => a !== audio);
