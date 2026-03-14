@@ -191,6 +191,7 @@ const App = (() => {
       _manualSyncHistory = _manualSyncHistory.filter(t => now - t < MANUAL_SYNC_COOLDOWN_MS);
       if (_manualSyncHistory.length >= 2) {
         showToast('Please wait a moment before refreshing again.');
+        _syncDone();
         return;
       }
       _manualSyncHistory.push(now);
@@ -318,7 +319,7 @@ const App = (() => {
       _view = name;
     };
     if (document.startViewTransition) {
-      document.startViewTransition(swap);
+      try { document.startViewTransition(swap); } catch (_) { swap(); }
     } else {
       swap();
     }
@@ -1357,7 +1358,6 @@ const App = (() => {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
-    const volIcon   = document.getElementById('volume-icon');
     if (isIOS) {
       volWrap.style.display = 'none';
     } else {

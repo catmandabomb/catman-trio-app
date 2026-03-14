@@ -13,7 +13,7 @@ const Player = (() => {
 
   let _active = null; // currently playing HTMLAudioElement
   let _volume = parseFloat(localStorage.getItem('bb_volume') ?? 1);
-  if (isNaN(_volume)) _volume = 1;
+  if (isNaN(_volume) || _volume < 0 || _volume > 1) _volume = 1;
   let _audioElements = [];
 
   function _formatTime(secs) {
