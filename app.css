@@ -13,15 +13,15 @@
   /* Text: slightly warm cream tones */
   --text:         #f0eeeb;
   --text-2:       #9e9a94;
-  --text-3:       #5e5a54;
+  --text-3:       #7d7973;
 
   /* Accent: vibrant gold */
-  --accent:       #e8c373;
-  --accent-bright:#f5d98a;
-  --accent-dim:   #a68745;
-  --accent-bg:    rgba(232,195,115,0.12);
-  --accent-glow:  rgba(232,195,115,0.06);
-  --gradient-gold: linear-gradient(135deg, #e8c373 0%, #d4a24a 100%);
+  --accent:       #f0cc80;
+  --accent-bright:#fae29e;
+  --accent-dim:   #b8954e;
+  --accent-bg:    rgba(240,204,128,0.14);
+  --accent-glow:  rgba(240,204,128,0.08);
+  --gradient-gold: linear-gradient(135deg, #f0cc80 0%, #ddb05a 100%);
 
   /* Semantic colors — vivid */
   --red:          #ff6b6b;
@@ -33,8 +33,8 @@
   --purple:       #a78bfa;
   --purple-bg:    rgba(167,139,250,0.14);
 
-  --tag-bg:       #1e1e23;
-  --tag-text:     #7d7973;
+  --tag-bg:       #252529;
+  --tag-text:     #a09a93;
 
   /* Radii: slightly rounder for modern feel */
   --radius-sm:    8px;
