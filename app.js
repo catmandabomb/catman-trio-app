@@ -171,15 +171,29 @@ const App = (() => {
     localStorage.setItem('bb_last_sync', String(Date.now()));
   }
 
+  let _syncing = false;
+  const MANUAL_SYNC_COOLDOWN_MS = 15 * 1000; // 15 seconds between manual refreshes
+  let _lastManualSync = 0;
+
   async function _syncAllFromDrive(force) {
     if (!Drive.isConfigured()) {
       _syncDone();
       return;
     }
+    if (_syncing) return; // already syncing, ignore
     if (!force && !_shouldSync()) {
       _syncDone();
       return;
     }
+    if (force) {
+      const now = Date.now();
+      if (now - _lastManualSync < MANUAL_SYNC_COOLDOWN_MS) {
+        showToast('Please wait a moment before refreshing again.');
+        return;
+      }
+      _lastManualSync = now;
+    }
+    _syncing = true;
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
@@ -202,6 +216,7 @@ const App = (() => {
         showToast('Drive is temporarily rate-limited. Using cached data — try again in a few minutes.', 4000);
       }
     } finally {
+      _syncing = false;
       if (indicator) indicator.classList.add('hidden');
       _syncDone();
     }
