@@ -183,7 +183,7 @@ const App = (() => {
   }
 
   function _filteredSongs() {
-    let list = [..._songs];
+    let list = [..._songs].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     if (_activeTag) list = list.filter(s => (s.tags || []).includes(_activeTag));
     if (_searchText) {
       const q = _searchText.toLowerCase();
