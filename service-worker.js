@@ -45,6 +45,11 @@ self.addEventListener('activate', (e) => {
 
 // Listen for messages from the app to cache/retrieve songs
 self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
   if (e.data && e.data.type === 'CACHE_SONGS') {
     const resp = new Response(JSON.stringify(e.data.songs), {
       headers: { 'Content-Type': 'application/json' },

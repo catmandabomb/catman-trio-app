@@ -2135,9 +2135,23 @@ const App = (() => {
       navigator.storage.persist().catch(() => {});
     }
 
-    // Refresh button (force sync, bypass cooldown)
-    document.getElementById('btn-refresh').addEventListener('click', () => {
-      _syncAllFromDrive(true);
+    // Refresh button — full hard refresh: clear SW cache + reload for fresh source + data
+    document.getElementById('btn-refresh').addEventListener('click', async () => {
+      showToast('Refreshing app…');
+      try {
+        // Wipe all service worker caches so fresh files are fetched on reload
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+        // If there's a waiting SW, skip waiting so the new one activates on reload
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+      } catch (e) {
+        console.warn('Cache clear failed', e);
+      }
+      // Hard reload — bypasses any remaining cache
+      location.reload();
     });
 
     // Setlists button
