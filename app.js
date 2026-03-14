@@ -160,7 +160,7 @@ const App = (() => {
     }
   }
 
-  const SYNC_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+  const SYNC_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
   function _shouldSync() {
     const last = parseInt(localStorage.getItem('bb_last_sync') || '0', 10);
