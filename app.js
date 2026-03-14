@@ -424,9 +424,10 @@ const App = (() => {
     if (_songs.length === 0)   { empty.classList.remove('hidden');     return; }
     if (filtered.length === 0) { noResults.classList.remove('hidden'); return; }
 
-    filtered.forEach(song => {
+    filtered.forEach((song, i) => {
       const card = document.createElement('div');
       card.className  = 'song-card';
+      card.style.animationDelay = `${i * 30}ms`;
       card.innerHTML  = _songCardHTML(song);
       card.addEventListener('click', () => renderDetail(song));
       if (Admin.isEditMode()) {
