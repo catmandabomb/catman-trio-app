@@ -672,13 +672,6 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
-    // One-time admin unlock: visit with ?admin=catmandabomb to set token
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('admin') === 'catmandabomb') {
-      localStorage.setItem('bb_admin', 'catmandabomb');
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
