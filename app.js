@@ -1315,7 +1315,7 @@ const App = (() => {
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
     // Load display fonts dynamically (bypasses SW cache of old index.html)
-    ['Audiowide', 'Oxanium:wght@600;700', 'Aldrich'].forEach(f => {
+    ['Audiowide', 'Oxanium:wght@600;700', 'Chakra+Petch:wght@600;700'].forEach(f => {
       if (!document.querySelector(`link[href*="${f.split(':')[0]}"]`)) {
         const link = document.createElement('link');
         link.rel = 'stylesheet';

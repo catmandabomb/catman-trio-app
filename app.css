@@ -1551,9 +1551,9 @@ textarea.form-input {
 }
 
 .setlist-song-title {
-  font-family: 'Aldrich', sans-serif;
+  font-family: 'Chakra Petch', sans-serif;
   font-size: 15px;
-  font-weight: 400;
+  font-weight: 600;
   color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
