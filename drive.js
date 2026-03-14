@@ -25,7 +25,7 @@ const Drive = (() => {
   // ─── Config ───────────────────────────────────────────────
 
   // Default credentials — public read access, no sign-in needed
-  const DEFAULT_API_KEY   = 'AIzaSyBuM22B_16Xu3Kl6kcgQynlriPCO5G8oZ8';
+  const DEFAULT_API_KEY   = 'AIzaSyBFWR3pLbXn-9Ime9PLMRKxIZVEdoi5qeo';
   const DEFAULT_FOLDER_ID = '101APHEiSfaRofwi6e58bfhMbarek4w-y';
 
   function getConfig() {
