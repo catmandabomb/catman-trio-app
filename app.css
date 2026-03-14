@@ -433,17 +433,25 @@ a { color: inherit; text-decoration: none; }
 .song-card-title-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+.song-card-title-row .song-card-title {
+  grid-column: unset;
+  grid-row: unset;
 }
 .song-card-edit-btn {
   flex-shrink: 0;
-  padding: 4px 10px;
+  width: 30px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: 1.5px solid var(--accent-dim);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   color: var(--accent);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
@@ -453,8 +461,8 @@ a { color: inherit; text-decoration: none; }
   border-color: var(--accent);
 }
 .song-card-edit-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .song-card-footer {
