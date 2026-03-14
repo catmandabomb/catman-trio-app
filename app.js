@@ -113,7 +113,10 @@ const App = (() => {
   }
 
   async function syncFromDrive() {
-    if (!Drive.isConfigured()) return;
+    if (!Drive.isConfigured()) {
+      _syncDone();
+      return;
+    }
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
@@ -126,8 +129,20 @@ const App = (() => {
       }
     } catch (e) {
       console.warn('Drive sync failed, using local cache', e);
+      showToast('Sync error: ' + e.message);
     } finally {
       if (indicator) indicator.classList.add('hidden');
+      _syncDone();
+    }
+  }
+
+  function _syncDone() {
+    // Update empty state to final message if list is still empty
+    if (_songs.length === 0) {
+      const t = document.getElementById('empty-title');
+      const s = document.getElementById('empty-sub');
+      if (t) t.textContent = 'No songs yet.';
+      if (s) s.textContent = '';
     }
   }
 
@@ -673,7 +688,7 @@ const App = (() => {
 
   async function init() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
