@@ -332,8 +332,10 @@ const App = (() => {
     }
   }
 
-  function _setTopbar(title, showBack) {
-    document.getElementById('topbar-title').textContent = title;
+  function _setTopbar(title, showBack, isHtml) {
+    const el = document.getElementById('topbar-title');
+    if (isHtml) el.innerHTML = title;
+    else el.textContent = title;
     document.getElementById('btn-back').classList.toggle('hidden', !showBack);
     const addBtn = document.getElementById('btn-add-song');
     addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
@@ -382,7 +384,7 @@ const App = (() => {
     _revokeBlobCache();
     _navStack = [];
     _showView('list');
-    _setTopbar('Catman Trio', false);
+    _setTopbar('<span class="title-dim">Catman</span> <span class="title-bright">Trio</span>', false, true);
 
     const tagBar = document.getElementById('tag-filter-bar');
     tagBar.innerHTML = _allTags().map(t =>
