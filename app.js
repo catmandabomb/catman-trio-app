@@ -232,12 +232,10 @@ const App = (() => {
       card.innerHTML  = _songCardHTML(song);
       card.addEventListener('click', () => renderDetail(song));
       if (Admin.isEditMode()) {
-        const editBtn = document.createElement('button');
-        editBtn.className = 'song-card-edit-btn';
-        editBtn.innerHTML = '<i data-lucide="pencil"></i>';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation(); renderEdit(song, false); });
-        card.style.position = 'relative';
-        card.appendChild(editBtn);
+        card.querySelector('.song-card-edit-btn')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          renderEdit(song, false);
+        });
       }
       container.appendChild(card);
     });
@@ -260,8 +258,10 @@ const App = (() => {
     const bpmStr = song.bpm ? `${esc(String(song.bpm))} bpm${song.timeSig ? ' (' + esc(song.timeSig) + ')' : ''}` : '';
     const bpmHtml = bpmStr ? `<span class="song-card-bpm">${bpmStr}</span>` : '';
 
+    const editIcon = Admin.isEditMode() ? '<button class="song-card-edit-btn"><i data-lucide="pencil"></i></button>' : '';
+
     return `
-      <span class="song-card-title">${esc(song.title) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
+      <div class="song-card-title-row"><span class="song-card-title">${esc(song.title) || '<em style="color:var(--text-3)">Untitled</em>'}</span>${editIcon}</div>
       <span class="song-card-subtitle">${esc(song.subtitle)}</span>
       <div class="song-card-meta">
         <span class="song-card-key">${esc(song.key)}</span>
