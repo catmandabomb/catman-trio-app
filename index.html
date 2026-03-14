@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Catman Trio" />
+  <meta name="theme-color" content="#0e0e10" />
+  <title>Catman Trio</title>
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;500;600;700&display=swap" />
+
+  <link rel="stylesheet" href="app.css" />
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+  <header id="topbar">
+    <button id="btn-back" class="icon-btn hidden" aria-label="Back">
+      <i data-lucide="chevron-left"></i>
+    </button>
+    <span id="topbar-title">Catman Trio</span>
+    <div class="topbar-right">
+      <span id="edit-mode-badge" class="hidden">EDITING</span>
+      <button id="btn-edit-mode" class="text-btn">Edit</button>
+      <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song">
+        <i data-lucide="plus"></i>
+      </button>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- LIST VIEW -->
+    <div id="view-list" class="view active">
+      <div id="search-bar">
+        <div class="search-input-wrap">
+          <i data-lucide="search" class="search-icon"></i>
+          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
+        </div>
+      </div>
+      <div id="tag-filter-bar"></div>
+      <div id="song-list"></div>
+      <div id="list-empty" class="empty-state hidden">
+        <p>No songs yet.</p>
+        <p class="muted">Enter edit mode to add your first song.</p>
+      </div>
+      <div id="list-no-results" class="empty-state hidden">
+        <p>No results.</p>
+        <p class="muted">Try a different search or filter.</p>
+      </div>
+    </div>
+
+    <!-- DETAIL VIEW -->
+    <div id="view-detail" class="view">
+      <div id="detail-content"></div>
+    </div>
+
+    <!-- EDIT SONG VIEW -->
+    <div id="view-edit" class="view">
+      <div id="edit-content"></div>
+    </div>
+
+  </main>
+
+  <!-- PASSWORD MODAL -->
+  <div id="modal-password" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Admin Access</h2>
+      <p class="muted">Enter password to enable edit mode.</p>
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" />
+      <div id="password-error" class="error-msg hidden">Incorrect password.</div>
+      <div class="modal-actions">
+        <button id="btn-password-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-password-confirm" class="btn-primary">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF VIEWER MODAL -->
+  <div id="modal-pdf" class="modal-overlay hidden">
+    <div class="modal modal-pdf">
+      <div class="pdf-toolbar">
+        <span id="pdf-filename" class="pdf-title"></span>
+        <div class="pdf-nav">
+          <button id="pdf-prev" class="icon-btn" aria-label="Prev page">
+            <i data-lucide="chevron-left"></i>
+          </button>
+          <span id="pdf-page-info">1 / 1</span>
+          <button id="pdf-next" class="icon-btn" aria-label="Next page">
+            <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+        <button id="pdf-close" class="icon-btn" aria-label="Close PDF">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div id="pdf-canvas-container">
+        <canvas id="pdf-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM MODAL -->
+  <div id="modal-confirm" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="confirm-title">Confirm</h2>
+      <p id="confirm-message" class="muted"></p>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-confirm-ok" class="btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRIVE SETUP MODAL -->
+  <div id="modal-drive" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Google Drive Setup</h2>
+      <p class="muted">Paste your credentials to connect Drive. Stored locally on this device only.</p>
+      <div class="drive-field">
+        <label>API Key</label>
+        <input type="text" id="drive-api-key" placeholder="AIza…" autocomplete="off" />
+      </div>
+      <div class="drive-field">
+        <label>OAuth Client ID</label>
+        <input type="text" id="drive-client-id" placeholder="….apps.googleusercontent.com" autocomplete="off" />
+      </div>
+      <div class="drive-field">
+        <label>Songs Folder ID <span class="muted">(from Drive URL)</span></label>
+        <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" />
+      </div>
+      <div class="modal-actions">
+        <button id="btn-drive-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-drive-save" class="btn-primary">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="hidden"></div>
+
+  <script src="lucide.min.js"></script>
+  <script src="drive.js"></script>
+  <script src="pdf-viewer.js"></script>
+  <script src="player.js"></script>
+  <script src="admin.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
