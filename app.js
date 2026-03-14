@@ -1953,19 +1953,27 @@ const App = (() => {
   // ─── PWA Install Gate ──────────────────────────────────────
 
   function _isPWAInstalled() {
-    // iOS standalone
-    if (navigator.standalone === true) return true;
-    // Standard display-mode check (Android Chrome, Edge, etc.)
-    if (window.matchMedia('(display-mode: standalone)').matches) return true;
-    if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+    // iOS standalone (works on Safari home screen apps)
+    if (window.navigator.standalone === true) return true;
+    // Standard display-mode check (Android Chrome, Edge, Samsung Internet, Firefox)
+    try {
+      if (window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+      if (window.matchMedia('(display-mode: minimal-ui)').matches) return true;
+    } catch (_) {}
     // TWA (Trusted Web Activity)
     if (document.referrer.includes('android-app://')) return true;
     return false;
   }
 
   function _isMobile() {
-    return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // UA-based detection
+    if (/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+    // iPad running as "desktop" Safari (reports MacIntel but has touch)
+    if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
+    // Fallback: touch-capable small screen (catches "Request Desktop Site" mode)
+    if (navigator.maxTouchPoints > 1 && window.innerWidth <= 1024) return true;
+    return false;
   }
 
   function _detectPlatform() {
@@ -1973,7 +1981,9 @@ const App = (() => {
     if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
     if (/iPhone|iPod/i.test(ua)) return 'ios';
     if (/Android/i.test(ua)) return 'android';
-    return 'other';
+    // Fallback for touch devices with unrecognized UA
+    if (navigator.maxTouchPoints > 1) return 'other';
+    return 'desktop';
   }
 
   function _showInstallGate() {
