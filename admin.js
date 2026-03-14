@@ -83,6 +83,7 @@ const Admin = (() => {
       subtitle: '',
       key:      '',
       bpm:      '',
+      timeSig:  '',
       tags:     [],
       notes:    '',
       assets: {

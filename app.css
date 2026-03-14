@@ -256,6 +256,18 @@ a { color: inherit; text-decoration: none; }
 .view.active { display: block; }
 
 /* ═══════════════════════════════════════════
+   SUBHEADER
+═══════════════════════════════════════════ */
+.list-subheader {
+  text-align: center;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  padding: var(--space-md) var(--space-md) 0;
+}
+
+/* ═══════════════════════════════════════════
    SEARCH & FILTER BAR
 ═══════════════════════════════════════════ */
 #search-bar {

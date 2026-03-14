@@ -129,7 +129,6 @@ const App = (() => {
       }
     } catch (e) {
       console.warn('Drive sync failed, using local cache', e);
-      showToast('Sync error: ' + e.message);
     } finally {
       if (indicator) indicator.classList.add('hidden');
       _syncDone();
@@ -250,7 +249,8 @@ const App = (() => {
     ].filter(Boolean).join('');
 
     const tagHtml = (song.tags || []).map(t => `<span class="song-tag">${esc(t)}</span>`).join('');
-    const bpmHtml = song.bpm ? `<span class="song-card-bpm">${esc(String(song.bpm))} bpm</span>` : '';
+    const bpmStr = song.bpm ? `${esc(String(song.bpm))} bpm${song.timeSig ? ' (' + esc(song.timeSig) + ')' : ''}` : '';
+    const bpmHtml = bpmStr ? `<span class="song-card-bpm">${bpmStr}</span>` : '';
 
     return `
       <span class="song-card-title">${esc(song.title) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
@@ -329,6 +329,7 @@ const App = (() => {
         <div class="detail-meta-row">
           ${song.key ? `<div class="detail-meta-item"><span class="detail-meta-label">Key</span><span class="detail-meta-value">${esc(song.key)}</span></div>` : ''}
           ${song.bpm ? `<div class="detail-meta-item"><span class="detail-meta-label">BPM</span><span class="detail-meta-value">${esc(String(song.bpm))}</span></div>` : ''}
+          ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
         </div>
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>`;
@@ -450,6 +451,10 @@ const App = (() => {
           <div class="form-field">
             <label class="form-label">BPM</label>
             <input class="form-input" id="ef-bpm" type="number" value="${esc(String(song.bpm||''))}" placeholder="120" min="1" max="999" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">Time Sig</label>
+            <input class="form-input" id="ef-timesig" type="text" value="${esc(song.timeSig||'')}" placeholder="4/4" />
           </div>
         </div>
         <div class="form-field">
@@ -622,6 +627,7 @@ const App = (() => {
       song.subtitle = document.getElementById('ef-subtitle').value.trim();
       song.key      = document.getElementById('ef-key').value.trim();
       song.bpm      = parseInt(document.getElementById('ef-bpm').value) || '';
+      song.timeSig  = document.getElementById('ef-timesig').value.trim();
       song.notes    = document.getElementById('ef-notes').value.trim();
       assets.links  = assets.links
         .map(l => ({ ...l, url: l.url||'', embedId: _extractEmbedId(l.type, l.url||'') }))
