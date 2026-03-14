@@ -163,7 +163,6 @@ a { color: inherit; text-decoration: none; }
   /* shrink to content width so "Trio" centers under "Catman" */
   width: min-content;
   flex-shrink: 0;
-  margin-right: auto;
 }
 .title-catman {
   font-size: 15px;
@@ -243,6 +242,7 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .search-refresh-btn {

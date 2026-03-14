@@ -99,11 +99,13 @@ const App = (() => {
     btnEl.innerHTML = '<span class="dl-spinner"></span>';
 
     try {
-      const url = await _getBlobUrl(driveId);
       if (_isIOS()) {
+        // Use direct Drive URL on iOS — blob URLs don't work reliably
+        const url = Drive.getDirectUrl(driveId);
         window.open(url, '_blank');
         showToast('Tap and hold to save');
       } else {
+        const url = await _getBlobUrl(driveId);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
@@ -557,7 +559,7 @@ const App = (() => {
             </div>
           </div>`;
         try {
-          const url = await _getBlobUrl(el.dataset.audioContainer);
+          const url = Drive.getDirectUrl(el.dataset.audioContainer);
           el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
           _playerRefs.push(ref);
@@ -2482,7 +2484,7 @@ const App = (() => {
           <div class="audio-controls"><div class="skeleton-circle"></div><div class="audio-progress-wrap"><div class="skeleton-bar"></div></div></div>
         </div>`;
         try {
-          const url = await _getBlobUrl(el.dataset.audioContainer);
+          const url = Drive.getDirectUrl(el.dataset.audioContainer);
           el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
           _playerRefs.push(ref);

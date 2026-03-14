@@ -309,6 +309,15 @@ const Drive = (() => {
     return URL.createObjectURL(blob);
   }
 
+  /**
+   * Get a direct download URL for a Drive file (no fetch, no blob).
+   * Works reliably on iOS Safari for audio playback.
+   */
+  function getDirectUrl(fileId) {
+    const { apiKey } = getConfig();
+    return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
+  }
+
   // ─── Get file metadata ─────────────────────────────────────
 
   async function getFileMeta(fileId) {
@@ -338,6 +347,7 @@ const Drive = (() => {
     uploadFile,
     deleteFile,
     fetchFileAsBlob,
+    getDirectUrl,
     getFileMeta,
   };
 
