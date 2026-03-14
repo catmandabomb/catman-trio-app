@@ -160,7 +160,7 @@ const App = (() => {
     }
   }
 
-  const SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+  const SYNC_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 
   function _shouldSync() {
     const last = parseInt(localStorage.getItem('bb_last_sync') || '0', 10);
@@ -325,9 +325,9 @@ const App = (() => {
   // ─── LIST VIEW ─────────────────────────────────────────────
 
   function _allTags() {
-    const set = new Set();
-    _songs.forEach(s => (s.tags || []).forEach(t => set.add(t)));
-    return [...set].sort();
+    const counts = {};
+    _songs.forEach(s => (s.tags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   }
 
   function _filteredSongs() {
