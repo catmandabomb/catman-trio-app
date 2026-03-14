@@ -144,7 +144,7 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--accent);
-  background-image: var(--gradient-gold);
+  background-image: linear-gradient(90deg, #e8c373 0%, #f5dfa0 45%, #d4a84a 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
