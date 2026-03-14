@@ -714,7 +714,7 @@ const App = (() => {
     document.getElementById('btn-back').addEventListener('click', () => {
       Player.stopAll();
       if (_view === 'detail') renderList();
-      else if (_view === 'edit') _editIsNew ? renderList() : renderDetail(_activeSong);
+      else if (_view === 'edit') renderList();
     });
 
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
