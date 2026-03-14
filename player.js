@@ -14,7 +14,19 @@ const Player = (() => {
   let _active = null; // currently playing HTMLAudioElement
   let _volume = parseFloat(localStorage.getItem('bb_volume') ?? 1);
   if (isNaN(_volume)) _volume = 1;
-  let _audioElements = [];
+
+  // Web Audio API gain node — required because iOS ignores audio.volume
+  let _ctx = null;
+  let _gain = null;
+  let _sources = []; // { audio, source } pairs
+
+  function _ensureCtx() {
+    if (_ctx) return;
+    _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    _gain = _ctx.createGain();
+    _gain.gain.value = _volume;
+    _gain.connect(_ctx.destination);
+  }
 
   function _formatTime(secs) {
     if (isNaN(secs)) return '0:00';
@@ -33,8 +45,6 @@ const Player = (() => {
   function create(container, { name, blobUrl }) {
     const audio = new Audio(blobUrl);
     audio.preload = 'metadata';
-    audio.volume = _volume;
-    _audioElements.push(audio);
 
     const el = document.createElement('div');
     el.className = 'audio-player';
@@ -94,6 +104,14 @@ const Player = (() => {
           _active.pause();
           // Reset other player's button — handled by their own pause listener
         }
+        // Connect through Web Audio gain node (iOS needs this for volume)
+        _ensureCtx();
+        if (_ctx.state === 'suspended') _ctx.resume();
+        if (!_sources.find(s => s.audio === audio)) {
+          const source = _ctx.createMediaElementSource(audio);
+          source.connect(_gain);
+          _sources.push({ audio, source });
+        }
         audio.play();
         _active = audio;
         playBtn.innerHTML = pauseIcon();
@@ -127,7 +145,11 @@ const Player = (() => {
         audio.src = '';
         el.remove();
         if (_active === audio) _active = null;
-        _audioElements = _audioElements.filter(a => a !== audio);
+        const idx = _sources.findIndex(s => s.audio === audio);
+        if (idx !== -1) {
+          _sources[idx].source.disconnect();
+          _sources.splice(idx, 1);
+        }
       }
     };
   }
@@ -158,7 +180,7 @@ const Player = (() => {
   function setVolume(val) {
     _volume = Math.max(0, Math.min(1, val));
     localStorage.setItem('bb_volume', _volume);
-    _audioElements.forEach(a => { a.volume = _volume; });
+    if (_gain) _gain.gain.value = _volume;
   }
 
   function getVolume() { return _volume; }
