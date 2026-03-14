@@ -31,11 +31,12 @@ const Player = (() => {
    * @param {string}      opts.blobUrl  — blob URL for the audio
    */
   function create(container, { name, blobUrl }) {
+    if (!container) throw new Error('Player.create: container is null');
     const audio = document.createElement('audio');
     audio.preload = 'auto';
     audio.setAttribute('playsinline', '');
     audio.setAttribute('webkit-playsinline', '');
-    audio.volume = _volume;
+    try { audio.volume = _volume; } catch (_) {} // iOS: volume is read-only
     audio.src = blobUrl;
     audio.style.display = 'none';
     _audioElements.push(audio);
@@ -156,7 +157,7 @@ const Player = (() => {
 
     // Seek
     progress.addEventListener('input', () => {
-      audio.currentTime = parseFloat(progress.value);
+      try { audio.currentTime = parseFloat(progress.value); } catch (_) {}
     });
 
     container.appendChild(audio);  // Audio element must be in DOM for iOS
@@ -167,11 +168,13 @@ const Player = (() => {
       el,
       audio,
       destroy() {
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load(); // Release resources
-        audio.remove();
-        el.remove();
+        try {
+          audio.pause();
+          audio.removeAttribute('src');
+          audio.load(); // Release resources
+        } catch (_) {}
+        try { audio.remove(); } catch (_) {}
+        try { el.remove(); } catch (_) {}
         if (_active === audio) _active = null;
         _audioElements = _audioElements.filter(a => a !== audio);
       }
@@ -180,7 +183,7 @@ const Player = (() => {
 
   function stopAll() {
     if (_active) {
-      _active.pause();
+      try { _active.pause(); } catch (_) {}
       _active = null;
     }
   }
@@ -203,8 +206,8 @@ const Player = (() => {
 
   function setVolume(val) {
     _volume = Math.max(0, Math.min(1, val));
-    localStorage.setItem('bb_volume', _volume);
-    _audioElements.forEach(a => { a.volume = _volume; });
+    try { localStorage.setItem('bb_volume', _volume); } catch (_) {}
+    _audioElements.forEach(a => { try { a.volume = _volume; } catch (_) {} });
   }
 
   function getVolume() { return _volume; }

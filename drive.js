@@ -312,8 +312,10 @@ const Drive = (() => {
   /**
    * Get a direct download URL for a Drive file (no fetch, no blob).
    * Works reliably on iOS Safari for audio playback.
+   * Returns null if fileId is missing.
    */
   function getDirectUrl(fileId) {
+    if (!fileId) return null;
     const { apiKey } = getConfig();
     return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
   }

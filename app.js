@@ -99,11 +99,14 @@ const App = (() => {
     btnEl.innerHTML = '<span class="dl-spinner"></span>';
 
     try {
+      if (!driveId) throw new Error('No file ID');
       if (_isIOS()) {
         // Use direct Drive URL on iOS — blob URLs don't work reliably
         const url = Drive.getDirectUrl(driveId);
-        window.open(url, '_blank');
-        showToast('Tap and hold to save');
+        if (!url) throw new Error('No download URL');
+        const w = window.open(url, '_blank');
+        if (!w) showToast('Popup blocked — allow popups for this site');
+        else showToast('Tap and hold to save');
       } else {
         const url = await _getBlobUrl(driveId);
         const a = document.createElement('a');
@@ -544,6 +547,8 @@ const App = (() => {
     // Audio players — show skeleton placeholder while loading
     setTimeout(() => {
       container.querySelectorAll('[data-audio-container]').forEach(async el => {
+        const driveId = el.dataset.audioContainer;
+        if (!driveId) { el.innerHTML = ''; return; }
         el.innerHTML = `
           <div class="audio-player audio-skeleton">
             <div class="skeleton-text" style="width:40%;height:13px"></div>
@@ -560,10 +565,10 @@ const App = (() => {
           </div>`;
         try {
           // iOS Safari can't play blob URLs — use direct Drive URL; others use blob for caching
-          const url = _isIOS() ? Drive.getDirectUrl(el.dataset.audioContainer)
-                                : await _getBlobUrl(el.dataset.audioContainer);
+          const url = _isIOS() ? Drive.getDirectUrl(driveId) : await _getBlobUrl(driveId);
+          if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url });
           _playerRefs.push(ref);
         } catch {
           el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
@@ -2480,16 +2485,18 @@ const App = (() => {
     function _loadAccordionAssets(body) {
       body.querySelectorAll('[data-audio-container]').forEach(async el => {
         if (el.dataset.loaded) return;
+        const driveId = el.dataset.audioContainer;
+        if (!driveId) return;
         el.dataset.loaded = 'true';
         el.innerHTML = `<div class="audio-player audio-skeleton">
           <div class="skeleton-text" style="width:40%;height:13px"></div>
           <div class="audio-controls"><div class="skeleton-circle"></div><div class="audio-progress-wrap"><div class="skeleton-bar"></div></div></div>
         </div>`;
         try {
-          const url = _isIOS() ? Drive.getDirectUrl(el.dataset.audioContainer)
-                                : await _getBlobUrl(el.dataset.audioContainer);
+          const url = _isIOS() ? Drive.getDirectUrl(driveId) : await _getBlobUrl(driveId);
+          if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url });
           _playerRefs.push(ref);
         } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
       });
@@ -2646,8 +2653,8 @@ const App = (() => {
     }
 
     // Hide the real app, show the install gate
-    document.getElementById('topbar').classList.add('hidden');
-    document.getElementById('app').classList.add('hidden');
+    document.getElementById('topbar')?.classList.add('hidden');
+    document.getElementById('app')?.classList.add('hidden');
 
     const gate = document.createElement('div');
     gate.id = 'install-gate';
