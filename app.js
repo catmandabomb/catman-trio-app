@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.3';
+  const APP_VERSION = 'v17.4';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1455,104 +1455,69 @@ const App = (() => {
     _songs.forEach(s => (s.tags || []).forEach(t => allTags.add(t)));
 
     // ─── Analyze issues ───
+    // Severity levels:
+    //   issues   = broken data that WILL cause errors (red)
+    //   warnings = degraded state that SHOULD be fixed (yellow)
+    //   info     = cosmetic / nice-to-know (blue)
+    // Every item MUST include an actionable "fix" hint.
     const issues = [];
     const warnings = [];
     const info = [];
 
-    // Songs with no title
-    const untitled = _songs.filter(s => !s.title || !s.title.trim());
-    if (untitled.length) {
-      issues.push({
-        title: `${untitled.length} song${untitled.length > 1 ? 's' : ''} with no title`,
-        detail: 'Songs without titles may be hard to find or use.',
-        items: untitled.map(s => `ID: ${s.id}`)
-      });
-    }
-
-    // Songs with no assets at all
-    const noAssets = _songs.filter(s => {
-      const a = s.assets || {};
-      return !(a.charts || []).length && !(a.audio || []).length && !(a.links || []).length;
-    });
-    if (noAssets.length) {
-      warnings.push({
-        title: `${noAssets.length} song${noAssets.length > 1 ? 's' : ''} with no files or links`,
-        detail: 'These songs have no charts, audio, or links attached.',
-        items: noAssets.map(s => esc(s.title || s.id))
-      });
-    }
-
-    // Collect all driveIds referenced by songs
+    // Collect all driveIds referenced by songs (used by multiple checks)
     const referencedDriveIds = new Set();
     const driveIdToSong = {};
-    _songs.forEach(s => {
-      const a = s.assets || {};
-      [...(a.charts || []), ...(a.audio || [])].forEach(f => {
-        if (f.driveId) {
-          referencedDriveIds.add(f.driveId);
-          if (!driveIdToSong[f.driveId]) driveIdToSong[f.driveId] = [];
-          driveIdToSong[f.driveId].push(s);
-        }
-      });
-    });
-
-    // Check for duplicate driveIds (same file linked to multiple songs)
-    const dupes = Object.entries(driveIdToSong).filter(([, songs]) => songs.length > 1);
-    if (dupes.length) {
-      warnings.push({
-        title: `${dupes.length} file${dupes.length > 1 ? 's' : ''} linked to multiple songs`,
-        detail: 'The same Drive file is referenced by more than one song.',
-        items: dupes.map(([id, songs]) => `${id} → ${songs.map(s => esc(s.title || s.id)).join(', ')}`)
-      });
-    }
-
-    // Songs with broken references (driveId patterns that look wrong)
     const emptyDriveIds = [];
     _songs.forEach(s => {
       const a = s.assets || {};
       [...(a.charts || []), ...(a.audio || [])].forEach(f => {
-        if (!f.driveId || !f.driveId.trim()) {
+        if (f.driveId && f.driveId.trim()) {
+          referencedDriveIds.add(f.driveId);
+          if (!driveIdToSong[f.driveId]) driveIdToSong[f.driveId] = [];
+          driveIdToSong[f.driveId].push(s);
+        } else {
           emptyDriveIds.push({ song: s.title || s.id, file: f.name || '(unnamed)' });
         }
       });
     });
+    const songIdSet = new Set(_songs.map(s => s.id));
+
+    // ── ISSUES (broken data) ──────────────────────────────
+
+    // Songs with no title — can't be found or displayed properly
+    const untitled = _songs.filter(s => !s.title || !s.title.trim());
+    if (untitled.length) {
+      issues.push({
+        title: `${untitled.length} song${untitled.length > 1 ? 's' : ''} with no title`,
+        detail: 'Fix: Edit each song and add a title.',
+        items: untitled.map(s => `ID: ${s.id}`)
+      });
+    }
+
+    // File references with empty Drive IDs — will fail to load
     if (emptyDriveIds.length) {
       issues.push({
-        title: `${emptyDriveIds.length} file reference${emptyDriveIds.length > 1 ? 's' : ''} with empty Drive ID`,
-        detail: 'These files have no Drive ID and cannot be loaded.',
+        title: `${emptyDriveIds.length} file${emptyDriveIds.length > 1 ? 's' : ''} with missing Drive ID`,
+        detail: 'These attachments cannot be loaded. Fix: Edit the song and re-upload the file, or remove the broken attachment.',
         items: emptyDriveIds.map(e => `"${esc(e.file)}" in "${esc(e.song)}"`)
       });
     }
 
-    // Songs with no tags
-    const noTags = _songs.filter(s => !(s.tags || []).length);
-    if (noTags.length > 0 && noTags.length < totalSongs) {
-      info.push({
-        title: `${noTags.length} song${noTags.length > 1 ? 's' : ''} without tags`,
-        detail: 'Untagged songs won\'t appear when filtering by tag.',
-        items: noTags.length <= 10 ? noTags.map(s => esc(s.title || s.id)) : [
-          ...noTags.slice(0, 8).map(s => esc(s.title || s.id)),
-          `…and ${noTags.length - 8} more`
-        ]
-      });
-    }
-
     // Practice lists referencing songs that no longer exist
-    const songIdSet = new Set(_songs.map(s => s.id));
     const orphanPractice = [];
     _practice.forEach(persona => {
       (persona.practiceLists || []).forEach(pl => {
         (pl.songs || []).forEach(entry => {
-          if (!songIdSet.has(entry.songId)) {
+          if (entry.songId && !songIdSet.has(entry.songId)) {
             orphanPractice.push({ persona: persona.name, list: pl.name, songId: entry.songId });
           }
         });
       });
     });
     if (orphanPractice.length) {
-      warnings.push({
-        title: `${orphanPractice.length} practice reference${orphanPractice.length > 1 ? 's' : ''} to deleted songs`,
-        detail: 'These practice list entries point to songs that no longer exist.',
+      issues.push({
+        title: `${orphanPractice.length} practice entry${orphanPractice.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
+        detail: 'These entries will show as missing. Fix: Edit the practice list and remove the broken entries, or re-add the song to the repository.',
         items: orphanPractice.map(o => `"${esc(o.persona)}" → "${esc(o.list)}" → song ${o.songId}`)
       });
     }
@@ -1568,10 +1533,35 @@ const App = (() => {
       });
     });
     if (orphanSetlist.length) {
-      warnings.push({
-        title: `${orphanSetlist.length} setlist reference${orphanSetlist.length > 1 ? 's' : ''} to deleted songs`,
-        detail: 'These setlist entries point to songs that no longer exist.',
+      issues.push({
+        title: `${orphanSetlist.length} setlist entry${orphanSetlist.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
+        detail: 'These entries will show as missing. Fix: Edit the setlist and remove the broken entries, or re-add the song to the repository.',
         items: orphanSetlist.map(o => `"${esc(o.setlist)}" → song ${o.songId}`)
+      });
+    }
+
+    // ── WARNINGS (degraded state) ─────────────────────────
+
+    // Songs with no assets — functional but not useful
+    const noAssets = _songs.filter(s => {
+      const a = s.assets || {};
+      return !(a.charts || []).length && !(a.audio || []).length && !(a.links || []).length;
+    });
+    if (noAssets.length) {
+      warnings.push({
+        title: `${noAssets.length} song${noAssets.length > 1 ? 's' : ''} with no files or links`,
+        detail: 'These songs have no charts, audio, or links. Fix: Edit each song and attach files or add links.',
+        items: noAssets.map(s => esc(s.title || s.id))
+      });
+    }
+
+    // Duplicate Drive file references
+    const dupes = Object.entries(driveIdToSong).filter(([, songs]) => songs.length > 1);
+    if (dupes.length) {
+      warnings.push({
+        title: `${dupes.length} file${dupes.length > 1 ? 's' : ''} shared across multiple songs`,
+        detail: 'The same Drive file is attached to more than one song. This is usually fine, but deleting the file from one song would break the other. Fix: If unintentional, re-upload a separate copy to each song.',
+        items: dupes.map(([id, songs]) => `${id.slice(0, 12)}… → ${songs.map(s => esc(s.title || s.id)).join(', ')}`)
       });
     }
 
@@ -1585,16 +1575,35 @@ const App = (() => {
     if (dupTitles.length) {
       warnings.push({
         title: `${dupTitles.length} duplicate song title${dupTitles.length > 1 ? 's' : ''}`,
-        detail: 'Multiple songs share the same title.',
+        detail: 'Multiple songs share the same title, which can cause confusion. Fix: Rename one of the duplicates or delete the extra copy.',
         items: dupTitles.map(([t, c]) => `"${esc(t)}" (${c} copies)`)
       });
     }
 
-    // Drive config status
+    // ── INFO (cosmetic / nice-to-know) ────────────────────
+
+    // Songs with no tags
+    const noTags = _songs.filter(s => !(s.tags || []).length);
+    if (noTags.length > 0 && noTags.length < totalSongs) {
+      info.push({
+        title: `${noTags.length} song${noTags.length > 1 ? 's' : ''} without tags`,
+        detail: 'Untagged songs won\'t appear when filtering by tag. Fix: Edit the song and add relevant tags.',
+        items: noTags.length <= 10 ? noTags.map(s => esc(s.title || s.id)) : [
+          ...noTags.slice(0, 8).map(s => esc(s.title || s.id)),
+          `…and ${noTags.length - 8} more`
+        ]
+      });
+    }
+
+    // Drive config — only report if there's an ACTUAL problem
+    // "not configured" = no API key or folder ID → truly can't read from Drive
+    // We do NOT report on clientId here — the app can function fully
+    // with just apiKey+folderId for shared-folder workflows.
     if (!Drive.isConfigured()) {
-      info.push({ title: 'Drive not configured', detail: 'Songs are loaded from local cache only.' });
-    } else if (!Drive.isWriteConfigured()) {
-      info.push({ title: 'Drive read-only', detail: 'OAuth Client ID not set — changes won\'t sync to Drive.' });
+      info.push({
+        title: 'Drive not connected',
+        detail: 'No API key or folder ID set. Songs load from local cache only. Fix: Open the Drive Setup modal and enter your credentials.'
+      });
     }
 
     // ─── Render ───
@@ -1645,7 +1654,7 @@ const App = (() => {
         </div>`;
 
     if (totalIssues === 0 && totalWarnings === 0 && totalInfo === 0) {
-      html += `<div class="dash-ok">No issues detected. Everything looks good.</div>`;
+      html += `<div class="dash-ok">All ${totalSongs} songs, ${totalSetlists} setlists, and ${totalPracticeLists} practice lists checked — no problems found.</div>`;
     }
 
     // Errors first
