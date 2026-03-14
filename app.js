@@ -1950,10 +1950,129 @@ const App = (() => {
 
   // ─── Init ──────────────────────────────────────────────────
 
+  // ─── PWA Install Gate ──────────────────────────────────────
+
+  function _isPWAInstalled() {
+    // iOS standalone
+    if (navigator.standalone === true) return true;
+    // Standard display-mode check (Android Chrome, Edge, etc.)
+    if (window.matchMedia('(display-mode: standalone)').matches) return true;
+    if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+    // TWA (Trusted Web Activity)
+    if (document.referrer.includes('android-app://')) return true;
+    return false;
+  }
+
+  function _isMobile() {
+    return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function _detectPlatform() {
+    const ua = navigator.userAgent;
+    if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
+    if (/iPhone|iPod/i.test(ua)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    return 'other';
+  }
+
+  function _showInstallGate() {
+    const platform = _detectPlatform();
+
+    let steps = '';
+    if (platform === 'ios' || platform === 'ipad') {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Tap the <strong>Share</strong> button <span class="install-icon-hint">(the square with an arrow)</span> at the bottom of Safari</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Scroll down and tap <strong>"Add to Home Screen"</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Tap <strong>"Add"</strong> in the top right</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">4</span>
+            <span>Open <strong>Catman Trio</strong> from your home screen</span>
+          </div>
+        </div>
+        <p class="install-note">Note: You must use <strong>Safari</strong> for this to work. If you're in Chrome or another browser, open this page in Safari first.</p>`;
+    } else if (platform === 'android') {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Tap the <strong>menu</strong> button <span class="install-icon-hint">( &#8942; )</span> in the top right of Chrome</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Tap <strong>"Install"</strong> to confirm</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">4</span>
+            <span>Open <strong>Catman Trio</strong> from your home screen</span>
+          </div>
+        </div>`;
+    } else {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Look for an <strong>"Install"</strong> option in your browser's menu or address bar</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Follow the prompts to add to your home screen</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Open <strong>Catman Trio</strong> from your home screen</span>
+          </div>
+        </div>`;
+    }
+
+    // Hide the real app, show the install gate
+    document.getElementById('topbar').classList.add('hidden');
+    document.getElementById('app').classList.add('hidden');
+
+    const gate = document.createElement('div');
+    gate.id = 'install-gate';
+    gate.innerHTML = `
+      <div class="install-gate-content">
+        <div class="install-gate-logo">CT</div>
+        <h1 class="install-gate-title">Catman Trio</h1>
+        <p class="install-gate-subtitle">This app works best when installed on your home screen.</p>
+        <div class="install-gate-card">
+          <h2 class="install-gate-card-title">How to install</h2>
+          ${steps}
+        </div>
+        <p class="install-gate-footer">Once installed, the app works offline and launches in full screen — just like a native app.</p>
+      </div>`;
+    document.body.appendChild(gate);
+  }
+
+  // ─── Init ──────────────────────────────────────────────────
+
   async function init() {
+    // Register SW early so the install prompt can work
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
+
+    // PWA install gate — mobile browsers only
+    if (_isMobile() && !_isPWAInstalled()) {
+      _showInstallGate();
+      return; // Don't load the app
+    }
+
     // Load display fonts dynamically (bypasses SW cache of old index.html)
     ['Audiowide', 'Oxanium:wght@600;700', 'Chakra+Petch:wght@600;700'].forEach(f => {
       if (!document.querySelector(`link[href*="${f.split(':')[0]}"]`)) {
