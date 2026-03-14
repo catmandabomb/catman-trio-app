@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.42';
+  const APP_VERSION = 'v17.43';
 
   let _songs      = [];
   let _setlists   = [];
@@ -279,16 +279,20 @@ const App = (() => {
   async function saveSongs(toastMsg) {
     _saveLocal(_songs);
     if (Drive.isWriteConfigured()) {
-      try {
-        await Drive.saveSongs(_songs);
-        _markSynced();
-        showToast(toastMsg || 'Saved.');
-      } catch (e) {
-        console.error('Drive songs save failed', e);
-        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await Drive.saveSongs(_songs);
+          _markSynced();
+          showToast(toastMsg || 'Saved.');
+          return;
+        } catch (e) {
+          console.error(`Drive songs save attempt ${attempt + 1} failed`, e);
+          if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
+        }
       }
+      showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
     }
   }
 
@@ -342,16 +346,20 @@ const App = (() => {
   async function saveSetlists(toastMsg) {
     _saveSetlistsLocal(_setlists);
     if (Drive.isWriteConfigured()) {
-      try {
-        await Drive.saveSetlists(_setlists);
-        _markSynced();
-        showToast(toastMsg || 'Saved.');
-      } catch (e) {
-        console.error('Drive setlists save failed', e);
-        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await Drive.saveSetlists(_setlists);
+          _markSynced();
+          showToast(toastMsg || 'Saved.');
+          return;
+        } catch (e) {
+          console.error(`Drive setlists save attempt ${attempt + 1} failed`, e);
+          if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
+        }
       }
+      showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
     }
   }
 
@@ -1766,6 +1774,9 @@ const App = (() => {
           `</div>`;
 
         el.style.borderLeftColor = allMatch ? 'var(--accent-dim)' : '#e87c6a';
+        const pushBtn = !allMatch && Drive.isWriteConfigured()
+          ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
+          : '';
         el.innerHTML =
           `<div class="dash-alert-title">${allMatch ? 'In Sync' : 'Out of Sync'}</div>` +
           `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
@@ -1775,7 +1786,29 @@ const App = (() => {
           row('Practice Lists', localPLists, drivePLists, plistMatch) +
           `</div>` +
           `<div class="dash-alert-detail" style="margin-top:6px;font-size:11px;color:var(--text-3);">` +
-          `Write access: ${Drive.isWriteConfigured() ? 'Yes' : 'No (read-only)'}</div>`;
+          `Write access: ${Drive.isWriteConfigured() ? 'Yes' : 'No (read-only)'}</div>` +
+          pushBtn;
+        const pushEl = document.getElementById('dash-push-drive');
+        if (pushEl) {
+          pushEl.addEventListener('click', async () => {
+            pushEl.disabled = true;
+            pushEl.textContent = 'Pushing…';
+            try {
+              await Promise.all([
+                Drive.saveSongs(_songs),
+                Drive.saveSetlists(_setlists),
+                Drive.savePractice(_practice),
+              ]);
+              showToast('All data pushed to Drive.');
+              renderDashboard(); // refresh to re-check sync
+            } catch (e) {
+              console.error('Push to Drive failed', e);
+              showToast('Push failed: ' + (e.message || 'unknown error'));
+              pushEl.disabled = false;
+              pushEl.textContent = 'Push All to Drive';
+            }
+          });
+        }
       } catch (e) {
         el.style.borderLeftColor = '#e87c6a';
         el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
@@ -1869,15 +1902,19 @@ const App = (() => {
   async function savePractice(toastMsg) {
     _savePracticeLocal(_practice);
     if (Drive.isWriteConfigured()) {
-      try {
-        await Drive.savePractice(_practice);
-        showToast(toastMsg || 'Saved.');
-      } catch (e) {
-        console.error('Drive practice save failed', e);
-        showToast((toastMsg || 'Saved') + ' (locally only — Drive sync failed)');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await Drive.savePractice(_practice);
+          showToast(toastMsg || 'Saved.');
+          return;
+        } catch (e) {
+          console.error(`Drive practice save attempt ${attempt + 1} failed`, e);
+          if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
+        }
       }
+      showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (locally only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
     }
   }
 
