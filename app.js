@@ -152,7 +152,6 @@ const App = (() => {
       if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
         return resolve(null);
       }
-      const timeout = setTimeout(() => resolve(null), 500);
       const handler = (e) => {
         if (e.data && e.data.type === 'CACHED_SONGS') {
           clearTimeout(timeout);
@@ -160,6 +159,7 @@ const App = (() => {
           resolve(e.data.songs);
         }
       };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(null); }, 500);
       navigator.serviceWorker.addEventListener('message', handler);
       navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_SONGS' });
     });
@@ -295,7 +295,6 @@ const App = (() => {
       if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
         return resolve(null);
       }
-      const timeout = setTimeout(() => resolve(null), 500);
       const handler = (e) => {
         if (e.data && e.data.type === 'CACHED_SETLISTS') {
           clearTimeout(timeout);
@@ -303,6 +302,7 @@ const App = (() => {
           resolve(e.data.setlists);
         }
       };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(null); }, 500);
       navigator.serviceWorker.addEventListener('message', handler);
       navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_SETLISTS' });
     });
@@ -340,8 +340,8 @@ const App = (() => {
   function _showView(name) {
     const swap = () => {
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      document.getElementById(`view-${name}`).classList.add('active');
-      document.getElementById(`view-${name}`).scrollTop = 0;
+      const el = document.getElementById(`view-${name}`);
+      if (el) { el.classList.add('active'); el.scrollTop = 0; }
       _view = name;
     };
     if (document.startViewTransition) {
@@ -356,8 +356,6 @@ const App = (() => {
     if (isHtml) el.innerHTML = title;
     else el.textContent = title;
     document.getElementById('btn-back').classList.toggle('hidden', !showBack);
-    const addBtn = document.getElementById('btn-add-song');
-    addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
     document.getElementById('btn-setlists').classList.toggle('hidden', showBack);
     document.getElementById('btn-practice').classList.toggle('hidden', showBack);
   }
@@ -368,9 +366,12 @@ const App = (() => {
 
   function _navigateBack() {
     Player.stopAll();
+    // Always clear practice mode body class when navigating away
+    document.body.classList.remove('practice-mode-active');
     if (_navStack.length > 0) {
       const prev = _navStack.pop();
-      prev();
+      if (typeof prev === 'function') prev();
+      else renderList();
     } else {
       renderList();
     }
@@ -405,6 +406,9 @@ const App = (() => {
     _navStack = [];
     _showView('list');
     _setTopbar(_gradientText('Catman Trio', [215,175,90], [240,220,165]), false, true);
+    // Sync admin bar button state
+    const addBtn = document.getElementById('btn-add-song');
+    if (addBtn) addBtn.classList.toggle('hidden', !Admin.isEditMode());
 
     const tagBar = document.getElementById('tag-filter-bar');
     tagBar.innerHTML = _allTags().map(t =>
@@ -903,7 +907,7 @@ const App = (() => {
       song.title    = document.getElementById('ef-title').value.trim();
       song.subtitle = document.getElementById('ef-subtitle').value.trim();
       song.key      = document.getElementById('ef-key').value.trim();
-      song.bpm      = parseInt(document.getElementById('ef-bpm').value) || '';
+      song.bpm      = parseInt(document.getElementById('ef-bpm').value) || null;
       song.timeSig  = document.getElementById('ef-timesig').value.trim();
       song.notes    = document.getElementById('ef-notes').value.trim();
       assets.links  = assets.links
@@ -925,7 +929,7 @@ const App = (() => {
 
     // Cancel
     document.getElementById('ef-cancel').addEventListener('click', () => {
-      _editIsNew ? renderList() : renderDetail(_activeSong, true);
+      (_editIsNew || !_activeSong) ? renderList() : renderDetail(_activeSong, true);
     });
 
     // Delete
@@ -959,12 +963,6 @@ const App = (() => {
       }
     } catch {}
     return '';
-  }
-
-  // ─── Platform detection ───────────────────────────────────
-
-  function _isAdmin() {
-    return localStorage.getItem('bb_admin') === 'catmandabomb';
   }
 
   // ─── SETLISTS LIST VIEW ──────────────────────────────────
@@ -1008,6 +1006,7 @@ const App = (() => {
     if (!skipNavReset) {
       _navStack = [];
       _pushNav(() => renderList());
+      _showArchived = false;
     }
     _showView('setlists');
     _setTopbar('Setlists', true);
@@ -1245,6 +1244,8 @@ const App = (() => {
     `;
   }
 
+  let _sortableSetlist = null;
+
   function _wireSetlistEditForm() {
     const sl = _editSetlist;
 
@@ -1279,9 +1280,10 @@ const App = (() => {
       }).join('');
       if (typeof lucide !== 'undefined') lucide.createIcons();
 
-      // Init SortableJS
+      // Init SortableJS (destroy previous instance first)
+      if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
       if (typeof Sortable !== 'undefined' && sl.songs.length > 1) {
-        Sortable.create(container, {
+        _sortableSetlist = Sortable.create(container, {
           handle: '.drag-handle',
           animation: 150,
           ghostClass: 'sortable-ghost',
@@ -1406,8 +1408,12 @@ const App = (() => {
     return `hsl(${h}, 60%, 55%)`;
   }
 
+  function _safeColor(color) {
+    return /^hsl\(\d+,\s*\d+%,\s*\d+%\)$/.test(color) ? color : _hslFromName('default');
+  }
+
   function _personaInitials(name) {
-    return (name || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    return (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
   }
 
   function _loadPracticeLocal() {
@@ -1425,7 +1431,6 @@ const App = (() => {
   function _loadPracticeFromSWCache() {
     return new Promise((resolve) => {
       if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
-      const timeout = setTimeout(() => resolve(null), 500);
       const handler = (e) => {
         if (e.data && e.data.type === 'CACHED_PRACTICE') {
           clearTimeout(timeout);
@@ -1433,6 +1438,7 @@ const App = (() => {
           resolve(e.data.practice);
         }
       };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(null); }, 500);
       navigator.serviceWorker.addEventListener('message', handler);
       navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_PRACTICE' });
     });
@@ -1481,7 +1487,7 @@ const App = (() => {
       </div>`;
     } else {
       _practice.forEach(p => {
-        const color = p.color || _hslFromName(p.name);
+        const color = _safeColor(p.color || _hslFromName(p.name));
         const count = (p.lists || []).length;
         const editBtn = Admin.isEditMode()
           ? `<button class="song-card-edit-btn persona-edit-btn" data-edit-persona="${esc(p.id)}"><i data-lucide="pencil"></i></button>`
@@ -1542,7 +1548,7 @@ const App = (() => {
 
     const container = document.getElementById('practice-detail-content');
     const lists = persona.lists || [];
-    const color = persona.color || _hslFromName(persona.name);
+    const color = _safeColor(persona.color || _hslFromName(persona.name));
 
     let html = `<div class="detail-header">
       ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-persona">Edit Practice List</button></div>` : ''}
@@ -1626,8 +1632,6 @@ const App = (() => {
   }
 
   function _showPracticeSongPicker(persona) {
-    const existingIds = new Set((persona.lists || []).map(e => e.songId));
-    const available = [..._songs].filter(s => !existingIds.has(s.id)).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
     const container = document.getElementById('practice-detail-content');
     let pickerHtml = `<div class="edit-section" id="practice-picker-section">
@@ -1643,6 +1647,8 @@ const App = (() => {
     container.appendChild(div.firstElementChild);
 
     function renderPickerResults(search) {
+      const existingIds = new Set((persona.lists || []).map(e => e.songId));
+      const available = [..._songs].filter(s => !existingIds.has(s.id)).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       let filtered = available;
       if (search) {
         const q = search.toLowerCase();
@@ -1733,6 +1739,7 @@ const App = (() => {
 
     container.innerHTML = html;
 
+    let _sortablePractice = null;
     function _renderPracticeSongs() {
       const songContainer = document.getElementById('pf-selected-songs');
       document.getElementById('pf-empty-msg')?.classList.toggle('hidden', p.lists.length > 0);
@@ -1763,8 +1770,9 @@ const App = (() => {
       if (typeof lucide !== 'undefined') lucide.createIcons();
 
       // SortableJS for practice list
+      if (_sortablePractice) { try { _sortablePractice.destroy(); } catch(_){} _sortablePractice = null; }
       if (typeof Sortable !== 'undefined' && p.lists.length > 1) {
-        Sortable.create(songContainer, {
+        _sortablePractice = Sortable.create(songContainer, {
           handle: '.drag-handle',
           animation: 150,
           ghostClass: 'sortable-ghost',
@@ -1838,7 +1846,7 @@ const App = (() => {
 
     let html = `<div class="practice-mode-header">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-        <div class="persona-avatar" style="background:${persona.color || _hslFromName(persona.name)}">${_personaInitials(persona.name)}</div>
+        <div class="persona-avatar" style="background:${_safeColor(persona.color || _hslFromName(persona.name))}">${_personaInitials(persona.name)}</div>
         <div>
           <div class="detail-title" style="font-size:22px;margin-bottom:0">${esc(persona.name)}</div>
           <div class="muted" style="font-size:12px">${lists.length} songs</div>
@@ -2102,8 +2110,8 @@ const App = (() => {
       if (Admin.isEditMode()) {
         Admin.exitEditMode();
         if (_view === 'list')              renderList();
-        else if (_view === 'detail')       renderDetail(_activeSong, true);
-        else if (_view === 'edit')         { _activeSong = null; renderList(); }
+        else if (_view === 'detail' && _activeSong) renderDetail(_activeSong, true);
+        else if (_view === 'detail' || _view === 'edit') { _activeSong = null; renderList(); }
         else if (_view === 'setlists')     renderSetlists(true);
         else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
         else if (_view === 'setlist-edit') renderSetlists();
@@ -2114,7 +2122,8 @@ const App = (() => {
         Admin.showPasswordModal(() => {
           Admin.enterEditMode();
           if (_view === 'list')              renderList();
-          else if (_view === 'detail')       renderDetail(_activeSong, true);
+          else if (_view === 'detail' && _activeSong) renderDetail(_activeSong, true);
+          else if (_view === 'detail')       renderList();
           else if (_view === 'setlists')     renderSetlists(true);
           else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
           else if (_view === 'practice')     renderPractice(true);

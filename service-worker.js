@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.0';
+const CACHE_NAME = 'catmantrio-v17.1';
 const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
@@ -66,7 +66,7 @@ self.addEventListener('message', (e) => {
       if (resp) return resp.json();
       return null;
     }).then(songs => {
-      e.source.postMessage({ type: 'CACHED_SONGS', songs });
+      if (e.source) e.source.postMessage({ type: 'CACHED_SONGS', songs });
     });
   }
 
@@ -86,7 +86,7 @@ self.addEventListener('message', (e) => {
       if (resp) return resp.json();
       return null;
     }).then(setlists => {
-      e.source.postMessage({ type: 'CACHED_SETLISTS', setlists });
+      if (e.source) e.source.postMessage({ type: 'CACHED_SETLISTS', setlists });
     });
   }
 
@@ -106,7 +106,7 @@ self.addEventListener('message', (e) => {
       if (resp) return resp.json();
       return null;
     }).then(practice => {
-      e.source.postMessage({ type: 'CACHED_PRACTICE', practice });
+      if (e.source) e.source.postMessage({ type: 'CACHED_PRACTICE', practice });
     });
   }
 });

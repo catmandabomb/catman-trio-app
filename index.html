@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.0" />
+  <link rel="stylesheet" href="app.css?v=17.1" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -35,15 +35,11 @@
       <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" />
     </div>
     <div class="topbar-right">
-      <button id="btn-practice" class="btn-ghost topbar-practice-btn">
+      <button id="btn-practice" class="btn-ghost topbar-nav-btn">
         <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
       </button>
-      <button id="btn-setlists" class="btn-ghost topbar-setlists-btn">
+      <button id="btn-setlists" class="btn-ghost topbar-nav-btn">
         <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
-      </button>
-      <button id="btn-edit-mode" class="text-btn">Edit</button>
-      <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
-        <i data-lucide="plus"></i>
       </button>
     </div>
   </header>
@@ -52,7 +48,13 @@
 
     <!-- LIST VIEW -->
     <div id="view-list" class="view active">
-      <div class="list-subheader">A central repository for the Catman Trio repertoire</div>
+      <div class="list-subheader">The repository for all Catman repertoire</div>
+      <div id="admin-bar" class="admin-bar">
+        <button id="btn-edit-mode" class="text-btn">Edit</button>
+        <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
+          <i data-lucide="plus"></i>
+        </button>
+      </div>
       <div id="search-bar">
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
@@ -121,7 +123,7 @@
   </main>
 
   <!-- PASSWORD MODAL -->
-  <div id="modal-password" class="modal-overlay hidden">
+  <div id="modal-password" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal">
       <h2>Admin Access</h2>
       <p class="muted">Enter password to enable edit mode.</p>
@@ -135,7 +137,7 @@
   </div>
 
   <!-- PDF VIEWER MODAL -->
-  <div id="modal-pdf" class="modal-overlay hidden">
+  <div id="modal-pdf" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal modal-pdf">
       <div class="pdf-toolbar">
         <span id="pdf-filename" class="pdf-title"></span>
@@ -159,7 +161,7 @@
   </div>
 
   <!-- CONFIRM MODAL -->
-  <div id="modal-confirm" class="modal-overlay hidden">
+  <div id="modal-confirm" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal">
       <h2 id="confirm-title">Confirm</h2>
       <p id="confirm-message" class="muted"></p>
@@ -171,7 +173,7 @@
   </div>
 
   <!-- DRIVE SETUP MODAL -->
-  <div id="modal-drive" class="modal-overlay hidden">
+  <div id="modal-drive" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal">
       <h2>Google Drive Setup</h2>
       <p class="muted">Paste your credentials to connect Drive. Stored locally on this device only.</p>
@@ -195,7 +197,7 @@
   </div>
 
   <!-- TOAST NOTIFICATION -->
-  <div id="toast" class="hidden"></div>
+  <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
   <script src="drive.js"></script>

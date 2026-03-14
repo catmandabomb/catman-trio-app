@@ -86,6 +86,7 @@ const PDFViewer = (() => {
 
   function close() {
     modal().classList.add('hidden');
+    if (_blobUrl) { try { URL.revokeObjectURL(_blobUrl); } catch(_){} _blobUrl = null; }
     _pdfDoc    = null;
     _pageNum   = 1;
     _rendering = false;

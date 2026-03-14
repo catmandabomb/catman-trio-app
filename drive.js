@@ -22,7 +22,7 @@ const Drive = (() => {
 
   let _accessToken = null;
   let _tokenClient = null;
-  let _resolveToken = null;
+  let _tokenPromise = null;
 
   // ─── Config ───────────────────────────────────────────────
 
@@ -62,28 +62,29 @@ const Drive = (() => {
    */
   function ensureToken() {
     if (_accessToken) return Promise.resolve(_accessToken);
-    return new Promise((resolve, reject) => {
+    if (_tokenPromise) return _tokenPromise;
+    _tokenPromise = new Promise((resolve, reject) => {
       const { clientId } = getConfig();
-      if (!clientId) return reject(new Error('Drive not configured'));
+      if (!clientId) { _tokenPromise = null; return reject(new Error('Drive not configured')); }
 
       if (!_tokenClient) {
         _tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
           scope: SCOPES,
           callback: (resp) => {
+            _tokenPromise = null;
             if (resp.error) {
-              if (_resolveToken) _resolveToken.reject(new Error(resp.error));
-              return;
+              return reject(new Error(resp.error));
             }
             _accessToken = resp.access_token;
-            if (_resolveToken) _resolveToken.resolve(_accessToken);
+            resolve(_accessToken);
           },
         });
       }
 
-      _resolveToken = { resolve, reject };
       _tokenClient.requestAccessToken({ prompt: '' });
     });
+    return _tokenPromise;
   }
 
   function signOut() {
