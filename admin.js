@@ -102,6 +102,8 @@ const Admin = (() => {
       id:        generateId(existingSetlists),
       name:      '',
       songs:     [],   // [{ id, comment }]
+      gigDate:   '',   // ISO date string, optional
+      archived:  false,
       createdAt: now,
       updatedAt: now,
     };

@@ -222,7 +222,7 @@ const App = (() => {
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
-      const { songs, setlists } = await Drive.loadAllData();
+      const { songs, setlists, practice } = await Drive.loadAllData();
       if (songs !== null) {
         const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
         _songs = songs;
@@ -232,6 +232,10 @@ const App = (() => {
       if (setlists !== null) {
         _setlists = setlists;
         _saveSetlistsLocal(setlists);
+      }
+      if (practice !== null) {
+        _practice = practice;
+        _savePracticeLocal(practice);
       }
       _markSynced();
     } catch (e) {
@@ -355,6 +359,7 @@ const App = (() => {
     const addBtn = document.getElementById('btn-add-song');
     addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
     document.getElementById('btn-setlists').classList.toggle('hidden', showBack);
+    document.getElementById('btn-practice').classList.toggle('hidden', showBack);
   }
 
   function _pushNav(renderFn) {
@@ -722,7 +727,7 @@ const App = (() => {
       <div class="edit-section">
         <div class="edit-section-title">Charts (PDF)</div>
         <div class="asset-edit-list" id="ef-chart-list">
-          ${(assets.charts||[]).map(c=>`<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove">×</button></div>`).join('')}
+          ${(assets.charts||[]).map(c=>`<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`).join('')}
         </div>
         <button class="btn-ghost" id="ef-add-chart">+ Add Chart PDF</button>
         <input type="file" id="ef-chart-file" accept=".pdf,application/pdf" style="display:none" multiple />
@@ -731,7 +736,7 @@ const App = (() => {
       <div class="edit-section">
         <div class="edit-section-title">Demo Recordings</div>
         <div class="asset-edit-list" id="ef-audio-list">
-          ${(assets.audio||[]).map(a=>`<div class="asset-edit-row" data-drive-id="${esc(a.driveId)}"><span class="asset-edit-name">${esc(a.name)}</span><button class="asset-edit-remove">×</button></div>`).join('')}
+          ${(assets.audio||[]).map(a=>`<div class="asset-edit-row" data-drive-id="${esc(a.driveId)}"><span class="asset-edit-name">${esc(a.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`).join('')}
         </div>
         <button class="btn-ghost" id="ef-add-audio">+ Add Audio File</button>
         <input type="file" id="ef-audio-file" accept="audio/*" style="display:none" multiple />
@@ -762,7 +767,7 @@ const App = (() => {
     return `<div class="link-edit-row">
       <select class="link-platform-select form-input">${opts}</select>
       <input class="form-input link-url-input" type="url" value="${esc(link.url)}" placeholder="Paste full URL…" />
-      <button class="asset-edit-remove link-remove" aria-label="Remove">×</button>
+      <button class="asset-delete-btn link-remove" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
     </div>`;
   }
 
@@ -823,15 +828,18 @@ const App = (() => {
     tagInput.addEventListener('blur', () => { if(tagInput.value.trim()){addTag(tagInput.value);tagInput.value='';} tagSuggest.classList.add('hidden'); });
     tagWrap.addEventListener('click', () => tagInput.focus());
 
-    // Asset removes
+    // Asset removes (with confirm)
     ['chart','audio'].forEach(type => {
       const assetKey = type === 'chart' ? 'charts' : 'audio';
       document.getElementById(`ef-${type}-list`).addEventListener('click', e => {
-        const btn = e.target.closest('.asset-edit-remove');
+        const btn = e.target.closest('.asset-edit-remove, .asset-delete-btn');
         if (!btn) return;
         const row = btn.closest('.asset-edit-row');
-        assets[assetKey] = assets[assetKey].filter(a => a.driveId !== row.dataset.driveId);
-        row.remove();
+        const name = row.querySelector('.asset-edit-name')?.textContent || 'this file';
+        Admin.showConfirm('Remove Attachment', `Remove "${name}" from this song?`, () => {
+          assets[assetKey] = assets[assetKey].filter(a => a.driveId !== row.dataset.driveId);
+          row.remove();
+        });
       });
     });
 
@@ -961,6 +969,40 @@ const App = (() => {
 
   // ─── SETLISTS LIST VIEW ──────────────────────────────────
 
+  let _showArchived = false;
+
+  function _autoArchiveSetlists() {
+    const now = Date.now();
+    const twoDays = 2 * 24 * 60 * 60 * 1000;
+    let changed = false;
+    _setlists.forEach(sl => {
+      if (sl.gigDate && !sl.archived) {
+        const gigTime = new Date(sl.gigDate).getTime();
+        if (!isNaN(gigTime) && now - gigTime > twoDays) {
+          sl.archived = true;
+          changed = true;
+        }
+      }
+    });
+    if (changed) _saveSetlistsLocal(_setlists);
+  }
+
+  function _setlistCardHTML(sl) {
+    const count = (sl.songs || []).length;
+    const editBtn = Admin.isEditMode()
+      ? `<button class="song-card-edit-btn setlist-edit-btn" data-edit-setlist="${esc(sl.id)}"><i data-lucide="pencil"></i></button>`
+      : '';
+    const dateStr = sl.gigDate ? `<span class="setlist-card-date">${esc(sl.gigDate)}</span>` : '';
+    return `
+      <div class="setlist-card" data-setlist-id="${esc(sl.id)}">
+        <div class="setlist-card-title-row">
+          <span class="setlist-card-name">${esc(sl.name) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
+          ${editBtn}
+        </div>
+        <span class="setlist-card-count">${count} song${count !== 1 ? 's' : ''}${dateStr ? ' · ' : ''}${dateStr}</span>
+      </div>`;
+  }
+
   function renderSetlists(skipNavReset) {
     _revokeBlobCache();
     if (!skipNavReset) {
@@ -970,8 +1012,11 @@ const App = (() => {
     _showView('setlists');
     _setTopbar('Setlists', true);
 
+    _autoArchiveSetlists();
+
     const container = document.getElementById('setlists-list');
-    const sorted = [..._setlists].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const active = _setlists.filter(sl => !sl.archived).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const archived = _setlists.filter(sl => sl.archived).sort((a, b) => (b.gigDate || b.updatedAt || '').localeCompare(a.gigDate || a.updatedAt || ''));
 
     let html = '';
 
@@ -979,26 +1024,35 @@ const App = (() => {
       html += `<button class="btn-ghost setlist-add-btn" id="btn-new-setlist">+ New Setlist</button>`;
     }
 
-    if (sorted.length === 0) {
-      html += `<div class="empty-state" style="padding:40px 20px">
-        <p>No setlists yet.</p>
-        <p class="muted">${Admin.isEditMode() ? 'Create one above.' : 'Setlists will appear here.'}</p>
-      </div>`;
+    if (!_showArchived) {
+      if (active.length === 0) {
+        html += `<div class="empty-state" style="padding:40px 20px">
+          <p>No active setlists.</p>
+          <p class="muted">${Admin.isEditMode() ? 'Create one above.' : 'Setlists will appear here.'}</p>
+        </div>`;
+      } else {
+        active.forEach(sl => { html += _setlistCardHTML(sl); });
+      }
+      if (archived.length > 0) {
+        html += `<button class="btn-ghost archive-toggle-btn" id="btn-toggle-archive">
+          <i data-lucide="archive" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>
+          Archived <span class="archive-badge">${archived.length}</span>
+        </button>`;
+      }
     } else {
-      sorted.forEach(sl => {
-        const count = (sl.songs || []).length;
-        const editBtn = Admin.isEditMode()
-          ? `<button class="song-card-edit-btn setlist-edit-btn" data-edit-setlist="${esc(sl.id)}"><i data-lucide="pencil"></i></button>`
-          : '';
-        html += `
-          <div class="setlist-card" data-setlist-id="${esc(sl.id)}">
-            <div class="setlist-card-title-row">
-              <span class="setlist-card-name">${esc(sl.name) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
-              ${editBtn}
-            </div>
-            <span class="setlist-card-count">${count} song${count !== 1 ? 's' : ''}</span>
+      html += `<button class="btn-ghost archive-toggle-btn" id="btn-toggle-archive">
+        <i data-lucide="chevron-left" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>
+        Back to Active
+      </button>`;
+      if (archived.length === 0) {
+        html += `<div class="empty-state" style="padding:40px 20px"><p>No archived setlists.</p></div>`;
+      } else {
+        archived.forEach(sl => {
+          html += `<div class="archive-card-wrap">${_setlistCardHTML(sl)}
+            <button class="btn-ghost unarchive-btn" data-unarchive-id="${esc(sl.id)}" style="font-size:11px;padding:4px 10px;margin-top:-6px;margin-bottom:10px;">Unarchive</button>
           </div>`;
-      });
+        });
+      }
     }
 
     container.innerHTML = html;
@@ -1019,6 +1073,26 @@ const App = (() => {
         e.stopPropagation();
         const sl = _setlists.find(s => s.id === btn.dataset.editSetlist);
         if (sl) renderSetlistEdit(sl, false, true);
+      });
+    });
+
+    // Wire archive toggle
+    document.getElementById('btn-toggle-archive')?.addEventListener('click', () => {
+      _showArchived = !_showArchived;
+      renderSetlists(true);
+    });
+
+    // Wire unarchive buttons
+    container.querySelectorAll('.unarchive-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sl = _setlists.find(s => s.id === btn.dataset.unarchiveId);
+        if (sl) {
+          sl.archived = false;
+          _saveSetlistsLocal(_setlists);
+          renderSetlists(true);
+          showToast('Setlist unarchived.');
+        }
       });
     });
 
@@ -1142,6 +1216,10 @@ const App = (() => {
           <label class="form-label">Name</label>
           <input class="form-input" id="slf-name" type="text" value="${esc(sl.name)}" placeholder="e.g. Sally's Bar 12/3/25 Setlist" maxlength="200" />
         </div>
+        <div class="form-field">
+          <label class="form-label">Gig Date <span class="muted" style="font-weight:400">(optional — auto-archives 2 days after)</span></label>
+          <input class="form-input" id="slf-gig-date" type="date" value="${esc(sl.gigDate || '')}" />
+        </div>
       </div>
 
       <div class="edit-section">
@@ -1181,6 +1259,7 @@ const App = (() => {
         const key = song && song.key ? esc(song.key) : '';
         return `
           <div class="setlist-edit-row" data-idx="${i}">
+            <div class="drag-handle"><i data-lucide="grip-vertical" style="width:16px;height:16px;"></i></div>
             <span class="setlist-song-num">${i + 1}</span>
             <div class="setlist-edit-row-info">
               <div class="setlist-edit-row-header">
@@ -1194,27 +1273,29 @@ const App = (() => {
               </div>
             </div>
             <div class="setlist-edit-row-actions">
-              <button class="icon-btn sl-move-up" data-idx="${i}" ${i === 0 ? 'disabled' : ''}><i data-lucide="chevron-up"></i></button>
-              <button class="icon-btn sl-move-down" data-idx="${i}" ${i === sl.songs.length - 1 ? 'disabled' : ''}><i data-lucide="chevron-down"></i></button>
               <button class="icon-btn sl-remove" data-idx="${i}" style="color:var(--red)"><i data-lucide="x"></i></button>
             </div>
           </div>`;
       }).join('');
       if (typeof lucide !== 'undefined') lucide.createIcons();
 
+      // Init SortableJS
+      if (typeof Sortable !== 'undefined' && sl.songs.length > 1) {
+        Sortable.create(container, {
+          handle: '.drag-handle',
+          animation: 150,
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen',
+          onEnd: (evt) => {
+            const moved = sl.songs.splice(evt.oldIndex, 1)[0];
+            sl.songs.splice(evt.newIndex, 0, moved);
+            _renderSelectedSongs();
+            _renderPicker();
+          }
+        });
+      }
+
       // Wire actions
-      container.querySelectorAll('.sl-move-up').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.dataset.idx);
-          if (idx > 0) { [sl.songs[idx - 1], sl.songs[idx]] = [sl.songs[idx], sl.songs[idx - 1]]; _renderSelectedSongs(); _renderPicker(); }
-        });
-      });
-      container.querySelectorAll('.sl-move-down').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.dataset.idx);
-          if (idx < sl.songs.length - 1) { [sl.songs[idx], sl.songs[idx + 1]] = [sl.songs[idx + 1], sl.songs[idx]]; _renderSelectedSongs(); _renderPicker(); }
-        });
-      });
       container.querySelectorAll('.sl-remove').forEach(btn => {
         btn.addEventListener('click', () => {
           sl.songs.splice(parseInt(btn.dataset.idx), 1);
@@ -1281,6 +1362,8 @@ const App = (() => {
     document.getElementById('slf-save').addEventListener('click', async () => {
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
+      sl.gigDate = document.getElementById('slf-gig-date').value || '';
+      if (typeof sl.archived === 'undefined') sl.archived = false;
       sl.updatedAt = new Date().toISOString();
       if (_editSetlistIsNew) {
         _setlists.push(sl);
@@ -1307,6 +1390,562 @@ const App = (() => {
         renderSetlists();
       });
     });
+  }
+
+  // ─── PRACTICE LISTS — Data ─────────────────────────────────
+
+  let _practice = [];   // Array of persona objects
+  let _activePersona = null;
+  let _editPersona = null;
+  let _editPersonaIsNew = false;
+
+  function _hslFromName(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const h = ((hash % 360) + 360) % 360;
+    return `hsl(${h}, 60%, 55%)`;
+  }
+
+  function _personaInitials(name) {
+    return (name || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  }
+
+  function _loadPracticeLocal() {
+    try { return JSON.parse(localStorage.getItem('bb_practice') || '[]'); }
+    catch { return []; }
+  }
+
+  function _savePracticeLocal(data) {
+    localStorage.setItem('bb_practice', JSON.stringify(data));
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
+    }
+  }
+
+  function _loadPracticeFromSWCache() {
+    return new Promise((resolve) => {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
+      const timeout = setTimeout(() => resolve(null), 500);
+      const handler = (e) => {
+        if (e.data && e.data.type === 'CACHED_PRACTICE') {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve(e.data.practice);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_PRACTICE' });
+    });
+  }
+
+  async function loadPracticeInstant() {
+    const local = _loadPracticeLocal();
+    if (local.length > 0) { _practice = local; return; }
+    const sw = await _loadPracticeFromSWCache();
+    if (sw && sw.length > 0) { _practice = sw; _savePracticeLocal(sw); }
+  }
+
+  async function savePractice() {
+    _savePracticeLocal(_practice);
+    if (Drive.isWriteConfigured()) {
+      try { await Drive.savePractice(_practice); } catch (e) {
+        showToast('Saved locally. Drive sync failed.');
+        return;
+      }
+    }
+    showToast('Practice list saved.');
+  }
+
+  // ─── PRACTICE — Persona List View ────────────────────────
+
+  function renderPractice(skipNavReset) {
+    _revokeBlobCache();
+    if (!skipNavReset) {
+      _navStack = [];
+      _pushNav(() => renderList());
+    }
+    _showView('practice');
+    _setTopbar('Practice Lists', true);
+
+    const container = document.getElementById('practice-list');
+    let html = '';
+
+    if (Admin.isEditMode()) {
+      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-persona">+ New Persona</button>`;
+    }
+
+    if (_practice.length === 0) {
+      html += `<div class="empty-state" style="padding:40px 20px">
+        <p>No practice personas yet.</p>
+        <p class="muted">${Admin.isEditMode() ? 'Create one above.' : 'Practice personas will appear here.'}</p>
+      </div>`;
+    } else {
+      _practice.forEach(p => {
+        const color = p.color || _hslFromName(p.name);
+        const count = (p.lists || []).length;
+        const editBtn = Admin.isEditMode()
+          ? `<button class="song-card-edit-btn persona-edit-btn" data-edit-persona="${esc(p.id)}"><i data-lucide="pencil"></i></button>`
+          : '';
+        html += `
+          <div class="persona-card" data-persona-id="${esc(p.id)}">
+            <div class="persona-avatar" style="background:${color}">${_personaInitials(p.name)}</div>
+            <div class="persona-card-info">
+              <div class="persona-card-title-row">
+                <span class="persona-card-name">${esc(p.name)}</span>
+                ${editBtn}
+              </div>
+              <span class="persona-card-count">${count} song${count !== 1 ? 's' : ''}</span>
+            </div>
+          </div>`;
+      });
+    }
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    container.querySelectorAll('.persona-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.persona-edit-btn')) return;
+        const p = _practice.find(x => x.id === card.dataset.personaId);
+        if (p) renderPracticeDetail(p);
+      });
+    });
+
+    container.querySelectorAll('.persona-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const p = _practice.find(x => x.id === btn.dataset.editPersona);
+        if (p) renderPracticeEdit(p, false);
+      });
+    });
+
+    document.getElementById('btn-new-persona')?.addEventListener('click', () => {
+      const newP = {
+        id: Admin.generateId(_practice),
+        name: '',
+        color: '',
+        lists: [],
+      };
+      renderPracticeEdit(newP, true);
+    });
+  }
+
+  // ─── PRACTICE — Detail View ───────────────────────────────
+
+  function renderPracticeDetail(persona, skipNavPush) {
+    _revokeBlobCache();
+    Player.stopAll();
+    _activePersona = persona;
+    if (!skipNavPush) _pushNav(() => renderPractice());
+    _showView('practice-detail');
+    _setTopbar(persona.name || 'Practice List', true);
+
+    const container = document.getElementById('practice-detail-content');
+    const lists = persona.lists || [];
+    const color = persona.color || _hslFromName(persona.name);
+
+    let html = `<div class="detail-header">
+      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-persona">Edit Practice List</button></div>` : ''}
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+        <div class="persona-avatar persona-avatar-lg" style="background:${color}">${_personaInitials(persona.name)}</div>
+        <div class="detail-title" style="margin-bottom:0">${esc(persona.name) || 'Unnamed'}</div>
+      </div>
+      <div class="detail-subtitle">${lists.length} song${lists.length !== 1 ? 's' : ''} in practice list</div>
+    </div>`;
+
+    // Add song button (visible on ALL platforms, not edit-mode restricted)
+    html += `<button class="btn-ghost" id="btn-add-practice-song" style="width:100%;text-align:center;margin-bottom:16px;">
+      <i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add Song to Practice
+    </button>`;
+
+    // Practice mode button
+    if (lists.length > 0) {
+      html += `<button class="btn-primary practice-enter-btn" id="btn-enter-practice-mode" style="width:100%;margin-bottom:20px;">
+        <i data-lucide="play" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Enter Practice Mode
+      </button>`;
+    }
+
+    if (lists.length === 0) {
+      html += `<div class="empty-state" style="padding:40px 20px">
+        <p>No songs yet.</p>
+        <p class="muted">Add songs from the song list.</p>
+      </div>`;
+    } else {
+      html += `<div class="practice-song-list">`;
+      lists.forEach((entry, i) => {
+        const song = _songs.find(s => s.id === entry.songId);
+        if (song) {
+          html += `
+            <div class="setlist-song-row" data-song-id="${esc(song.id)}">
+              <span class="setlist-song-num">${i + 1}</span>
+              <div class="setlist-song-info">
+                <span class="setlist-song-title">${esc(song.title)}</span>
+                <span class="setlist-song-meta">
+                  ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}
+                </span>
+                ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
+              </div>
+              <i data-lucide="chevron-right" class="file-item-arrow"></i>
+            </div>`;
+        }
+      });
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire song clicks
+    container.querySelectorAll('.setlist-song-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const song = _songs.find(s => s.id === row.dataset.songId);
+        if (song) {
+          _pushNav(() => renderPracticeDetail(persona));
+          renderDetail(song, true);
+        }
+      });
+    });
+
+    // Wire edit button
+    container.querySelector('.btn-edit-persona')?.addEventListener('click', () => {
+      renderPracticeEdit(persona, false);
+    });
+    if (!Admin.isEditMode()) {
+      container.querySelector('.detail-edit-bar')?.remove();
+    }
+
+    // Wire add song button — shows picker
+    document.getElementById('btn-add-practice-song')?.addEventListener('click', () => {
+      _showPracticeSongPicker(persona);
+    });
+
+    // Wire practice mode
+    document.getElementById('btn-enter-practice-mode')?.addEventListener('click', () => {
+      _enterPracticeMode(persona);
+    });
+  }
+
+  function _showPracticeSongPicker(persona) {
+    const existingIds = new Set((persona.lists || []).map(e => e.songId));
+    const available = [..._songs].filter(s => !existingIds.has(s.id)).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+
+    const container = document.getElementById('practice-detail-content');
+    let pickerHtml = `<div class="edit-section" id="practice-picker-section">
+      <div class="edit-section-title">Add Song to Practice</div>
+      <div class="form-field">
+        <input class="form-input" id="practice-picker-search" type="text" placeholder="Search songs…" autocomplete="off" />
+      </div>
+      <div id="practice-picker-list" class="setlist-picker-list"></div>
+      <button class="btn-secondary" id="practice-picker-close" style="margin-top:10px;width:100%">Close</button>
+    </div>`;
+    const div = document.createElement('div');
+    div.innerHTML = pickerHtml;
+    container.appendChild(div.firstElementChild);
+
+    function renderPickerResults(search) {
+      let filtered = available;
+      if (search) {
+        const q = search.toLowerCase();
+        filtered = available.filter(s =>
+          (s.title || '').toLowerCase().includes(q) ||
+          (s.key || '').toLowerCase().includes(q) ||
+          (s.tags || []).some(t => t.toLowerCase().includes(q))
+        );
+      }
+      const pickerList = document.getElementById('practice-picker-list');
+      if (!filtered.length) {
+        pickerList.innerHTML = `<div class="muted" style="font-size:13px;padding:8px 0">${search ? 'No matching songs.' : 'All songs added.'}</div>`;
+        return;
+      }
+      pickerList.innerHTML = filtered.map(s => `
+        <div class="setlist-picker-row" data-pick-id="${esc(s.id)}">
+          <div class="setlist-picker-info">
+            <span class="setlist-picker-title">${esc(s.title)}</span>
+            <span class="setlist-picker-meta">${s.key ? esc(s.key) : ''}${s.key && s.bpm ? ' · ' : ''}${s.bpm ? esc(String(s.bpm)) + ' bpm' : ''}</span>
+          </div>
+          <button class="btn-ghost sl-add-btn" data-pick-id="${esc(s.id)}">Add</button>
+        </div>
+      `).join('');
+      pickerList.querySelectorAll('.sl-add-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          persona.lists = persona.lists || [];
+          persona.lists.push({ songId: btn.dataset.pickId, comment: '', addedAt: new Date().toISOString() });
+          const idx = _practice.findIndex(p => p.id === persona.id);
+          if (idx > -1) _practice[idx] = persona;
+          await savePractice();
+          document.getElementById('practice-picker-section')?.remove();
+          renderPracticeDetail(persona, true);
+        });
+      });
+    }
+
+    renderPickerResults('');
+    document.getElementById('practice-picker-search')?.addEventListener('input', (e) => {
+      renderPickerResults(e.target.value.trim());
+    });
+    document.getElementById('practice-picker-close')?.addEventListener('click', () => {
+      document.getElementById('practice-picker-section')?.remove();
+    });
+  }
+
+  // ─── PRACTICE — Edit View ─────────────────────────────────
+
+  function renderPracticeEdit(persona, isNew) {
+    _revokeBlobCache();
+    Player.stopAll();
+    _editPersona = deepClone(persona);
+    _editPersonaIsNew = isNew;
+    if (!_editPersona.lists) _editPersona.lists = [];
+
+    if (isNew) {
+      _pushNav(() => renderPractice());
+    } else {
+      _pushNav(() => renderPracticeDetail(persona));
+    }
+    _showView('practice-edit');
+    _setTopbar(isNew ? 'New Persona' : 'Edit Practice List', true);
+
+    const container = document.getElementById('practice-edit-content');
+    const p = _editPersona;
+
+    let html = `
+      <div class="edit-section">
+        <div class="edit-section-title">Persona Info</div>
+        <div class="form-field">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="pf-name" type="text" value="${esc(p.name)}" placeholder="e.g. Cat, Marc, Jeff…" maxlength="100" />
+        </div>
+      </div>
+
+      <div class="edit-section">
+        <div class="edit-section-title">Songs in Practice List</div>
+        <div id="pf-selected-songs" class="setlist-edit-selected"></div>
+        <div class="setlist-empty-msg ${p.lists.length ? 'hidden' : ''}" id="pf-empty-msg">No songs yet. Add songs from the detail view.</div>
+      </div>
+
+      <div class="edit-form-actions">
+        <button class="btn-primary" id="pf-save">Save</button>
+        <button class="btn-secondary" id="pf-cancel">Cancel</button>
+      </div>
+
+      ${!isNew ? `<div class="delete-zone"><button class="btn-danger" id="pf-delete">Delete Persona</button></div>` : ''}
+    `;
+
+    container.innerHTML = html;
+
+    function _renderPracticeSongs() {
+      const songContainer = document.getElementById('pf-selected-songs');
+      document.getElementById('pf-empty-msg')?.classList.toggle('hidden', p.lists.length > 0);
+
+      songContainer.innerHTML = p.lists.map((entry, i) => {
+        const song = _songs.find(s => s.id === entry.songId);
+        const title = song ? esc(song.title) : '<em style="color:var(--text-3)">Song not found</em>';
+        const key = song && song.key ? esc(song.key) : '';
+        return `
+          <div class="setlist-edit-row" data-idx="${i}">
+            <div class="drag-handle"><i data-lucide="grip-vertical" style="width:16px;height:16px;"></i></div>
+            <span class="setlist-song-num">${i + 1}</span>
+            <div class="setlist-edit-row-info">
+              <div class="setlist-edit-row-header">
+                <span class="setlist-edit-row-title">${title}</span>
+                ${key ? `<span class="setlist-edit-row-key">${key}</span>` : ''}
+              </div>
+              <div class="setlist-edit-comment-wrap">
+                <textarea class="form-input practice-comment-input" rows="3"
+                  placeholder="Practice notes, tips…" data-comment-idx="${i}" style="font-size:12px;min-height:60px;">${esc(entry.comment || '')}</textarea>
+              </div>
+            </div>
+            <div class="setlist-edit-row-actions">
+              <button class="icon-btn sl-remove" data-idx="${i}" style="color:var(--red)"><i data-lucide="x"></i></button>
+            </div>
+          </div>`;
+      }).join('');
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+
+      // SortableJS for practice list
+      if (typeof Sortable !== 'undefined' && p.lists.length > 1) {
+        Sortable.create(songContainer, {
+          handle: '.drag-handle',
+          animation: 150,
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen',
+          onEnd: (evt) => {
+            const moved = p.lists.splice(evt.oldIndex, 1)[0];
+            p.lists.splice(evt.newIndex, 0, moved);
+            _renderPracticeSongs();
+          }
+        });
+      }
+
+      songContainer.querySelectorAll('.sl-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          p.lists.splice(parseInt(btn.dataset.idx), 1);
+          _renderPracticeSongs();
+        });
+      });
+      songContainer.querySelectorAll('.practice-comment-input').forEach(input => {
+        input.addEventListener('input', () => {
+          p.lists[parseInt(input.dataset.commentIdx)].comment = input.value;
+        });
+      });
+    }
+
+    _renderPracticeSongs();
+
+    // Save
+    document.getElementById('pf-save').addEventListener('click', async () => {
+      p.name = document.getElementById('pf-name').value.trim();
+      if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
+      p.color = p.color || _hslFromName(p.name);
+      if (_editPersonaIsNew) {
+        _practice.push(p);
+      } else {
+        const idx = _practice.findIndex(x => x.id === p.id);
+        if (idx > -1) _practice[idx] = p;
+      }
+      await savePractice();
+      _activePersona = null;
+      renderPractice();
+    });
+
+    document.getElementById('pf-cancel').addEventListener('click', () => _navigateBack());
+
+    document.getElementById('pf-delete')?.addEventListener('click', () => {
+      Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and their practice list?`, async () => {
+        _practice = _practice.filter(x => x.id !== p.id);
+        await savePractice();
+        _activePersona = null;
+        renderPractice();
+      });
+    });
+  }
+
+  // ─── PRACTICE MODE ────────────────────────────────────────
+
+  let _practicePersona = null;
+
+  function _enterPracticeMode(persona) {
+    _practicePersona = persona;
+    _revokeBlobCache();
+    Player.stopAll();
+    _pushNav(() => renderPracticeDetail(persona));
+    _showView('practice-detail');
+    document.body.classList.add('practice-mode-active');
+    _setTopbar('Practice Mode', true);
+
+    const container = document.getElementById('practice-detail-content');
+    const lists = persona.lists || [];
+
+    let html = `<div class="practice-mode-header">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="persona-avatar" style="background:${persona.color || _hslFromName(persona.name)}">${_personaInitials(persona.name)}</div>
+        <div>
+          <div class="detail-title" style="font-size:22px;margin-bottom:0">${esc(persona.name)}</div>
+          <div class="muted" style="font-size:12px">${lists.length} songs</div>
+        </div>
+      </div>
+      <button class="btn-secondary" id="btn-exit-practice-mode" style="width:100%;margin-bottom:16px;">Exit Practice Mode</button>
+    </div>`;
+
+    html += `<div class="practice-accordion">`;
+    lists.forEach((entry, i) => {
+      const song = _songs.find(s => s.id === entry.songId);
+      if (!song) return;
+      const a = song.assets || {};
+      html += `
+        <div class="practice-accordion-item" data-practice-idx="${i}">
+          <div class="practice-accordion-header" data-toggle-idx="${i}">
+            <span class="setlist-song-num" style="font-size:12px;min-width:24px;height:24px;line-height:24px;">${i + 1}</span>
+            <div style="flex:1;min-width:0">
+              <span class="setlist-song-title">${esc(song.title)}</span>
+              <span class="setlist-song-meta" style="display:block">${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}</span>
+            </div>
+            <i data-lucide="chevron-down" class="accordion-chevron" style="width:16px;height:16px;flex-shrink:0;transition:transform 0.2s;"></i>
+          </div>
+          <div class="practice-accordion-body hidden">
+            ${entry.comment ? `<div class="detail-notes" style="margin-bottom:12px;font-size:13px;">${esc(entry.comment)}</div>` : ''}
+            ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
+              <div class="detail-section-label">Charts</div>
+              <div class="file-list">${(a.charts || []).map(c => `
+                <div class="file-item-row"><button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
+                  <div class="file-item-icon pdf"><i data-lucide="file-text"></i></div>
+                  <span class="file-item-name">${esc(c.name)}</span>
+                  <i data-lucide="chevron-right" class="file-item-arrow"></i>
+                </button></div>`).join('')}
+              </div>
+            </div>` : ''}
+            ${(a.audio || []).length ? `<div class="detail-section" style="margin-bottom:12px">
+              <div class="detail-section-label">Audio</div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                ${(a.audio || []).map(au => `<div data-audio-container="${esc(au.driveId)}" data-name="${esc(au.name)}"></div>`).join('')}
+              </div>
+            </div>` : ''}
+            ${(a.links || []).length ? `<div class="detail-section" style="margin-bottom:12px">
+              <div class="detail-section-label">Links</div>
+              <div class="embed-list">${(a.links || []).map(l => _buildEmbedHTML(l)).join('')}</div>
+            </div>` : ''}
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire accordion
+    container.querySelectorAll('.practice-accordion-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const item = header.closest('.practice-accordion-item');
+        const body = item.querySelector('.practice-accordion-body');
+        const chevron = header.querySelector('.accordion-chevron, svg');
+        const isOpen = !body.classList.contains('hidden');
+        body.classList.toggle('hidden');
+        if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+
+        // Load audio players when expanding
+        if (!isOpen) {
+          body.querySelectorAll('[data-audio-container]').forEach(async el => {
+            if (el.dataset.loaded) return;
+            el.dataset.loaded = 'true';
+            el.innerHTML = `<div class="audio-player audio-skeleton">
+              <div class="skeleton-text" style="width:40%;height:13px"></div>
+              <div class="audio-controls"><div class="skeleton-circle"></div><div class="audio-progress-wrap"><div class="skeleton-bar"></div></div></div>
+            </div>`;
+            try {
+              const url = await _getBlobUrl(el.dataset.audioContainer);
+              el.innerHTML = '';
+              const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
+              _playerRefs.push(ref);
+            } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
+          });
+
+          // Wire chart buttons in this body
+          body.querySelectorAll('[data-open-chart]').forEach(btn => {
+            if (btn.dataset.wired) return;
+            btn.dataset.wired = 'true';
+            btn.addEventListener('click', async () => {
+              btn.disabled = true;
+              try {
+                const url = await _getBlobUrl(btn.dataset.openChart);
+                PDFViewer.open(url, btn.dataset.name);
+              } catch { showToast('Failed to load chart.'); }
+              finally { btn.disabled = false; }
+            });
+          });
+        }
+      });
+    });
+
+    // Wire exit
+    document.getElementById('btn-exit-practice-mode')?.addEventListener('click', () => {
+      _exitPracticeMode();
+    });
+  }
+
+  function _exitPracticeMode() {
+    document.body.classList.remove('practice-mode-active');
+    _practicePersona = null;
+    _navigateBack();
   }
 
   // ─── Init ──────────────────────────────────────────────────
@@ -1345,6 +1984,9 @@ const App = (() => {
         else if (_view === 'setlists')     renderSetlists(true);
         else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
         else if (_view === 'setlist-edit') renderSetlists();
+        else if (_view === 'practice')     renderPractice(true);
+        else if (_view === 'practice-detail' && _activePersona) renderPracticeDetail(_activePersona, true);
+        else if (_view === 'practice-edit') renderPractice();
       } else {
         Admin.showPasswordModal(() => {
           Admin.enterEditMode();
@@ -1352,6 +1994,8 @@ const App = (() => {
           else if (_view === 'detail')       renderDetail(_activeSong, true);
           else if (_view === 'setlists')     renderSetlists(true);
           else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
+          else if (_view === 'practice')     renderPractice(true);
+          else if (_view === 'practice-detail' && _activePersona) renderPracticeDetail(_activePersona, true);
         });
       }
     });
@@ -1389,6 +2033,11 @@ const App = (() => {
       renderSetlists();
     });
 
+    // Practice button
+    document.getElementById('btn-practice').addEventListener('click', () => {
+      renderPractice();
+    });
+
     // Master volume slider (hidden on iOS — audio.volume is read-only there)
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const volWrap   = document.getElementById('master-volume');
@@ -1417,11 +2066,12 @@ const App = (() => {
 
     await loadSongsInstant();
     await loadSetlistsInstant();
+    await loadPracticeInstant();
     renderList();
     _syncAllFromDrive();
   }
 
-  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists };
+  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail };
 
 })();
 

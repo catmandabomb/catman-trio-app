@@ -41,12 +41,18 @@ const PDFViewer = (() => {
     const scale = Math.min(containerWidth / viewport.width, 2.5);
     const scaled = page.getViewport({ scale });
 
+    const dpr = window.devicePixelRatio || 1;
     const cvs = canvas();
-    cvs.width  = scaled.width;
-    cvs.height = scaled.height;
+    cvs.width  = scaled.width * dpr;
+    cvs.height = scaled.height * dpr;
+    cvs.style.width  = scaled.width + 'px';
+    cvs.style.height = scaled.height + 'px';
+
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
 
     await page.render({
-      canvasContext: cvs.getContext('2d'),
+      canvasContext: ctx,
       viewport: scaled,
     }).promise;
 

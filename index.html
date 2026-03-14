@@ -18,9 +18,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=16.0" />
+  <link rel="stylesheet" href="app.css?v=17.0" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 </head>
 <body>
 
@@ -34,6 +35,9 @@
       <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" />
     </div>
     <div class="topbar-right">
+      <button id="btn-practice" class="btn-ghost topbar-practice-btn">
+        <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
+      </button>
       <button id="btn-setlists" class="btn-ghost topbar-setlists-btn">
         <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
       </button>
@@ -97,6 +101,21 @@
     <!-- SETLIST EDIT VIEW -->
     <div id="view-setlist-edit" class="view">
       <div id="setlist-edit-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- PRACTICE LISTS VIEW -->
+    <div id="view-practice" class="view">
+      <div id="practice-list" style="padding:16px"></div>
+    </div>
+
+    <!-- PRACTICE DETAIL VIEW -->
+    <div id="view-practice-detail" class="view">
+      <div id="practice-detail-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- PRACTICE EDIT VIEW -->
+    <div id="view-practice-edit" class="view">
+      <div id="practice-edit-content" style="padding:20px 16px"></div>
     </div>
 
   </main>

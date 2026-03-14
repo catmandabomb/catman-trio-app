@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v16.0';
+const CACHE_NAME = 'catmantrio-v17.0';
 const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
@@ -84,6 +84,26 @@ self.addEventListener('message', (e) => {
       e.source.postMessage({ type: 'CACHED_SETLISTS', setlists });
     });
   }
+
+  if (e.data && e.data.type === 'CACHE_PRACTICE') {
+    const resp = new Response(JSON.stringify(e.data.practice), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    caches.open(SONGS_CACHE).then(cache => {
+      cache.put('practice-data', resp);
+    });
+  }
+
+  if (e.data && e.data.type === 'GET_CACHED_PRACTICE') {
+    caches.open(SONGS_CACHE).then(cache =>
+      cache.match('practice-data')
+    ).then(resp => {
+      if (resp) return resp.json();
+      return null;
+    }).then(practice => {
+      e.source.postMessage({ type: 'CACHED_PRACTICE', practice });
+    });
+  }
 });
 
 // Fetch: shell-first, network fallback
@@ -92,7 +112,8 @@ self.addEventListener('fetch', (e) => {
   if (e.request.url.includes('googleapis.com') ||
       e.request.url.includes('gstatic.com') ||
       e.request.url.includes('accounts.google.com') ||
-      e.request.url.includes('cdnjs.cloudflare.com')) {
+      e.request.url.includes('cdnjs.cloudflare.com') ||
+      e.request.url.includes('cdn.jsdelivr.net')) {
     return;
   }
 

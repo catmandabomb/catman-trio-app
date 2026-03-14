@@ -51,7 +51,7 @@
   --radius-lg:    16px;
   --radius-xl:    20px;
 
-  --topbar-h:     52px;
+  --topbar-h:     72px;
   --safe-top:     env(safe-area-inset-top, 0px);
   --safe-bottom:  env(safe-area-inset-bottom, 0px);
 
@@ -1246,6 +1246,24 @@ textarea.form-input {
 }
 .asset-edit-remove:hover { opacity: 1; }
 
+.asset-delete-btn {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid rgba(255,107,107,0.25);
+  flex-shrink: 0;
+  transition: background 0.12s, box-shadow 0.12s;
+  padding: 0;
+  font-size: 0;
+  opacity: 1;
+}
+.asset-delete-btn:hover {
+  background: rgba(255,107,107,0.25);
+  box-shadow: 0 0 8px rgba(255,107,107,0.2);
+}
+
 /* Link edit rows */
 .link-edit-row {
   display: grid;
@@ -1546,6 +1564,35 @@ textarea.form-input {
   margin-bottom: 16px;
 }
 
+.setlist-card-date {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.archive-toggle-btn {
+  width: 100%;
+  text-align: center;
+  margin-top: 16px;
+}
+.archive-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 100px;
+  padding: 0 6px;
+  margin-left: 4px;
+}
+.archive-card-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Setlist detail song rows */
 .setlist-song-list {
   display: flex;
@@ -1678,6 +1725,7 @@ textarea.form-input {
   display: flex;
   gap: 2px;
   flex-shrink: 0;
+  align-items: center;
 }
 .setlist-edit-row-actions .icon-btn {
   width: 28px;
@@ -1686,6 +1734,40 @@ textarea.form-input {
 .setlist-edit-row-actions .icon-btn:disabled {
   opacity: 0.25;
   cursor: default;
+}
+
+/* Drag handle */
+.drag-handle {
+  cursor: grab;
+  color: var(--text-3);
+  padding: 4px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+.drag-handle:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.drag-handle:active { cursor: grabbing; }
+@keyframes dragShimmer {
+  0%   { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+.drag-handle:hover svg,
+.drag-handle:active svg {
+  filter: drop-shadow(0 0 4px rgba(240,204,128,0.4));
+}
+.sortable-ghost {
+  opacity: 0.4;
+  background: var(--accent-bg) !important;
+  border-color: var(--accent) !important;
+}
+.sortable-chosen {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 0 1px var(--accent-dim);
 }
 
 .setlist-empty-msg {
@@ -1739,6 +1821,139 @@ textarea.form-input {
   flex-shrink: 0;
   padding: 4px 12px;
   font-size: 12px;
+}
+
+/* ═══════════════════════════════════════════
+   PRACTICE LISTS
+═══════════════════════════════════════════ */
+.topbar-practice-btn {
+  padding: 5px 16px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.persona-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s, box-shadow 0.12s;
+  margin-bottom: 10px;
+}
+.persona-card:hover {
+  background: var(--bg-3);
+  border-color: var(--border-light);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+
+.persona-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+.persona-avatar-lg {
+  width: 52px; height: 52px;
+  font-size: 20px;
+}
+
+.persona-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.persona-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.persona-card-name {
+  font-family: 'Oxanium', sans-serif;
+  flex: 1;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.persona-card-count {
+  display: block;
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+/* Practice mode */
+.practice-accordion-item {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.practice-accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.practice-accordion-header:hover {
+  background: var(--bg-3);
+}
+
+.practice-accordion-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border);
+}
+.practice-accordion-body.hidden {
+  display: none;
+}
+
+/* Practice mode ambient styling */
+.practice-mode-active {
+  --bg:   #0f0e10;
+  --bg-2: #181618;
+}
+.practice-mode-active #topbar {
+  border-bottom-color: var(--accent-dim);
+}
+.practice-mode-active #topbar::after {
+  opacity: 0.7;
+  animation: practiceGlow 2s ease-in-out infinite;
+}
+@keyframes practiceGlow {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.9; }
+}
+
+/* Hide nav in practice mode */
+.practice-mode-active #btn-edit-mode,
+.practice-mode-active #btn-add-song,
+.practice-mode-active #btn-setlists,
+.practice-mode-active #btn-practice,
+.practice-mode-active #master-volume {
+  display: none !important;
+}
+
+.practice-song-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* ═══════════════════════════════════════════
