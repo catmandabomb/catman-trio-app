@@ -171,12 +171,12 @@ const App = (() => {
     localStorage.setItem('bb_last_sync', String(Date.now()));
   }
 
-  async function _syncAllFromDrive() {
+  async function _syncAllFromDrive(force) {
     if (!Drive.isConfigured()) {
       _syncDone();
       return;
     }
-    if (!_shouldSync()) {
+    if (!force && !_shouldSync()) {
       _syncDone();
       return;
     }
@@ -302,6 +302,7 @@ const App = (() => {
     const addBtn = document.getElementById('btn-add-song');
     addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
     document.getElementById('btn-setlists').classList.toggle('hidden', showBack);
+    document.getElementById('btn-refresh').classList.toggle('hidden', showBack);
   }
 
   function _pushNav(renderFn) {
@@ -1277,6 +1278,11 @@ const App = (() => {
     if (navigator.storage && navigator.storage.persist) {
       navigator.storage.persist().catch(() => {});
     }
+
+    // Refresh button (force sync, bypass cooldown)
+    document.getElementById('btn-refresh').addEventListener('click', () => {
+      _syncAllFromDrive(true);
+    });
 
     // Setlists button
     document.getElementById('btn-setlists').addEventListener('click', () => {
