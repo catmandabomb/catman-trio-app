@@ -559,7 +559,9 @@ const App = (() => {
             </div>
           </div>`;
         try {
-          const url = Drive.getDirectUrl(el.dataset.audioContainer);
+          // iOS Safari can't play blob URLs — use direct Drive URL; others use blob for caching
+          const url = _isIOS() ? Drive.getDirectUrl(el.dataset.audioContainer)
+                                : await _getBlobUrl(el.dataset.audioContainer);
           el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
           _playerRefs.push(ref);
@@ -2484,7 +2486,8 @@ const App = (() => {
           <div class="audio-controls"><div class="skeleton-circle"></div><div class="audio-progress-wrap"><div class="skeleton-bar"></div></div></div>
         </div>`;
         try {
-          const url = Drive.getDirectUrl(el.dataset.audioContainer);
+          const url = _isIOS() ? Drive.getDirectUrl(el.dataset.audioContainer)
+                                : await _getBlobUrl(el.dataset.audioContainer);
           el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name, blobUrl: url });
           _playerRefs.push(ref);
@@ -2801,12 +2804,12 @@ const App = (() => {
       renderDashboard();
     });
 
-    // Master volume slider (hidden on iOS — audio.volume is read-only there)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // Master volume slider (hidden on mobile — iOS audio.volume is read-only, Android has system volume)
+    const isMobile = _isMobile();
     const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
     if (!volWrap || !volSlider) { /* elements missing, skip volume setup */ }
-    else if (isIOS) {
+    else if (isMobile) {
       volWrap.style.display = 'none';
     } else {
       volSlider.value = Player.getVolume();
