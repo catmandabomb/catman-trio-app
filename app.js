@@ -4,6 +4,8 @@
 
 const App = (() => {
 
+  const APP_VERSION = 'v17.3';
+
   let _songs      = [];
   let _setlists   = [];
   let _view       = 'list';
@@ -2646,6 +2648,7 @@ const App = (() => {
     gate.id = 'install-gate';
     gate.innerHTML = `
       <div class="install-gate-content">
+        <span class="install-gate-version">${APP_VERSION}</span>
         <div class="install-gate-logo">CT</div>
         <h1 class="install-gate-title">Catman Trio</h1>
         <p class="install-gate-subtitle">Welcome to the Catman Trio App. To access this app, add it to your home screen by following the steps below.</p>
@@ -2682,6 +2685,10 @@ const App = (() => {
       }
     });
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Populate admin version badge (hidden until admin mode entered)
+    const vBadge = document.getElementById('admin-version-badge');
+    if (vBadge) vBadge.textContent = APP_VERSION;
 
     document.getElementById('btn-back').addEventListener('click', () => {
       _navigateBack();

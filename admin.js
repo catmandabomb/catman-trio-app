@@ -46,6 +46,7 @@ const Admin = (() => {
     try { sessionStorage.setItem('bb_admin_active', '1'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.remove('hidden');
     document.getElementById('admin-dashboard-bar')?.classList.remove('hidden');
+    document.getElementById('admin-version-badge')?.classList.remove('hidden');
     const btn = document.getElementById('btn-edit-mode');
     if (btn) { btn.innerHTML = 'Exit Admin<br>Edit Mode'; btn.classList.add('exit-mode'); }
   }
@@ -55,6 +56,7 @@ const Admin = (() => {
     try { sessionStorage.removeItem('bb_admin_active'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.add('hidden');
     document.getElementById('admin-dashboard-bar')?.classList.add('hidden');
+    document.getElementById('admin-version-badge')?.classList.add('hidden');
     const btn = document.getElementById('btn-edit-mode');
     if (btn) { btn.textContent = 'Edit'; btn.classList.remove('exit-mode'); }
   }
