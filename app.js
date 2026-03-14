@@ -1316,21 +1316,27 @@ const App = (() => {
       renderSetlists();
     });
 
-    // Master volume slider
+    // Master volume slider (hidden on iOS — audio.volume is read-only there)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
     const volIcon   = document.getElementById('volume-icon');
-    volSlider.value = Player.getVolume();
-    function _updateVolIcon() {
-      const v = parseFloat(volSlider.value);
-      const name = v === 0 ? 'volume-x' : v < 0.5 ? 'volume-1' : 'volume-2';
-      volIcon.setAttribute('data-lucide', name);
-      if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', attrs: {}, nodes: [volIcon.parentElement] });
-    }
-    _updateVolIcon();
-    volSlider.addEventListener('input', function() {
-      Player.setVolume(parseFloat(this.value));
+    if (isIOS) {
+      volWrap.style.display = 'none';
+    } else {
+      volSlider.value = Player.getVolume();
+      function _updateVolIcon() {
+        const v = parseFloat(volSlider.value);
+        const name = v === 0 ? 'volume-x' : v < 0.5 ? 'volume-1' : 'volume-2';
+        volIcon.setAttribute('data-lucide', name);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', attrs: {}, nodes: [volIcon.parentElement] });
+      }
       _updateVolIcon();
-    });
+      volSlider.addEventListener('input', function() {
+        Player.setVolume(parseFloat(this.value));
+        _updateVolIcon();
+      });
+    }
 
     await loadSongsInstant();
     await loadSetlistsInstant();
