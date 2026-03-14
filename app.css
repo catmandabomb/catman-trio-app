@@ -194,6 +194,11 @@ a { color: inherit; text-decoration: none; }
 }
 @media (max-width: 420px) {
   .volume-slider { width: 56px; }
+  .topbar-setlists-btn,
+  .topbar-practice-btn { padding: 4px 10px; font-size: 11px; }
+  #btn-edit-mode { padding: 4px 10px; font-size: 12px; }
+  #btn-edit-mode.exit-mode { font-size: 9px; padding: 3px 8px; }
+  .topbar-right { gap: 6px; }
 }
 
 .topbar-right {
