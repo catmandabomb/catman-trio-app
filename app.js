@@ -306,7 +306,6 @@ const App = (() => {
     const addBtn = document.getElementById('btn-add-song');
     addBtn.classList.toggle('hidden', showBack || !Admin.isEditMode());
     document.getElementById('btn-setlists').classList.toggle('hidden', showBack);
-    document.getElementById('btn-refresh').classList.toggle('hidden', showBack);
   }
 
   function _pushNav(renderFn) {
