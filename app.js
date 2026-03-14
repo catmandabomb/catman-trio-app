@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.43';
+  const APP_VERSION = 'v17.44';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1774,7 +1774,7 @@ const App = (() => {
           `</div>`;
 
         el.style.borderLeftColor = allMatch ? 'var(--accent-dim)' : '#e87c6a';
-        const pushBtn = !allMatch && Drive.isWriteConfigured()
+        const pushBtn = !allMatch
           ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
           : '';
         el.innerHTML =
@@ -1786,7 +1786,10 @@ const App = (() => {
           row('Practice Lists', localPLists, drivePLists, plistMatch) +
           `</div>` +
           `<div class="dash-alert-detail" style="margin-top:6px;font-size:11px;color:var(--text-3);">` +
-          `Write access: ${Drive.isWriteConfigured() ? 'Yes' : 'No (read-only)'}</div>` +
+          `Write access: ${Drive.isWriteConfigured() ? 'Yes' : 'No (read-only)'}<br>` +
+          `API Key: ${Drive.getConfig().apiKey ? '✓ set' : '✗ missing'} · ` +
+          `Client ID: ${Drive.getConfig().clientId ? '✓ set' : '✗ missing'} · ` +
+          `Folder ID: ${Drive.getConfig().folderId ? '✓ set' : '✗ missing'}</div>` +
           pushBtn;
         const pushEl = document.getElementById('dash-push-drive');
         if (pushEl) {
