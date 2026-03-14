@@ -19,7 +19,8 @@
   --border-light: #35353d;
 
   /* Text: slightly warm cream tones */
-  --text:         #f0eeeb;
+  --text:         #d4d0cc;
+  --text-bright:  #f0eeeb;
   --text-2:       #9e9a94;
   --text-3:       #7d7973;
 
@@ -78,17 +79,20 @@ html, body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 15px;
+  font-weight: 500;
   line-height: 1.55;
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 body::before {
   content: '';
   position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 300px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(232,195,115,0.04) 0%, transparent 70%);
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(232,195,115,0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(120,90,180,0.04) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
@@ -455,7 +459,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.2px;
-  color: var(--text);
+  color: var(--text-bright);
   grid-column: 1;
   grid-row: 1;
   white-space: nowrap;
@@ -821,6 +825,11 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.audio-player.playing {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 12px rgba(232,195,115,0.12), 0 0 4px rgba(232,195,115,0.08);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -829,7 +838,7 @@ a { color: inherit; text-decoration: none; }
 .audio-player-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text);
+  color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1258,7 +1267,7 @@ textarea.form-input {
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: var(--text);
+  color: var(--text-bright);
 }
 .empty-state p.muted {
   font-size: 14px;
@@ -1469,7 +1478,7 @@ textarea.form-input {
   flex: 1;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1535,7 +1544,7 @@ textarea.form-input {
 .setlist-song-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-bright);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

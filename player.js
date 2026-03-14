@@ -79,6 +79,7 @@ const Player = (() => {
 
     // Ended
     audio.addEventListener('ended', () => {
+      el.classList.remove('playing');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
       progress.value = 0;
@@ -96,10 +97,12 @@ const Player = (() => {
         }
         audio.play();
         _active = audio;
+        el.classList.add('playing');
         playBtn.innerHTML = pauseIcon();
         if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
       } else {
         audio.pause();
+        el.classList.remove('playing');
         playBtn.innerHTML = playIcon();
         if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
         _active = null;
@@ -107,6 +110,7 @@ const Player = (() => {
     });
 
     audio.addEventListener('pause', () => {
+      el.classList.remove('playing');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide' });
     });
