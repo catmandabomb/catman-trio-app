@@ -197,6 +197,10 @@ const App = (() => {
       _markSynced();
     } catch (e) {
       console.warn('Drive sync failed, using local cache', e);
+      const msg = String(e.message || e || '');
+      if (msg.includes('403') || msg.includes('429')) {
+        showToast('Drive is temporarily rate-limited. Using cached data — try again in a few minutes.', 4000);
+      }
     } finally {
       if (indicator) indicator.classList.add('hidden');
       _syncDone();
