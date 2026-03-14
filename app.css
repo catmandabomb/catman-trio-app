@@ -143,7 +143,8 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: var(--gradient-gold);
+  color: var(--accent);
+  background-image: var(--gradient-gold);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
