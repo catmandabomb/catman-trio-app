@@ -643,6 +643,7 @@ const App = (() => {
           <div class="tag-input-wrap" id="ef-tag-wrap">
             ${(song.tags||[]).map(t=>`<span class="tag-chip" data-tag="${esc(t)}">${esc(t)}<span class="tag-chip-remove" role="button">×</span></span>`).join('')}
             <input class="tag-inline-input" id="ef-tag-input" placeholder="rock, ballad…" type="text" autocomplete="off" />
+            <div class="tag-suggest-dropdown hidden" id="ef-tag-suggest"></div>
           </div>
         </div>
       </div>
@@ -725,14 +726,37 @@ const App = (() => {
     tagWrap.querySelectorAll('.tag-chip-remove').forEach(btn =>
       btn.addEventListener('click', () => removeTag(btn.parentElement.dataset.tag, btn.parentElement))
     );
+    // Tag autocomplete
+    const tagSuggest = document.getElementById('ef-tag-suggest');
+    function updateTagSuggestions() {
+      const val = tagInput.value.trim().toLowerCase();
+      if (!val) { tagSuggest.classList.add('hidden'); return; }
+      const current = new Set(song.tags || []);
+      const matches = _allTags().filter(t => !current.has(t) && t.toLowerCase().includes(val));
+      if (matches.length === 0) { tagSuggest.classList.add('hidden'); return; }
+      tagSuggest.innerHTML = matches.slice(0, 6).map(t =>
+        `<button class="tag-suggest-item" type="button">${esc(t)}</button>`
+      ).join('');
+      tagSuggest.classList.remove('hidden');
+      tagSuggest.querySelectorAll('.tag-suggest-item').forEach(btn => {
+        btn.addEventListener('mousedown', e => {
+          e.preventDefault();
+          addTag(btn.textContent);
+          tagInput.value = '';
+          tagSuggest.classList.add('hidden');
+        });
+      });
+    }
+    tagInput.addEventListener('input', updateTagSuggestions);
+
     tagInput.addEventListener('keydown', e => {
-      if (e.key==='Enter'||e.key===',') { e.preventDefault(); addTag(tagInput.value); tagInput.value=''; }
+      if (e.key==='Enter'||e.key===',') { e.preventDefault(); addTag(tagInput.value); tagInput.value=''; tagSuggest.classList.add('hidden'); }
       else if (e.key==='Backspace'&&tagInput.value==='') {
         const chips=[...tagWrap.querySelectorAll('.tag-chip')];
         if (chips.length) removeTag(chips[chips.length-1].dataset.tag, chips[chips.length-1]);
       }
     });
-    tagInput.addEventListener('blur', () => { if(tagInput.value.trim()){addTag(tagInput.value);tagInput.value='';} });
+    tagInput.addEventListener('blur', () => { if(tagInput.value.trim()){addTag(tagInput.value);tagInput.value='';} tagSuggest.classList.add('hidden'); });
     tagWrap.addEventListener('click', () => tagInput.focus());
 
     // Asset removes
