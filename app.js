@@ -898,7 +898,18 @@ const App = (() => {
     return list;
   }
 
-  function renderList() {
+  let _lastListFingerprint = '';
+
+  function renderList(force) {
+    // Compute fingerprint of data + filters + edit mode to detect if re-render is needed
+    const fp = _songs.length + '|' + _searchText + '|' + _activeTags.join(',') + '|' +
+      _activeKeys.join(',') + '|' + (_selectionMode ? '1' : '0') + '|' +
+      (typeof Admin !== 'undefined' && Admin.isEditMode() ? '1' : '0') + '|' +
+      (_songs.length > 0 ? _songs.map(s => s.id + s.title + (s.tags||[]).join(',')).join(';') : '');
+
+    if (!force && _view === 'list' && fp === _lastListFingerprint) return;
+    _lastListFingerprint = fp;
+
     _revokeBlobCache();
     // If not explicitly in selection mode re-render, clear selection state
     if (!_selectionMode) { _selectedSongIds = new Set(); _removeSelectionBar(); }
