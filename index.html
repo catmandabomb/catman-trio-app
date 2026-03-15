@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Catman Trio" />
@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.73" />
+  <link rel="stylesheet" href="app.css?v=17.74" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -42,7 +42,7 @@
       </div>
     </div>
     <div class="topbar-row-bottom">
-      <div id="topbar-actions"></div>
+      <div id="topbar-actions"><span id="qi-badge" class="qi-badge hidden"></span></div>
       <div id="master-volume" class="master-volume">
         <i id="volume-icon" data-lucide="volume-2" style="width:14px;height:14px;opacity:0.6;flex-shrink:0;"></i>
         <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" />
@@ -109,6 +109,11 @@
     <!-- SETLIST DETAIL VIEW -->
     <div id="view-setlist-detail" class="view">
       <div id="setlist-detail-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- SETLIST LIVE VIEW -->
+    <div id="view-setlist-live" class="view">
+      <div id="setlist-live-content"></div>
     </div>
 
     <!-- SETLIST EDIT VIEW -->

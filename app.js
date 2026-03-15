@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.73';
+  const APP_VERSION = 'v17.74';
 
   let _songs      = [];
   let _setlists   = [];
@@ -14,6 +14,7 @@ const App = (() => {
   let _editIsNew  = false;
   let _searchText = '';
   let _activeTags = [];  // Array of selected tag names, pinned order
+  let _activeKeys = [];  // Array of selected key names for key filtering
   let _blobCache  = {};
   let _playerRefs = [];
   let _navStack   = [];
@@ -506,9 +507,25 @@ const App = (() => {
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   }
 
+  function _allKeys() {
+    const chromatic = ['C','C#','Db','D','D#','Eb','E','F','F#','Gb','G','G#','Ab','A','A#','Bb','B'];
+    const order = {};
+    chromatic.forEach((k, i) => { order[k] = i; order[k + 'm'] = i + 0.5; });
+    const counts = {};
+    _songs.forEach(s => {
+      if (s.key) counts[s.key.trim()] = (counts[s.key.trim()] || 0) + 1;
+    });
+    return Object.keys(counts).sort((a, b) => {
+      const oa = order[a] ?? 999;
+      const ob = order[b] ?? 999;
+      return oa - ob || a.localeCompare(b);
+    });
+  }
+
   function _filteredSongs() {
     let list = [..._songs].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     if (_activeTags.length) list = list.filter(s => _activeTags.every(t => (s.tags || []).includes(t)));
+    if (_activeKeys.length) list = list.filter(s => s.key && _activeKeys.includes(s.key.trim()));
     if (_searchText) {
       const q = _searchText.toLowerCase();
       list = list.filter(s =>
@@ -555,6 +572,36 @@ const App = (() => {
         renderList();
       });
     });
+
+    // Key filter chips
+    const allKeys = _allKeys();
+    if (allKeys.length > 0) {
+      let keyBar = document.getElementById('key-filter-bar');
+      if (!keyBar) {
+        keyBar = document.createElement('div');
+        keyBar.id = 'key-filter-bar';
+        keyBar.className = 'key-filter-bar';
+        tagBar.parentNode.insertBefore(keyBar, tagBar.nextSibling);
+      }
+      const pinnedKeys = _activeKeys.filter(k => allKeys.includes(k));
+      const unpinnedKeys = allKeys.filter(k => !_activeKeys.includes(k));
+      const orderedKeys = [...pinnedKeys, ...unpinnedKeys];
+      keyBar.innerHTML = orderedKeys.map(k =>
+        `<button class="kf-chip ${_activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
+      ).join('');
+      keyBar.querySelectorAll('.kf-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const key = btn.dataset.key;
+          const idx = _activeKeys.indexOf(key);
+          if (idx > -1) _activeKeys.splice(idx, 1);
+          else _activeKeys.push(key);
+          renderList();
+        });
+      });
+    } else {
+      const existing = document.getElementById('key-filter-bar');
+      if (existing) existing.remove();
+    }
 
     const container = document.getElementById('song-list');
     const empty     = document.getElementById('list-empty');
@@ -1277,7 +1324,7 @@ const App = (() => {
     let html = `<div class="detail-header">
       ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
-      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}</div>
+      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
     </div>`;
 
     if (songs.length === 0) {
@@ -1336,6 +1383,121 @@ const App = (() => {
     if (!Admin.isEditMode()) {
       container.querySelector('.detail-edit-bar')?.remove();
     }
+
+    // Wire Live Mode button
+    container.querySelector('.btn-live-mode')?.addEventListener('click', () => {
+      _renderLiveMode(setlist);
+    });
+  }
+
+  // ─── SETLIST LIVE MODE ──────────────────────────────────
+
+  function _renderLiveMode(setlist) {
+    const songs = (setlist.songs || []).map(entry => {
+      const song = _songs.find(s => s.id === entry.id);
+      return song ? { ...song, comment: entry.comment || '' } : null;
+    }).filter(Boolean);
+
+    if (songs.length === 0) return;
+
+    _revokeBlobCache();
+    Player.stopAll();
+    let currentIdx = 0;
+
+    _showView('setlist-live');
+    document.body.classList.add('live-mode-active');
+
+    // Try Fullscreen API
+    const docEl = document.documentElement;
+    if (docEl.requestFullscreen) {
+      docEl.requestFullscreen().catch(() => {});
+    } else if (docEl.webkitRequestFullscreen) {
+      docEl.webkitRequestFullscreen();
+    }
+
+    const container = document.getElementById('setlist-live-content');
+
+    function _renderSlide() {
+      const song = songs[currentIdx];
+      container.innerHTML = `
+        <div class="lm-header">
+          <span class="lm-progress">${currentIdx + 1} / ${songs.length}</span>
+          <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+        </div>
+        <div class="lm-body">
+          <div class="lm-song-num">${currentIdx + 1}</div>
+          <div class="lm-song-title">${esc(song.title)}</div>
+          ${song.subtitle ? `<div class="lm-song-subtitle">${esc(song.subtitle)}</div>` : ''}
+          <div class="lm-song-meta">
+            ${song.key ? `<span class="lm-meta-item">${esc(song.key)}</span>` : ''}
+            ${song.bpm ? `<span class="lm-meta-item">${esc(String(song.bpm))} BPM</span>` : ''}
+            ${song.timeSig ? `<span class="lm-meta-item">${esc(song.timeSig)}</span>` : ''}
+          </div>
+          ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
+          ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
+        </div>
+        <div class="lm-nav">
+          <button class="lm-nav-btn lm-prev" ${currentIdx === 0 ? 'disabled' : ''} aria-label="Previous">
+            <i data-lucide="chevron-left" style="width:32px;height:32px;"></i>
+          </button>
+          <button class="lm-nav-btn lm-next" ${currentIdx === songs.length - 1 ? 'disabled' : ''} aria-label="Next">
+            <i data-lucide="chevron-right" style="width:32px;height:32px;"></i>
+          </button>
+        </div>
+      `;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+      // Wire navigation
+      container.querySelector('.lm-prev')?.addEventListener('click', () => {
+        if (currentIdx > 0) { currentIdx--; _renderSlide(); }
+      });
+      container.querySelector('.lm-next')?.addEventListener('click', () => {
+        if (currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
+      });
+      container.querySelector('.lm-close-btn')?.addEventListener('click', _exitLiveMode);
+    }
+
+    function _exitLiveMode() {
+      document.body.classList.remove('live-mode-active');
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitFullscreenElement) {
+        document.webkitExitFullscreen();
+      }
+      document.removeEventListener('keydown', _onKey);
+      container.removeEventListener('touchstart', _onTouchStart);
+      container.removeEventListener('touchend', _onTouchEnd);
+      renderSetlistDetail(setlist, true);
+    }
+
+    // Keyboard navigation
+    function _onKey(e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        if (currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        if (currentIdx > 0) { currentIdx--; _renderSlide(); }
+      } else if (e.key === 'Escape') {
+        _exitLiveMode();
+      }
+    }
+    document.addEventListener('keydown', _onKey);
+
+    // Swipe navigation (mobile)
+    let _touchStartX = 0;
+    function _onTouchStart(e) {
+      _touchStartX = e.changedTouches[0]?.screenX || 0;
+    }
+    function _onTouchEnd(e) {
+      const dx = (e.changedTouches[0]?.screenX || 0) - _touchStartX;
+      if (Math.abs(dx) > 50) {
+        if (dx < 0 && currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
+        else if (dx > 0 && currentIdx > 0) { currentIdx--; _renderSlide(); }
+      }
+    }
+    container.addEventListener('touchstart', _onTouchStart, { passive: true });
+    container.addEventListener('touchend', _onTouchEnd, { passive: true });
+
+    _renderSlide();
   }
 
   // ─── SETLIST EDIT VIEW ───────────────────────────────────
@@ -3016,7 +3178,7 @@ const App = (() => {
           const url = _isIOS() ? Drive.getDirectUrl(driveId) : await _getBlobUrl(driveId);
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '' });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true });
           _playerRefs.push(ref);
         } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
       });
@@ -3375,6 +3537,7 @@ const App = (() => {
     _migratePracticeData();
     renderList();
     Admin.restoreEditMode();
+    _initQueueIndicator();
 
     // Auto-detect GitHub PAT from Drive if not configured locally
     if (!GitHub.isConfigured() && Drive.isConfigured()) {
@@ -4002,6 +4165,53 @@ const App = (() => {
 
     // Final render
     _renderResults();
+  }
+
+  // ─── Offline Queue Indicator ─────────────────────────────────
+
+  function _initQueueIndicator() {
+    const badge = document.getElementById('qi-badge');
+    if (!badge) return;
+
+    function _updateQueueBadge() {
+      const online = navigator.onLine;
+      const ghOk = typeof GitHub !== 'undefined' && GitHub.isConfigured();
+      let status = null; // null = hidden
+
+      if (!online) {
+        status = 'offline';
+      } else if (ghOk) {
+        const wq = GitHub.getWriteQueueStatus();
+        if (wq.flushing) {
+          status = 'syncing';
+        } else if (wq.hasPending) {
+          status = 'pending';
+          badge.dataset.count = wq.pendingTypes.length;
+        }
+      }
+
+      if (!status) {
+        badge.className = 'qi-badge hidden';
+        return;
+      }
+
+      badge.classList.remove('hidden');
+      badge.className = 'qi-badge qi-' + status;
+
+      if (status === 'offline') {
+        badge.innerHTML = '<span class="qi-dot"></span>Offline';
+      } else if (status === 'pending') {
+        const count = badge.dataset.count || '';
+        badge.innerHTML = '<span class="qi-dot"></span>Pending' + (count ? ' (' + count + ')' : '');
+      } else if (status === 'syncing') {
+        badge.innerHTML = '<span class="qi-dot"></span>Syncing';
+      }
+    }
+
+    window.addEventListener('online', _updateQueueBadge);
+    window.addEventListener('offline', _updateQueueBadge);
+    setInterval(_updateQueueBadge, 2000);
+    _updateQueueBadge();
   }
 
   return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard, runDiagnostics };

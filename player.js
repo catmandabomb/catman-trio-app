@@ -62,7 +62,7 @@ const Player = (() => {
    * @param {string}      opts.blobUrl   — blob URL for the audio
    * @param {string}      [opts.songTitle] — song title for lock screen / Media Session
    */
-  function create(container, { name, blobUrl, songTitle }) {
+  function create(container, { name, blobUrl, songTitle, loopMode }) {
     if (!container) throw new Error('Player.create: container is null');
     const audio = document.createElement('audio');
     audio.preload = 'auto';
@@ -91,6 +91,148 @@ const Player = (() => {
         <button class="audio-speed-btn" aria-label="Playback speed">${_speeds[_speedIndex]}x</button>
       </div>
     `;
+
+    // ─── A/B Loop (practice mode only) ───────────────────
+    let loopA = null, loopB = null, loopCount = 0, loopActive = false;
+
+    if (loopMode) {
+      const loopSection = document.createElement('div');
+      loopSection.className = 'loop-section';
+      loopSection.innerHTML = `
+        <button class="loop-toggle-btn" aria-label="Toggle A/B Loop">
+          <i data-lucide="repeat" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px;"></i>A/B Loop
+        </button>
+        <div class="loop-controls hidden">
+          <div class="loop-points">
+            <div class="loop-point">
+              <span class="loop-label">A</span>
+              <button class="loop-nudge" data-target="a" data-dir="-1">−</button>
+              <span class="loop-time loop-time-a">—</span>
+              <button class="loop-nudge" data-target="a" data-dir="1">+</button>
+              <button class="loop-set-btn" data-point="a">Set A</button>
+            </div>
+            <div class="loop-point">
+              <span class="loop-label">B</span>
+              <button class="loop-nudge" data-target="b" data-dir="-1">−</button>
+              <span class="loop-time loop-time-b">—</span>
+              <button class="loop-nudge" data-target="b" data-dir="1">+</button>
+              <button class="loop-set-btn" data-point="b">Set B</button>
+            </div>
+          </div>
+          <div class="loop-status hidden">
+            <span class="loop-count-label">Loops: <strong class="loop-count-val">0</strong></span>
+            <button class="loop-clear-btn">Clear</button>
+          </div>
+        </div>
+      `;
+      el.appendChild(loopSection);
+
+      const loopToggleBtn = loopSection.querySelector('.loop-toggle-btn');
+      const loopControlsDiv = loopSection.querySelector('.loop-controls');
+      const loopTimeA = loopSection.querySelector('.loop-time-a');
+      const loopTimeB = loopSection.querySelector('.loop-time-b');
+      const loopStatusDiv = loopSection.querySelector('.loop-status');
+      const loopCountVal = loopSection.querySelector('.loop-count-val');
+      const loopClearBtn = loopSection.querySelector('.loop-clear-btn');
+
+      function _roundT(t) { return Math.round(t * 10) / 10; }
+      function _fmtT(t) { return t === null ? '—' : t.toFixed(1) + 's'; }
+
+      function _updateLoopUI() {
+        loopTimeA.textContent = _fmtT(loopA);
+        loopTimeB.textContent = _fmtT(loopB);
+        loopActive = loopA !== null && loopB !== null && loopA < loopB;
+        loopStatusDiv.classList.toggle('hidden', !loopActive);
+        loopCountVal.textContent = loopCount;
+
+        // Update progress bar overlay
+        const progressEl = el.querySelector('.audio-progress');
+        if (loopActive && audio.duration) {
+          const aPct = (loopA / audio.duration) * 100;
+          const bPct = (loopB / audio.duration) * 100;
+          const curPct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+          const playPct = Math.min(curPct, bPct);
+          progressEl.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, rgba(100,160,255,0.2) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
+        } else if (!loopActive) {
+          // Reset to default when loop cleared
+          const progressEl2 = el.querySelector('.audio-progress');
+          if (progressEl2 && audio.duration) {
+            const pct = (audio.currentTime / audio.duration) * 100;
+            progressEl2.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+          }
+        }
+      }
+
+      // Toggle controls visibility
+      loopToggleBtn.addEventListener('click', () => {
+        const isHidden = loopControlsDiv.classList.contains('hidden');
+        loopControlsDiv.classList.toggle('hidden');
+        loopToggleBtn.classList.toggle('loop-toggle-active', isHidden);
+      });
+
+      // Set A / Set B buttons
+      loopSection.querySelectorAll('.loop-set-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (!audio.duration) return; // audio not loaded
+          const t = _roundT(audio.currentTime);
+          if (btn.dataset.point === 'a') {
+            loopA = t;
+            if (loopB !== null && loopA >= loopB) loopB = null;
+          } else {
+            loopB = t;
+            if (loopA !== null && loopB <= loopA) loopA = null;
+          }
+          loopCount = 0;
+          _updateLoopUI();
+        });
+      });
+
+      // Nudge buttons (+/- 0.1s)
+      loopSection.querySelectorAll('.loop-nudge').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          const dir = parseInt(btn.dataset.dir);
+          if (target === 'a' && loopA !== null) {
+            loopA = _roundT(Math.max(0, loopA + dir * 0.1));
+            if (loopB !== null && loopA >= loopB) loopA = _roundT(loopB - 0.1);
+            if (loopA < 0) loopA = 0;
+          } else if (target === 'b' && loopB !== null) {
+            const maxT = audio.duration || 9999;
+            loopB = _roundT(Math.min(maxT, loopB + dir * 0.1));
+            if (loopA !== null && loopB <= loopA) loopB = _roundT(loopA + 0.1);
+          }
+          _updateLoopUI();
+        });
+      });
+
+      // Clear button
+      loopClearBtn.addEventListener('click', () => {
+        loopA = null;
+        loopB = null;
+        loopCount = 0;
+        loopActive = false;
+        _updateLoopUI();
+      });
+
+      // Hook into timeupdate — add loop logic
+      audio.addEventListener('timeupdate', () => {
+        if (loopActive && audio.currentTime >= loopB) {
+          audio.currentTime = loopA;
+          loopCount++;
+          _updateLoopUI();
+        }
+      });
+
+      // Hook into ended — if loop active and B is near end, loop back
+      audio.addEventListener('ended', () => {
+        if (loopActive && loopB >= audio.duration - 0.5) {
+          audio.currentTime = loopA;
+          loopCount++;
+          _updateLoopUI();
+          audio.play().catch(() => {});
+        }
+      });
+    }
 
     const playBtn  = el.querySelector('.audio-play-btn');
     const progress = el.querySelector('.audio-progress');
@@ -127,9 +269,11 @@ const Player = (() => {
         progress.value = audio.currentTime;
       }
       current.textContent = _formatTime(audio.currentTime);
-      // Colored progress fill
-      const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-      progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+      // Colored progress fill (skip when loop overlay is active)
+      if (!loopActive) {
+        const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+        progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+      }
       progress.style.borderRadius = '4px';
     });
 
@@ -143,6 +287,8 @@ const Player = (() => {
 
     // Ended
     audio.addEventListener('ended', () => {
+      // If A/B loop is active near end, the loop handler will re-seek — skip reset
+      if (loopActive && loopB >= audio.duration - 0.5) return;
       el.classList.remove('playing');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
