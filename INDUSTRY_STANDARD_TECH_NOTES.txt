@@ -1,0 +1,998 @@
+================================================================================
+INDUSTRY STANDARD TECHNICAL ANALYSIS
+Catman Trio App vs ForScore / OnSong / BandHelper / Newzik
+================================================================================
+Date: 2026-03-15
+App Version: v17.82
+================================================================================
+
+
+TABLE OF CONTENTS
+-----------------
+1. Competitor Overview
+2. PDF Rendering Pipeline
+3. Offline Storage Architecture
+4. Sync Architecture
+5. Performance: Page Turning & Pre-rendering
+6. Security & Data Protection
+7. Audio & MIDI
+8. Easy Wins (Low-Effort, High-Impact)
+9. Large Technical Gaps (PWA vs Native)
+10. Code-Level Recommendations
+
+
+================================================================================
+1. COMPETITOR OVERVIEW
+================================================================================
+
+FORSCORE (iOS/iPadOS/macOS — Native Swift/Obj-C)
+- Gold standard for digital sheet music. iPad-first since 2010.
+- Uses Apple's native PDFKit (Core Graphics) for rendering.
+- iCloud sync, Bluetooth page turner support, MIDI triggers.
+- Annotation layer (Core Graphics drawing on PDF overlay).
+- Smart library with setlists, metadata, tagging.
+- Audio track linking with adjustable tempo (via AVAudioEngine).
+- ~$20 one-time purchase. Estimated 2M+ users.
+
+ONSONG (iOS — Native Obj-C/Swift)
+- Chord/lyric-first (ChordPro format), secondary PDF support.
+- Dropbox, Google Drive, OneDrive sync.
+- MIDI program changes, Bluetooth foot pedal.
+- Live band sync (multi-device via Wi-Fi Direct / Bonjour).
+- Built-in transpose engine for chord charts.
+- Subscription model (~$9/month).
+
+BANDHELPER (iOS/Android/Web — Hybrid)
+- Cross-platform: native iOS/Android + companion web app.
+- Cloud sync via proprietary BandHelper servers.
+- MIDI, backing tracks, click tracks, stage plots.
+- Multi-band support with per-band libraries.
+- Document viewer (PDF + images) with annotations.
+- Subscription (~$5-10/month depending on tier).
+
+NEWZIK (iOS/macOS — Native Swift)
+- Modern successor targeting orchestral/ensemble use.
+- Real-time collaborative annotations (CRDT-like model).
+- Cloud-first with offline cache.
+- MusicXML rendering alongside PDF.
+- Built-in rehearsal mark detection.
+- Team/organization pricing model.
+
+
+================================================================================
+2. PDF RENDERING PIPELINE
+================================================================================
+
+FORSCORE'S APPROACH (Native PDFKit / Core Graphics):
+- Uses CGPDFDocument and CGPDFPage directly (C-level API).
+- PDF pages rendered into CGContext, backed by Metal/GPU.
+- Tiled rendering: large pages split into tiles, only visible tiles rendered.
+- CATiledLayer for smooth zoom — renders higher-detail tiles as you zoom in.
+- Pre-renders next/previous pages into offscreen buffers during idle time.
+- Annotation layer is a separate transparent CALayer above the PDF layer.
+- Text selection uses PDFKit's built-in text extraction (CGPDFScanner).
+- Rendering is on background thread (GCD), display on main thread.
+- Result: 60fps page turning, instant zoom, no visible re-rendering.
+
+CATMAN TRIO'S APPROACH (PDF.js + Canvas):
+Current implementation in pdf-viewer.js:
+- PDF.js renders entire page to a single <canvas> at 2x fit scale.
+- Re-renders from scratch on every page turn (no pre-rendering).
+- Zoom via CSS transform (scale) on the canvas — avoids re-render but
+  gets blurry past 2x because the source canvas is only 2x resolution.
+- Single-threaded rendering blocks the main thread during render.
+- No tiled rendering — entire page is one canvas.
+- No annotation support.
+
+KEY GAPS AND RECOMMENDATIONS:
+
+A) Pre-render adjacent pages
+   The biggest perceived performance improvement. Render page N-1 and N+1
+   into offscreen canvases while the user views page N.
+
+   Implementation sketch:
+   ```
+   // In PDFViewer, add a pre-render cache
+   const _pageCache = new Map(); // pageNum -> { canvas, scale }
+   const MAX_CACHED_PAGES = 5;
+
+   async function _preRenderPage(pdfDoc, pageNum, containerWidth) {
+     if (_pageCache.has(pageNum)) return;
+     const offscreen = document.createElement('canvas');
+     const page = await pdfDoc.getPage(pageNum);
+     const viewport = page.getViewport({ scale: 1 });
+     const fitScale = containerWidth / viewport.width;
+     const renderScale = Math.min(fitScale * 2, 4);
+     const scaled = page.getViewport({ scale: renderScale });
+     offscreen.width = scaled.width;
+     offscreen.height = scaled.height;
+     const ctx = offscreen.getContext('2d');
+     await page.render({ canvasContext: ctx, viewport: scaled }).promise;
+     _pageCache.set(pageNum, { canvas: offscreen, scale: renderScale });
+     // Evict oldest if over limit
+     if (_pageCache.size > MAX_CACHED_PAGES) {
+       const oldest = _pageCache.keys().next().value;
+       _pageCache.delete(oldest);
+     }
+   }
+   ```
+
+B) OffscreenCanvas for background rendering
+   PDF.js supports OffscreenCanvas, which moves rendering to a Web Worker
+   and completely unblocks the main thread. Browser support is good
+   (Chrome 69+, Firefox 105+, Safari 16.4+).
+
+   ```
+   // Check support and use OffscreenCanvas
+   if (typeof OffscreenCanvas !== 'undefined') {
+     const offscreen = new OffscreenCanvas(width, height);
+     const ctx = offscreen.getContext('2d');
+     await page.render({ canvasContext: ctx, viewport: scaled }).promise;
+     // Transfer to visible canvas
+     const bitmap = offscreen.transferToImageBitmap();
+     visibleCanvas.getContext('bitmaprenderer').transferFromImageBitmap(bitmap);
+   }
+   ```
+
+C) Multi-resolution rendering (progressive)
+   Render at 1x immediately (fast), then re-render at 2x or higher in the
+   background. User sees the page instantly at lower quality, then it
+   sharpens. ForScore does this with CATiledLayer automatically.
+
+   ```
+   // Quick low-res render
+   await renderAtScale(page, canvas, fitScale * 1);
+   // Then schedule high-res
+   requestIdleCallback(() => renderAtScale(page, canvas, fitScale * 2));
+   ```
+
+D) Tiled rendering for large zoom levels
+   When zoomed past 2x, only render the visible viewport tile at high
+   resolution instead of the entire page. This is what ForScore/PDFKit
+   does with CATiledLayer.
+
+   Complexity: High. Requires managing a tile grid, tracking viewport
+   position, and rendering only visible tiles. Probably overkill for a
+   band app where charts are typically 1-3 pages.
+
+VERDICT: Pre-rendering (A) and OffscreenCanvas (B) are the highest-impact,
+lowest-effort improvements. Progressive rendering (C) is a nice-to-have.
+Tiled rendering (D) is unnecessary for typical chart PDFs.
+
+
+================================================================================
+3. OFFLINE STORAGE ARCHITECTURE
+================================================================================
+
+NATIVE APPS (ForScore, OnSong):
+- Unlimited local storage (filesystem access).
+- ForScore stores PDFs directly in the app's Documents directory.
+- SQLite for metadata (fast queries, indexing, FTS).
+- Core Data (Apple's ORM) for relationships.
+- No storage quotas — limited only by device storage.
+- iCloud sync: NSUbiquitousKeyValueStore for small data,
+  CloudKit for structured records, iCloud Drive for files.
+
+BANDHELPER (Hybrid):
+- Native file storage on device.
+- Proprietary cloud sync server.
+- SQLite for local metadata.
+- Cloud acts as source of truth; local is a cache.
+
+CATMAN TRIO (PWA):
+Current approach:
+- localStorage for config (~5-10 MB limit, synchronous, blocks main thread).
+- Cache API via Service Worker for shell assets, songs JSON, PDFs.
+- Google Drive for PDF/audio file storage.
+- GitHub API for encrypted JSON metadata.
+
+Storage limits (browser-dependent):
+- Cache API: Typically 50% of free disk space (Chrome), varies by browser.
+- localStorage: 5-10 MB hard limit (browser-dependent, can be purged).
+- IndexedDB: Same quota pool as Cache API (generous).
+- Safari/iOS PWA: 1 GB total for all web data. Can be evicted after
+  7 days of non-use (WebKit ITP). This is the critical constraint.
+- Chrome/Android: More generous, up to ~60% of disk space.
+
+CURRENT RISKS:
+1. Safari 7-day eviction: If a user doesn't open the PWA for 7 days,
+   Safari may purge ALL cached data (localStorage, Cache API, IndexedDB).
+   This is a known WebKit policy for non-installed PWAs. Adding to Home
+   Screen exempts from this policy.
+
+2. localStorage is synchronous and size-limited. The songs JSON is
+   relatively small (metadata only), so this is okay for now, but it
+   would block the main thread if it grew large.
+
+3. No IndexedDB usage. IndexedDB would be superior to both localStorage
+   and the custom SW message-passing cache for structured data.
+
+RECOMMENDATIONS:
+
+A) Migrate structured data to IndexedDB (Medium effort, high value)
+   Use IndexedDB for songs, setlists, practice data instead of the
+   Service Worker message-passing pattern. Benefits:
+   - Asynchronous (non-blocking).
+   - Much larger storage quota.
+   - Supports indexes for faster queries.
+   - Transactions for consistency.
+   - Direct access from main thread (no SW roundtrip).
+
+   A lightweight wrapper (idb-keyval pattern, ~50 lines) avoids the
+   verbose IndexedDB API:
+   ```
+   const DB_NAME = 'catmantrio';
+   const DB_VERSION = 1;
+
+   function openDB() {
+     return new Promise((resolve, reject) => {
+       const req = indexedDB.open(DB_NAME, DB_VERSION);
+       req.onupgradeneeded = () => {
+         const db = req.result;
+         if (!db.objectStoreNames.contains('data'))
+           db.createObjectStore('data');
+         if (!db.objectStoreNames.contains('pdfs'))
+           db.createObjectStore('pdfs');
+       };
+       req.onsuccess = () => resolve(req.result);
+       req.onerror = () => reject(req.error);
+     });
+   }
+
+   async function idbGet(store, key) {
+     const db = await openDB();
+     return new Promise((resolve, reject) => {
+       const tx = db.transaction(store, 'readonly');
+       const req = tx.objectStore(store).get(key);
+       req.onsuccess = () => resolve(req.result);
+       req.onerror = () => reject(req.error);
+     });
+   }
+
+   async function idbPut(store, key, value) {
+     const db = await openDB();
+     return new Promise((resolve, reject) => {
+       const tx = db.transaction(store, 'readwrite');
+       tx.objectStore(store).put(value, key);
+       tx.oncomplete = () => resolve();
+       tx.onerror = () => reject(tx.error);
+     });
+   }
+   ```
+
+   Keep the Service Worker cache for the app shell (HTML/CSS/JS) and
+   PDF blobs (Cache API is ideal for opaque responses). Move songs,
+   setlists, practice data to IndexedDB.
+
+B) Request persistent storage (Minimal effort)
+   ```
+   if (navigator.storage && navigator.storage.persist) {
+     const granted = await navigator.storage.persist();
+     console.log('Persistent storage:', granted ? 'granted' : 'denied');
+   }
+   ```
+   Chrome auto-grants for installed PWAs. Safari may not honor it, but
+   it's a no-cost improvement. This prevents browser-initiated eviction.
+
+C) Storage quota monitoring (Already partially implemented)
+   The SW already checks navigator.storage.estimate() before caching PDFs.
+   Surface this to the user in settings (show used/available storage).
+
+D) Prompt Home Screen installation
+   For iOS Safari, strongly prompt users to "Add to Home Screen" since
+   this exempts the PWA from the 7-day eviction policy. A beforeinstallprompt
+   listener works on Chrome/Android.
+
+
+================================================================================
+4. SYNC ARCHITECTURE
+================================================================================
+
+FORSCORE (iCloud):
+- Uses CloudKit for metadata sync.
+- iCloud Drive for PDF files.
+- Apple handles conflict resolution (last-write-wins with tombstones).
+- No user-visible merge conflicts.
+- Sync is automatic and transparent.
+- Limitation: Apple ecosystem only.
+
+ONSONG (Cloud Services):
+- Supports Dropbox, Google Drive, OneDrive as file backends.
+- Metadata synced via app's own cloud service.
+- Manual sync trigger (user initiates).
+- Basic conflict handling (newer timestamp wins).
+
+BANDHELPER (Proprietary Server):
+- Central server is source of truth.
+- Clients pull/push changes.
+- Server-side conflict resolution.
+- Real-time sync during rehearsal (WebSocket-like).
+- Most robust multi-device story among competitors.
+
+NEWZIK (Real-time Collaborative):
+- CRDT-like model for annotation sync.
+- Multiple users can annotate simultaneously.
+- WebSocket for real-time updates.
+- Conflict-free by design (operational transforms).
+
+CATMAN TRIO (GitHub API):
+Current approach:
+- GitHub repository's `data` branch as storage backend.
+- AES-256-GCM encrypted JSON files.
+- Debounced write queue (1.5s base, up to 9s adaptive).
+- 409 conflict handling: fetch remote, field-level merge, retry.
+- Up to 3 conflict retry attempts.
+- Rate limit tracking (GitHub allows 5000 req/hr authenticated).
+- Crash recovery via localStorage persistence of pending writes.
+
+STRENGTHS of the GitHub approach:
+- Free, reliable infrastructure with 99.9% uptime.
+- Built-in versioning (git history = audit trail).
+- Encryption at rest (AES-256-GCM) exceeds what most competitors offer.
+- Field-level merge is more sophisticated than most competitors' LWW.
+- No server to maintain.
+
+WEAKNESSES:
+- 5000 req/hr rate limit shared across all devices/users.
+  With 10 concurrent writers doing frequent edits, each flush is
+  2-3 API calls (read SHA, put content, possibly conflict retry).
+  That's ~30 calls/minute at peak, or 1800/hr. Tight but survivable
+  for a small band. Would need the Cloudflare Worker proxy for growth.
+
+- No real-time push. Devices must poll or manually refresh to see
+  changes from other devices. GitHub webhooks could notify a
+  Cloudflare Worker which pushes via Server-Sent Events.
+
+- Merge granularity. Field-level merge on the entire songs.enc file
+  means two users editing different songs still require a merge of the
+  full file. Per-song files would reduce conflict surface but increase
+  API calls.
+
+RECOMMENDATIONS:
+
+A) Add a "last synced" indicator (Minimal effort)
+   Show users when data was last fetched from GitHub. This builds trust
+   and helps debug sync issues.
+
+B) Background sync with Periodic Background Sync API (Low effort)
+   ```
+   // In service-worker.js
+   self.addEventListener('periodicsync', (event) => {
+     if (event.tag === 'sync-data') {
+       event.waitUntil(syncDataFromGitHub());
+     }
+   });
+
+   // In app.js (registration)
+   const reg = await navigator.serviceWorker.ready;
+   if ('periodicSync' in reg) {
+     await reg.periodicSync.register('sync-data', {
+       minInterval: 15 * 60 * 1000, // 15 minutes
+     });
+   }
+   ```
+   Note: Only Chrome/Edge support this. Safari and Firefox do not.
+   Graceful degradation: if not supported, fall back to manual refresh.
+
+C) Consider splitting per-entity files (Medium effort, future)
+   Instead of one songs.enc containing all songs, store individual files:
+   data/songs/{songId}.enc. This eliminates whole-file merge conflicts
+   but increases API calls for initial load. A manifest file (songs-index.enc)
+   could list all song IDs with last-modified timestamps for incremental sync.
+
+D) Cloudflare Worker proxy (Medium effort, planned)
+   Already noted in the engineering principles. This would:
+   - Aggregate API calls (batch reads/writes).
+   - Add WebSocket support for real-time push.
+   - Enforce per-user rate limits.
+   - Enable future per-user auth without exposing GitHub PAT.
+
+
+================================================================================
+5. PERFORMANCE: PAGE TURNING & PRE-RENDERING
+================================================================================
+
+FORSCORE'S TECHNIQUES:
+- UIPageViewController with prepared view controllers.
+- Next/previous pages pre-rendered in offscreen buffers.
+- Page turn animation runs on CoreAnimation (GPU-composited).
+- Half-page turn: left/right side tap zones (no swipe required).
+- Link areas: tap to jump to rehearsal marks, coda, segno.
+- Smart button: Bluetooth page turners trigger nextPage() directly.
+- Scroll mode: continuous vertical scroll as alternative to paging.
+
+CATMAN TRIO CURRENT STATE:
+- Page turn = full re-render via PDF.js (no pre-rendering).
+- No page turn animation (instant swap).
+- Keyboard shortcuts (arrows, space) for navigation.
+- No Bluetooth page turner support.
+- No continuous scroll mode.
+
+RECOMMENDATIONS:
+
+A) Pre-render N+1 and N-1 (High priority, medium effort)
+   As detailed in Section 2A. Cache rendered canvases for adjacent pages.
+   On page turn, swap the pre-rendered canvas in immediately (sub-frame),
+   then start pre-rendering the new adjacent page.
+
+B) CSS page turn transition (Low effort)
+   Add a simple crossfade or slide transition between pages:
+   ```
+   .pdf-canvas-container {
+     transition: opacity 0.15s ease;
+   }
+   .pdf-canvas-container.page-turning {
+     opacity: 0.7;
+   }
+   ```
+   This is cosmetic but makes the app feel more polished. Full 3D page
+   curl animation is possible with CSS transforms but high effort and
+   unnecessary for a band app.
+
+C) Tap zones for page turning (Low effort, high impact)
+   ForScore's defining UX: tap right side = next page, tap left = prev.
+   This is critical for live performance where you can't precisely hit
+   small buttons.
+   ```
+   // In the PDF viewer container
+   container.addEventListener('click', (e) => {
+     if (zoom > 1.05) return; // Don't interfere with pan
+     const rect = container.getBoundingClientRect();
+     const x = e.clientX - rect.left;
+     if (x > rect.width * 0.6) nextPage();
+     else if (x < rect.width * 0.3) prevPage();
+   });
+   ```
+
+D) Bluetooth page turner support (Medium effort)
+   Page turners typically send Page Down / Page Up or Arrow Down / Arrow Up
+   keyboard events. The current keyboard handler in pdf-viewer.js already
+   handles ArrowLeft/ArrowRight and PageUp/PageDown (lines 387-393),
+   so most Bluetooth page turners should already work.
+
+   To verify and enhance:
+   - Test with common page turners (AirTurn, PageFlip).
+   - Some turners send custom HID codes; add a mapping config.
+   - Add a "page turner mode" that intercepts ALL key events when the
+     PDF viewer is open (prevent browser defaults like scroll).
+
+E) GPU compositing hints (Minimal effort)
+   Force GPU layer promotion for the canvas:
+   ```
+   #pdf-canvas {
+     will-change: transform;
+     contain: layout paint;
+   }
+   ```
+   The `will-change: transform` is especially important because the zoom/pan
+   already uses CSS transforms. The `contain` property tells the browser
+   this element's layout/paint doesn't affect siblings.
+
+F) requestAnimationFrame for zoom/pan (Low effort)
+   The current zoom/pan handler applies transforms synchronously on every
+   touchmove/mousemove event. Batching with rAF prevents layout thrashing:
+   ```
+   let _rafPending = false;
+   function scheduleTransform() {
+     if (_rafPending) return;
+     _rafPending = true;
+     requestAnimationFrame(() => {
+       applyTransform();
+       _rafPending = false;
+     });
+   }
+   ```
+
+
+================================================================================
+6. SECURITY & DATA PROTECTION
+================================================================================
+
+FORSCORE:
+- Relies on Apple's device-level encryption (FileVault, Data Protection).
+- iCloud data encrypted in transit (TLS) and at rest (Apple-managed keys).
+- No app-level encryption — trusts the platform.
+- No user accounts within the app.
+
+ONSONG:
+- Cloud storage relies on provider encryption (Dropbox, Google, etc.).
+- No app-level encryption.
+- User accounts for premium features.
+
+BANDHELPER:
+- TLS for transit.
+- Server-side encryption at rest (provider-dependent).
+- User accounts with password auth.
+- No end-to-end encryption.
+
+NEWZIK:
+- Cloud-first with TLS transit.
+- Server-side encryption.
+- Team accounts with role-based access.
+
+CATMAN TRIO:
+- AES-256-GCM encryption via Web Crypto API (browser-native, FIPS-compliant).
+- Encryption key derived from GitHub PAT (PBKDF2 or direct hash).
+- Data encrypted at rest on GitHub (E2E: GitHub cannot read the data).
+- No server-side component that ever sees plaintext.
+- Admin password hashed with SHA-256 for device-level access control.
+
+ANALYSIS:
+The Catman Trio app has STRONGER encryption than any competitor. ForScore
+trusts Apple's platform encryption. BandHelper and OnSong trust their cloud
+providers. Only Catman Trio does true end-to-end encryption where the storage
+provider (GitHub) never sees plaintext.
+
+RECOMMENDATIONS:
+
+A) Key derivation hardening (Low effort)
+   If the encryption key is derived directly from the PAT, consider using
+   PBKDF2 with a high iteration count (600,000+) or Argon2 (not available
+   in Web Crypto, but PBKDF2 is):
+   ```
+   const keyMaterial = await crypto.subtle.importKey(
+     'raw',
+     new TextEncoder().encode(pat),
+     'PBKDF2',
+     false,
+     ['deriveKey']
+   );
+   const key = await crypto.subtle.deriveKey(
+     {
+       name: 'PBKDF2',
+       salt: new TextEncoder().encode('catmantrio-v1'),
+       iterations: 600000,
+       hash: 'SHA-256',
+     },
+     keyMaterial,
+     { name: 'AES-GCM', length: 256 },
+     false,
+     ['encrypt', 'decrypt']
+   );
+   ```
+
+B) Admin password: consider bcrypt-equivalent (Future)
+   SHA-256 is fast to brute-force. For the admin password, a slow hash
+   (PBKDF2 with high iterations) would be more resistant to offline
+   brute-force attacks. However, since the hash is checked client-side
+   and the attacker would need physical device access, SHA-256 is
+   acceptable for the current threat model.
+
+C) Secure the PAT in memory (Low effort)
+   The PAT is stored in localStorage in plaintext. If a user's browser
+   is compromised (XSS, malicious extension), the PAT is exposed.
+   Options:
+   - Store the PAT in a HttpOnly cookie (requires server — not applicable).
+   - Encrypt the PAT with a device-specific key (Web Crypto + fingerprint).
+   - Accept the risk: PATs can be scoped to minimal permissions, and the
+     GitHub repo is private. This is the pragmatic choice for now.
+
+D) Content Security Policy (Low effort, high value)
+   Add CSP headers or meta tag to prevent XSS:
+   ```
+   <meta http-equiv="Content-Security-Policy"
+     content="default-src 'self';
+       script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+       font-src https://fonts.gstatic.com;
+       connect-src https://api.github.com https://www.googleapis.com
+                   https://accounts.google.com;
+       img-src 'self' blob: data:;">
+   ```
+   This prevents injected scripts from exfiltrating the PAT to a
+   third-party domain.
+
+
+================================================================================
+7. AUDIO & MIDI
+================================================================================
+
+FORSCORE (Native AVFoundation + CoreMIDI):
+- AVAudioEngine for audio playback with real-time pitch/tempo adjustment.
+- Time-stretching without pitch change (AVAudioUnitTimePitch).
+- CoreMIDI for hardware MIDI: program changes, control changes.
+- MIDI can trigger page turns, setlist navigation, transpose.
+- Audio Units (AUv3) support for effects processing.
+- Metronome with tap tempo, accent patterns.
+
+ONSONG (Native):
+- MIDI program changes to switch patches on keyboards/effects.
+- Auto-scroll synced to tempo.
+- Backing track playback with count-in.
+- Transpose via MIDI or on-screen.
+
+CATMAN TRIO (Web Audio API + HTML5 Audio):
+Current state:
+- HTML5 <audio> element for playback (player.js).
+- MediaSession API for lock screen controls.
+- Playback speed adjustment (0.75x, 1x, 1.25x, 1.5x).
+- A/B looping for practice mode.
+- Volume control with persistence.
+- No MIDI support.
+- No pitch/tempo adjustment (only playback rate, which changes pitch).
+- No metronome.
+
+WEB MIDI API STATUS:
+- Supported in Chrome, Edge, Opera (Chromium-based browsers).
+- NOT supported in Firefox or Safari (as of early 2025).
+- This means Web MIDI works on Android Chrome but NOT on iOS Safari.
+- For a band app targeting iPad, this is a significant limitation.
+
+RECOMMENDATIONS:
+
+A) Web Audio API for tempo change without pitch change (Medium effort)
+   Replace the simple playbackRate approach with a proper time-stretching
+   pipeline using AudioWorklet or the Soundtouch.js library:
+   ```
+   // Using Web Audio API with playbackRate + detune compensation
+   const source = audioContext.createBufferSource();
+   source.buffer = audioBuffer;
+   source.playbackRate.value = 0.75;
+   // Compensate pitch: detune in cents = 1200 * log2(1/rate)
+   source.detune.value = 1200 * Math.log2(1 / 0.75);
+   ```
+   Note: The detune property only works on AudioBufferSourceNode, not
+   on <audio> elements. This requires loading the entire audio file into
+   an AudioBuffer first, which increases memory usage.
+
+   Alternative: Use the Soundtouch.js library (LGPL) for WSOLA-based
+   time stretching. More complex but better quality.
+
+B) Basic metronome (Low effort, useful for practice mode)
+   ```
+   function createMetronome(bpm, audioCtx) {
+     const interval = 60 / bpm;
+     let nextBeat = audioCtx.currentTime;
+     const schedule = () => {
+       while (nextBeat < audioCtx.currentTime + 0.1) {
+         const osc = audioCtx.createOscillator();
+         const gain = audioCtx.createGain();
+         osc.connect(gain).connect(audioCtx.destination);
+         osc.frequency.value = 880;
+         gain.gain.setValueAtTime(0.3, nextBeat);
+         gain.gain.exponentialRampToValueAtTime(0.001, nextBeat + 0.05);
+         osc.start(nextBeat);
+         osc.stop(nextBeat + 0.05);
+         nextBeat += interval;
+       }
+     };
+     const timer = setInterval(schedule, 50);
+     return { stop: () => clearInterval(timer) };
+   }
+   ```
+
+C) Web MIDI (conditional, Chrome/Android only)
+   ```
+   if (navigator.requestMIDIAccess) {
+     try {
+       const midi = await navigator.requestMIDIAccess();
+       midi.inputs.forEach(input => {
+         input.onmidimessage = (msg) => {
+           const [status, data1, data2] = msg.data;
+           // Program change (0xC0-0xCF)
+           if ((status & 0xF0) === 0xC0) {
+             handleProgramChange(data1);
+           }
+           // Control change (0xB0-0xBF)
+           if ((status & 0xF0) === 0xB0) {
+             if (data1 === 66) nextPage(); // Sostenuto = page turn
+           }
+         };
+       });
+     } catch (e) {
+       console.log('MIDI not available');
+     }
+   }
+   ```
+   Degrade gracefully: show MIDI options only when the API is available.
+   On Safari/iOS, hide MIDI features entirely.
+
+
+================================================================================
+8. EASY WINS (LOW-EFFORT, HIGH-IMPACT)
+================================================================================
+
+A) ACCESSIBILITY / ARIA (30 minutes of work)
+   The app already has some aria-labels (good). Additional improvements:
+
+   1. Add role="main" to the primary content area.
+   2. Add aria-live="polite" to the toast container so screen readers
+      announce toasts.
+   3. Add role="dialog" and aria-modal="true" to modals.
+   4. Add aria-current="page" to active navigation items.
+   5. Ensure all interactive elements have visible focus indicators
+      (the design system mentions focus rings — verify they work with
+      keyboard-only navigation).
+   6. Add skip-to-content link:
+      ```
+      <a href="#main-content" class="sr-only focus:not-sr-only">
+        Skip to content
+      </a>
+      ```
+
+B) LOADING SKELETON / PERCEIVED PERFORMANCE (15 minutes)
+   Show placeholder skeleton cards while songs load:
+   ```
+   .skeleton {
+     background: linear-gradient(90deg,
+       var(--bg-3) 25%, var(--bg-2) 50%, var(--bg-3) 75%);
+     background-size: 200% 100%;
+     animation: shimmer 1.5s infinite;
+   }
+   @keyframes shimmer {
+     0% { background-position: 200% 0; }
+     100% { background-position: -200% 0; }
+   }
+   ```
+
+C) PRELOAD CRITICAL RESOURCES (5 minutes)
+   Add to index.html <head>:
+   ```
+   <link rel="preload" href="app.js" as="script">
+   <link rel="preload" href="lucide.min.js" as="script">
+   <link rel="preload" href="app.css" as="style">
+   ```
+   The Inter font is already async-loaded via Google Fonts display=swap.
+
+D) IMAGE/ICON OPTIMIZATION (10 minutes)
+   - Add loading="lazy" to any images outside the initial viewport.
+   - Ensure icon-192.png and any splash images are optimized (pngquant).
+   - Consider inline SVG for the most critical icons instead of waiting
+     for lucide.min.js to load and process data-lucide attributes.
+
+E) CONNECTION STATUS INDICATOR (20 minutes)
+   Show online/offline status so users know if edits will sync:
+   ```
+   window.addEventListener('online', () => showToast('Back online'));
+   window.addEventListener('offline', () => showToast('Offline — changes saved locally'));
+   ```
+
+F) SMOOTH SCROLLING FOR LONG LISTS (5 minutes)
+   If the song list grows large (500+ songs), consider CSS containment:
+   ```
+   .song-card {
+     contain: layout style paint;
+     content-visibility: auto;
+     contain-intrinsic-size: 0 72px;
+   }
+   ```
+   The `content-visibility: auto` property tells the browser to skip
+   rendering off-screen cards. This can dramatically improve scroll
+   performance for large lists. Supported in Chrome 85+, Firefox 124+,
+   Safari 18+.
+
+G) KEYBOARD SHORTCUT HELP OVERLAY (15 minutes)
+   Add a "?" keyboard shortcut that shows available shortcuts.
+   ForScore has extensive keyboard support; matching this signals
+   professional-grade software.
+
+H) PRINT STYLESHEET (10 minutes)
+   ```
+   @media print {
+     #topbar, .toast-container, .modal-backdrop,
+     .audio-player, .master-volume { display: none; }
+     .song-detail { break-inside: avoid; }
+   }
+   ```
+   Musicians occasionally need to print setlists or song details.
+
+
+================================================================================
+9. LARGE TECHNICAL GAPS (PWA vs NATIVE)
+================================================================================
+
+These are fundamental platform limitations that cannot be fully bridged.
+Acknowledge them and implement the best available workarounds.
+
+A) BACKGROUND PROCESSING
+   Native: Apps can run background tasks (sync, downloads) indefinitely.
+   PWA: Service Workers are killed after ~30 seconds of inactivity.
+        Background Sync API fires once when connectivity returns but
+        cannot run periodic tasks (Periodic Background Sync is Chrome-only
+        and requires engagement thresholds).
+   Impact: If a user makes edits offline and closes the app before it
+           syncs, the Service Worker might not get a chance to flush.
+   Mitigation: The localStorage crash recovery in github.js handles this
+               well — pending writes are persisted and retried on next launch.
+
+B) FILE SYSTEM ACCESS
+   Native: Direct filesystem access for importing/exporting files.
+   PWA: File System Access API (Chrome only, not Safari).
+        <input type="file"> works everywhere for import.
+        download attribute works for export.
+   Impact: Cannot auto-import PDFs from a watched folder.
+   Mitigation: Google Drive integration covers the import/export story.
+               For local files, the file input approach is sufficient.
+
+C) PUSH NOTIFICATIONS
+   Native: Full push notification support.
+   PWA: Web Push works on Chrome/Firefox/Edge but NOT on iOS Safari
+        until iOS 16.4+, and only for installed PWAs.
+   Impact: Cannot notify users of setlist changes from bandmates.
+   Mitigation: The "last synced" indicator (Section 4A) helps. Push
+               notifications for a band of 3 is likely overkill anyway.
+
+D) BLUETOOTH / HARDWARE
+   Native: Full Bluetooth LE, CoreMIDI, USB accessories.
+   PWA: Web Bluetooth API (Chrome only, no Safari).
+        Web MIDI API (Chrome only, no Safari).
+        Web HID API (Chrome only, no Safari).
+   Impact: Cannot connect to Bluetooth page turners or MIDI devices on
+           iOS Safari. However, Bluetooth keyboards (including page
+           turners that emulate keyboards) work everywhere because they
+           send standard keyboard events.
+   Mitigation: The keyboard event handler in pdf-viewer.js already
+               captures PageUp/PageDown/Arrow keys, which covers most
+               page turners. Document this for users.
+
+E) PERFORMANCE CEILING
+   Native: Metal/GPU-accelerated rendering, native threading (GCD),
+           direct memory management.
+   PWA: JavaScript single-threaded (mitigated by Web Workers),
+        GPU access via WebGL/Canvas 2D (no compute shaders),
+        garbage collection pauses.
+   Impact: For a band app with <1000 songs and 1-3 page PDFs, this gap
+           is negligible. The performance ceiling only matters for
+           orchestral libraries with thousands of multi-page scores.
+   Mitigation: Pre-rendering and OffscreenCanvas (Section 2) close most
+               of the perceptible gap.
+
+F) STORAGE PERSISTENCE (iOS)
+   Native: App data persists until the user deletes the app.
+   PWA: Safari may evict data after 7 days of non-use (non-installed).
+        Installed PWAs (Add to Home Screen) are exempted.
+   Impact: Critical risk for users who don't install the PWA.
+   Mitigation: Prompt installation. Request persistent storage.
+               GitHub serves as the authoritative copy — local eviction
+               means a re-download, not data loss.
+
+G) SCREEN WAKE LOCK
+   Native: Apps can prevent screen dimming during performance.
+   PWA: Screen Wake Lock API (Chrome 84+, Safari 16.4+).
+   Impact: Screen may dim during a live performance while reading charts.
+   Mitigation: Already available in modern browsers:
+   ```
+   let wakeLock = null;
+   async function requestWakeLock() {
+     try {
+       wakeLock = await navigator.wakeLock.request('screen');
+     } catch (e) {
+       console.log('Wake lock not available');
+     }
+   }
+   // Request when entering PDF viewer or setlist live mode
+   // Release when exiting
+   ```
+   This is a HIGH-VALUE easy win for live performance use.
+
+H) MULTI-WINDOW / SPLIT VIEW
+   Native: iPad split view allows ForScore + a DAW side by side.
+   PWA: PWAs support iPad split view when installed. The viewport
+        meta tag already has viewport-fit=cover. However, responsive
+        layout must handle narrow widths gracefully.
+   Impact: Low — the app's responsive design likely handles this.
+
+
+================================================================================
+10. CODE-LEVEL RECOMMENDATIONS (PRIORITY ORDER)
+================================================================================
+
+PRIORITY 1 — LIVE PERFORMANCE ESSENTIALS (Do these first)
+
+[ ] Screen Wake Lock API
+    Add to pdf-viewer.js and any "live mode" view.
+    Prevents screen dimming during performance.
+    ~15 lines of code. Works on all modern browsers.
+
+[ ] Tap zones for PDF page turning
+    Left 30% = previous, right 60% = next, middle = no action.
+    ~10 lines in pdf-viewer.js. Critical for foot-tap or quick-glance
+    page turns during a gig.
+
+[ ] Pre-render adjacent PDF pages
+    Render N-1 and N+1 into offscreen canvases.
+    ~40 lines. Makes page turning feel instant.
+
+
+PRIORITY 2 — RELIABILITY & STORAGE (Do these next)
+
+[ ] Request persistent storage on app init
+    navigator.storage.persist() — 2 lines.
+    Prevents iOS Safari from evicting cached data.
+
+[ ] Content Security Policy meta tag
+    ~5 lines in index.html. Prevents XSS attacks that could
+    exfiltrate the GitHub PAT.
+
+[ ] "Last synced" indicator in the UI
+    Show timestamp of last successful GitHub sync.
+    Builds user confidence in the sync system.
+
+[ ] Online/offline status indicator
+    window.addEventListener('online'/'offline'). ~10 lines.
+
+
+PRIORITY 3 — POLISH & ACCESSIBILITY
+
+[ ] aria-live on toasts, role="dialog" on modals
+    ~10 attribute additions across index.html.
+
+[ ] content-visibility: auto on song cards
+    1 CSS rule. Major scroll performance win for large lists.
+
+[ ] will-change: transform on PDF canvas
+    1 CSS rule. GPU compositing hint.
+
+[ ] Loading skeleton for initial render
+    ~15 lines CSS + a few lines JS.
+
+[ ] Keyboard shortcut help overlay ("?" key)
+    ~30 lines. Professional touch.
+
+
+PRIORITY 4 — FUTURE ENHANCEMENTS
+
+[ ] IndexedDB migration for structured data
+    Replace Service Worker message-passing cache with IndexedDB.
+    ~100 lines for the wrapper + migration logic.
+
+[ ] OffscreenCanvas for PDF rendering
+    Move PDF rendering to background thread.
+    ~30 lines. Requires feature detection.
+
+[ ] Basic metronome in practice mode
+    Web Audio API oscillator. ~25 lines.
+
+[ ] Web MIDI support (Chrome/Android only)
+    Conditional feature. ~40 lines.
+
+[ ] Tempo change without pitch change
+    Requires AudioWorklet or Soundtouch.js. Higher complexity.
+
+[ ] Print stylesheet
+    ~10 lines CSS.
+
+
+================================================================================
+SUMMARY
+================================================================================
+
+The Catman Trio App's architecture is surprisingly competitive with native
+music apps in several areas:
+
+AREAS WHERE CATMAN TRIO MATCHES OR EXCEEDS COMPETITORS:
+- Encryption (AES-256-GCM E2E is stronger than any competitor).
+- Sync conflict resolution (field-level merge beats ForScore's LWW).
+- Cross-platform reach (any device with a browser vs iOS-only).
+- Cost (free infrastructure vs subscription models).
+- Offline resilience (Service Worker + dual storage is robust).
+
+AREAS WHERE NATIVE APPS HAVE CLEAR ADVANTAGES:
+- PDF rendering performance (CATiledLayer + Metal vs PDF.js + Canvas).
+- MIDI/Bluetooth hardware integration (CoreMIDI vs no Safari support).
+- Background processing (always-on vs SW timeout).
+- Storage persistence (filesystem vs browser quotas).
+- Audio processing (AVAudioEngine vs Web Audio API limitations).
+
+THE HONEST TAKE:
+For a 3-person band app, the PWA architecture is an excellent fit. The
+gaps that matter most (PDF rendering speed, page turner support, offline
+reliability) are all addressable with the recommendations in this document.
+The gaps that cannot be bridged (MIDI on Safari, background sync, native
+GPU rendering) are either irrelevant for the use case or have adequate
+workarounds.
+
+The single highest-impact improvement is the Screen Wake Lock API — it
+directly enables the "keep my chart visible during a live set" use case
+that every ForScore user takes for granted.
+
+The second highest is pre-rendering adjacent PDF pages — it makes page
+turns feel native-app-fast, which is the other thing ForScore users
+notice immediately when switching to a web-based alternative.
+
+Everything else is polish, future-proofing, or addressing edge cases
+that a small band will rarely hit.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

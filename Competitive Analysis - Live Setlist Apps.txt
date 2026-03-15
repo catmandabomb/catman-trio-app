@@ -1,0 +1,414 @@
+================================================================================
+COMPETITIVE LANDSCAPE ANALYSIS: LIVE MUSIC PERFORMANCE & SETLIST MANAGEMENT APPS
+================================================================================
+Prepared: March 2026
+Context: Catman Trio App feature roadmap research
+Scope: ForScore + 9 competitors + original innovation ideas
+
+================================================================================
+PART 1: APP-BY-APP BREAKDOWN
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+1. OnSong
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS (iPad primary, iPhone), some Android support via OnSong 2
+Price: ~$9.99 base + in-app purchases for advanced features
+Target: Worship teams, gigging musicians, singer-songwriters
+
+KEY UNIQUE FEATURES:
+- ChordPro and OnSong format native parsing with on-the-fly transposition
+- MIDI output for triggering gear (lighting, patches, backing tracks) per song
+- Spotify/Apple Music integration for reference playback
+- "Flow" feature for auto-scrolling at configurable speeds
+- Built-in chord library and Nashville Number System support
+- External display output (stage monitor / congregation screen)
+- Dropbox, Google Drive, Box, OneDrive cloud sync
+- Audio recording for rehearsals built-in
+- Song import from URL (Ultimate Guitar, etc.)
+
+BETTER THAN FORSCORE:
+- ChordPro native format (ForScore is PDF-only for content)
+- Real-time transposition without re-rendering PDFs
+- MIDI integration for live performance automation
+- Nashville Number System support
+- Much cheaper entry price
+
+WORSE THAN FORSCORE:
+- PDF annotation is rudimentary compared to ForScore's robust markup tools
+- No half-page turns or advanced page turn modes
+- Less polished UI/UX -- feels utilitarian
+- No smart buttons or programmable links within documents
+- Limited classical/orchestral features
+- Android version historically lags behind iOS significantly
+
+────────────────────────────────────────────────────────────────────────────────
+2. BandHelper (formerly SetListHelper)
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS, Android, Web
+Price: Subscription model (~$4-8/month depending on tier)
+Target: Working bands, cover bands, event bands
+
+KEY UNIQUE FEATURES:
+- Full band MANAGEMENT beyond just music: contacts, finances, calendar, venues
+- Gig calendar with venue database, travel routing, and load-in times
+- Set time calculator with automatic setlist duration tracking
+- Shared band account -- all members see the same data in real-time
+- Automation: MIDI program changes, lighting cues, click tracks per song
+- Revenue tracking and gig payment splitting
+- Song request system (audience can submit requests via web link)
+- Repertoire tracking with "last played" dates to avoid repeating songs
+- Stage plot builder
+- Sync across all band members' devices simultaneously
+
+BETTER THAN FORSCORE:
+- Band-wide collaboration is native and excellent (ForScore is solo-focused)
+- Gig management / business side of being in a band
+- Cross-platform (Android + iOS + web -- ForScore is Apple-only)
+- Set time calculator is genuinely useful for planning
+- Song rotation tracking prevents repeating songs at regular venues
+- MIDI automation on par with or better than OnSong
+
+WORSE THAN FORSCORE:
+- Sheet music / PDF viewing is functional but bare-bones
+- Annotation tools are minimal
+- UI is information-dense and can feel overwhelming
+- Subscription model vs. one-time purchase
+- No advanced page turn modes for reading sheet music on stage
+
+────────────────────────────────────────────────────────────────────────────────
+3. SongBook Pro (by LinkeSOFT)
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS, Android, Windows, Mac
+Price: ~$7-10 one-time per platform
+Target: Singer-songwriters, acoustic performers, worship leaders
+
+KEY UNIQUE FEATURES:
+- Best-in-class ChordPro format support (the gold standard for .chopro files)
+- Highly customizable chord rendering (size, color, position, font)
+- Built-in text editor for writing/editing ChordPro files on-device
+- Chord diagram library with custom voicings
+- Capo-aware transposition (shows both real and capo chords)
+- Multiple columns layout for tablets
+- Export to PDF with full formatting control
+- Truly cross-platform with sync
+
+BETTER THAN FORSCORE:
+- ChordPro is a first-class citizen, not an afterthought
+- Windows and Mac native apps (ForScore is Apple-only)
+- Excellent for text-based chord charts
+- Capo-relative transposition display
+
+WORSE THAN FORSCORE:
+- No PDF annotation whatsoever
+- No page turn hardware support for PDF-style sheet music
+- No audio integration or player
+- Very basic setlist features
+- No MIDI support, no collaboration
+
+────────────────────────────────────────────────────────────────────────────────
+4. Setlist Helper
+────────────────────────────────────────────────────────────────────────────────
+Platform: Android (primarily), iOS
+Price: ~$5 one-time
+Target: Gigging musicians who need simple setlist management
+
+KEY UNIQUE FEATURES:
+- Song history tracking (when/where each song was last played)
+- Venue-aware setlist suggestions (don't repeat songs at same venue)
+- Set break timer
+- Simple and focused -- does one thing well
+
+BETTER THAN FORSCORE:
+- Android-first
+- Song rotation and venue history tracking
+- Set break timer
+
+WORSE THAN FORSCORE:
+- No sheet music viewing or PDF support
+- No annotation, no audio, very basic overall
+
+────────────────────────────────────────────────────────────────────────────────
+5. LivePrompter
+────────────────────────────────────────────────────────────────────────────────
+Platform: Windows, Android, iOS (web-based core)
+Price: Free / donation-ware
+Target: Live performers who need lyrics/chords scrolling on stage
+
+KEY UNIQUE FEATURES:
+- Teleprompter-style auto-scrolling optimized for live performance
+- Massive font sizes designed for reading at stage distance
+- Sections highlighted with color coding (verse, chorus, bridge)
+- MIDI-triggerable for hands-free section jumping
+- Network sync -- multiple devices show same position simultaneously
+- Runs on cheap hardware (even Raspberry Pi)
+
+BETTER THAN FORSCORE:
+- Purpose-built for live stage reading at distance
+- Network-synchronized multi-device display
+- Free, runs on anything
+- Color-coded sections immediately visible on dark stage
+
+WORSE THAN FORSCORE:
+- Text only -- no PDF, no sheet music, no notation
+- Basic setlist management, no cloud sync
+
+────────────────────────────────────────────────────────────────────────────────
+6. Guitar Pro
+────────────────────────────────────────────────────────────────────────────────
+Platform: Windows, Mac, iOS, Android
+Price: ~$75 desktop, ~$7 mobile
+Target: Guitarists, bassists, tab readers, songwriters
+
+KEY UNIQUE FEATURES:
+- Full tablature editor and player with realistic sound engine
+- Multi-track playback -- hear full band arrangement from tab
+- Speed trainer: loop sections at gradually increasing tempo
+- Massive .gp file ecosystem
+- Notation + tablature dual view
+
+BETTER THAN FORSCORE:
+- Tablature first-class citizen
+- Speed trainer / practice loop features
+- Realistic playback of arrangements
+
+WORSE THAN FORSCORE:
+- No live performance features (no setlists, no page turns)
+- Heavy app, not designed for stage use
+
+────────────────────────────────────────────────────────────────────────────────
+7. iReal Pro
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS, Android, Mac
+Price: ~$15 one-time
+Target: Jazz musicians, students, practice-focused players
+
+KEY UNIQUE FEATURES:
+- Generates backing tracks from chord charts in real-time
+- Massive chord chart library via community forum
+- Style engine: play any chart in swing, bossa, rock, funk, etc.
+- Practice loops with automatic key/tempo changes
+- Chord analysis and scale suggestions
+
+BETTER THAN FORSCORE:
+- AI-generated backing tracks are transformative for practice
+- Community sharing of charts is robust
+- Automatic transposition of entire backing track
+
+WORSE THAN FORSCORE:
+- No sheet music / PDF viewing
+- Not designed for stage performance
+
+────────────────────────────────────────────────────────────────────────────────
+8. StagePrompt
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS
+Price: ~$5
+Target: Singers, speakers needing teleprompter
+
+KEY UNIQUE FEATURES:
+- Clean teleprompter view
+- Remote control via Apple Watch
+- Mirror mode for professional teleprompter hardware
+
+────────────────────────────────────────────────────────────────────────────────
+9. Newzik
+────────────────────────────────────────────────────────────────────────────────
+Platform: iOS, Mac, Windows (web viewer)
+Price: Freemium + subscription (~$10/month pro)
+Target: Classical musicians, orchestras, ensembles, music schools
+
+KEY UNIQUE FEATURES:
+- Real-time collaborative annotation (multiple people mark up same score)
+- Librarian role: one person manages parts for entire ensemble
+- Version control for annotations
+- "Conductor mode" to broadcast current position to ensemble
+- Integration with IMSLP (free public domain scores)
+
+BETTER THAN FORSCORE:
+- Collaboration is best-in-class
+- Version control for annotations
+- Part distribution is automated
+
+────────────────────────────────────────────────────────────────────────────────
+10. Other Notable Apps
+────────────────────────────────────────────────────────────────────────────────
+- MUSICNOTES: Massive sheet music store with built-in viewer
+- PLANNING CENTER: Dominant in worship/church music space
+- MUSESCORE: Free open-source notation editor + community library
+- SONGSTERR: Web-based Guitar Pro alternative
+- UNREALBOOK: Early iPad music reader, aging but still used by jazz musicians
+
+
+================================================================================
+PART 2: COMPARATIVE MATRIX -- WHO WINS WHAT
+================================================================================
+
+CATEGORY                    BEST APP(S)
+──────────────────────────  ──────────────────────────────────
+PDF sheet music viewing     ForScore
+PDF annotation/markup       ForScore
+ChordPro chord charts       SongBook Pro, OnSong
+Tablature                   Guitar Pro
+Setlist management          BandHelper, OnSong
+Band collaboration          BandHelper, Newzik
+Ensemble/orchestra          Newzik
+Practice backing tracks     iReal Pro
+Speed/loop training         Guitar Pro, iReal Pro
+Live teleprompter           LivePrompter, StagePrompt
+MIDI hardware integration   OnSong, BandHelper, LivePrompter
+Cross-platform              BandHelper, SongBook Pro, Guitar Pro
+Gig business management     BandHelper (unchallenged)
+Audience interaction        BandHelper (song requests)
+Free/open source            LivePrompter, MuseScore
+Worship/church teams        OnSong, Planning Center
+
+
+================================================================================
+PART 3: GAP ANALYSIS -- WHAT NOBODY DOES WELL
+================================================================================
+
+1. UNIFIED FORMAT SUPPORT: No single app handles PDFs + ChordPro + tabs +
+   notation + lyrics well. You always need 2-3 apps.
+
+2. INTELLIGENT PRACTICE: Nobody does spaced repetition, weakness detection,
+   or adaptive practice plans.
+
+3. REAL-TIME BAND SYNC DURING PERFORMANCE: Newzik does conductor mode but
+   nobody does peer-to-peer live position sync for small bands.
+
+4. AUDIENCE EXPERIENCE: BandHelper has basic song requests, but nobody
+   creates a real audience-facing experience.
+
+5. AI ANYTHING: None of these apps have meaningful AI features.
+
+6. CROSS-DEVICE CONTINUITY: Most sync data but don't do seamless handoff.
+
+7. GIG ANALYTICS: Nobody provides meaningful performance analytics.
+
+8. HARDWARE ECOSYSTEM: MIDI support exists but is rudimentary.
+
+
+================================================================================
+PART 4: 15 INNOVATIVE FEATURE IDEAS FOR CATMAN TRIO APP
+================================================================================
+Ideas that NO existing app implements.
+
+1. "GHOST SETLIST" -- AI-POWERED SETLIST OPTIMIZER
+   Analyzes your choices in real-time using key, tempo, energy level, genre.
+   Suggests: "3 ballads in a row -- swap #7 for uptempo", "keys flow C>G>D
+   is nice but Bb is jarring", "12 min over your 90-min slot", "played 4 of
+   these at Blue Note last month." Learns from history over time.
+
+2. "SOUND CHECK MODE" -- VENUE-AWARE AUDIO REFERENCE
+   Captures room response at sound check, stores per-venue EQ notes. Next
+   visit: "Last time at The Rex, low end was boomy at 200Hz. Here were your
+   mixer notes." A memory aid for returning to venues.
+
+3. "PRACTICE DEBT" -- SPACED REPETITION FOR MUSICIANS
+   Each song accumulates debt based on: time since last played, difficulty,
+   upcoming gig proximity, historical accuracy. Daily practice queue
+   prioritized by debt. Heatmap dashboard: green (fresh) to red (stale).
+
+4. "THE BRIDGE" -- REAL-TIME BAND POSITION SYNC
+   Peer-to-peer via local WiFi/Bluetooth (no internet needed on stage).
+   Leader drives page turns, followers sync. Any member can temporarily
+   unlink to look ahead. Different views of same song (chords vs lyrics vs
+   notation) synced to same structural position.
+
+5. "CROWD PULSE" -- AUDIENCE ENERGY TRACKING
+   Ambient mic analyzes crowd noise throughout the gig. Post-gig energy
+   graph overlaid on setlist timeline. Over multiple gigs: "Superstition
+   always peaks energy" or "crowd dips during originals after cover block."
+
+6. "CHAMELEON KEY" -- CONTEXT-AWARE AUTO-TRANSPOSITION
+   Knows each member's vocal range and instrument preferences. Auto-suggests
+   optimal key per song based on who's singing. Factors in vocal fatigue
+   over long sets. For multi-vocalist bands, ensures no vocalist gets three
+   demanding songs in a row.
+
+7. "SONIC DIARY" -- AUTOMATIC GIG RECORDING + TAGGING
+   Low-quality ambient recording throughout the gig, auto-segmented by
+   setlist timestamps. Each song gets its recording tagged and attached.
+   Mark moments: "killer solo at 2:34", "forgot the bridge." History of
+   live recordings shows arrangement evolution over months.
+
+8. "TEMPO GHOST" -- LIVE TEMPO DRIFT DETECTION
+   Listens via device mic, tracks actual tempo against stored BPM.
+   Green (<3 BPM off), Yellow (5-10 off), Red (>10 off). Post-gig log:
+   "We always rush the bridge of Come Together."
+
+9. "SETLIST ROULETTE" -- ADAPTIVE LIVE SETLIST
+   After each song, suggests 3 "next song" options based on energy
+   trajectory, venue history, key/tempo flow, time remaining, crowd energy.
+   Structured spontaneity for bands that like to read the room.
+
+10. "MUSCLE MEMORY MAP" -- PRACTICE VISUALIZATION
+    Visual map treating repertoire like territory. Nodes are songs,
+    connections represent practice frequency. Clusters = comfort zones.
+    Isolated nodes = neglected songs. Animates over time.
+
+11. "ARRANGEMENT LAYERS" -- PER-SONG MULTI-VERSION SUPPORT
+    Same song entry has multiple arrangements: "Full band", "Duo",
+    "Solo acoustic", "Extended jam." When building a setlist, pick the
+    song AND the arrangement. Each layer has its own chart, key, tempo.
+
+12. "OPEN MIC" -- AUDIENCE-FACING LIVE EXPERIENCE
+    QR code for audience. Scans to web page showing: current song,
+    upcoming setlist, request button, tip button (Venmo/PayPal link),
+    band bio, social links, upcoming gigs, optional real-time lyrics
+    for sing-alongs. Turns app into a VENUE EXPERIENCE.
+
+13. "TIME MACHINE REHEARSAL" -- ASYNC PRACTICE MODE
+    Band members record parts independently against click/backing.
+    Layers accumulate through the week. Timestamped voice notes for
+    arrangement discussion. Lo-fi by design -- communication, not production.
+
+14. "STAGE PLOT + TECH RIDER GENERATOR"
+    Visual stage plot builder. Auto-generates PDF tech rider from your
+    gear profile. Emails to venue contact before the gig. Save different
+    plots for different band configurations.
+
+15. "HARMONIC RADAR" -- AI ARRANGEMENT ASSISTANT
+    Analyzes chord charts and suggests: simplified voicings, jazz
+    substitutions, reharmonization options, scales for soloing, common
+    mistakes, and similar songs in your repertoire for medley ideas.
+
+
+================================================================================
+PART 5: STRATEGIC SUMMARY
+================================================================================
+
+THE MARKET GAP:
+
+Every existing app optimizes for ONE persona:
+  - The Sheet Music Reader (ForScore, Newzik)
+  - The Chord Chart Player (OnSong, SongBook Pro)
+  - The Band Manager (BandHelper)
+  - The Practicer (iReal Pro, Guitar Pro)
+  - The Stage Performer (LivePrompter, StagePrompt)
+
+Nobody serves THE WORKING BAND as a complete unit -- from practice room to
+stage to post-gig analysis.
+
+THE CATMAN TRIO OPPORTUNITY:
+
+1. OWN THE "SMALL BAND" NICHE: 3-6 members, multiple vocalists, mixed
+   repertoire. Most common band configuration, least served.
+
+2. INTELLIGENCE LAYER: Practice debt, setlist optimization, tempo tracking,
+   crowd energy -- achievable with on-device processing, massive
+   differentiation from competition.
+
+3. AUDIENCE BRIDGE: QR-code audience experience sells itself to venue
+   owners and could be a growth vector.
+
+4. ASYNC COLLABORATION: Time Machine rehearsal solves a universal pain
+   point for bands with day jobs.
+
+5. DATA-DRIVEN GIGGING: Longitudinal performance data exists in musicians'
+   gut feelings. Structuring it is a blue ocean.
+
+================================================================================
+END OF ANALYSIS
+================================================================================

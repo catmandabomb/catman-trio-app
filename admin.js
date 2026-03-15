@@ -101,7 +101,7 @@ const Admin = (() => {
       timeSig:  '',
       tags:     [],
       notes:    '',
-      primaryChartId: null, // driveId of preferred chart for live mode
+      chartOrder: [], // [{driveId, order}] ordered charts for live mode
       assets: {
         charts: [],   // [{ driveId, name }]
         audio:  [],   // [{ driveId, name }]
@@ -191,7 +191,7 @@ const Admin = (() => {
     okBtn.className = okLabel ? 'btn-primary' : 'btn-danger';
     overlay.classList.remove('hidden');
 
-    const ok     = () => { overlay.classList.add('hidden'); cleanup(); onConfirm(); };
+    const ok     = () => { overlay.classList.add('hidden'); cleanup(); if (typeof App !== 'undefined') App.hapticHeavy(); onConfirm(); };
     const cancel = () => { overlay.classList.add('hidden'); cleanup(); };
 
     document.getElementById('btn-confirm-ok').addEventListener('click', ok);

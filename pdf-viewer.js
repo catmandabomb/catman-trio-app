@@ -328,7 +328,7 @@ const PDFViewer = (() => {
     } catch (e) {
       if (gen !== _openGen) return; // stale
       console.error('PDF load error', e);
-      App.showToast('Failed to load PDF.');
+      if (typeof App !== 'undefined') App.showToast('Failed to load PDF.');
       close();
     }
   }

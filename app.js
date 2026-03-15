@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.82';
+  const APP_VERSION = 'v17.83';
 
   let _songs      = [];
   let _setlists   = [];
@@ -24,6 +24,11 @@ const App = (() => {
   let _savingSongs = false;
   let _savingSetlists = false;
   let _savingPractice = false;
+  let _cachedPdfSet = new Set();
+
+  // ─── Batch selection mode ──────────────────────────────────
+  let _selectionMode = false;
+  let _selectedSongIds = new Set();
 
   // ─── Utility ──────────────────────────────────────────────
 
@@ -34,6 +39,19 @@ const App = (() => {
   }
 
   function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+  // ─── Haptic feedback ─────────────────────────────────────
+  // Gracefully degrades on iOS / unsupported browsers (no-op)
+  const _canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  function haptic(pattern) {
+    if (_canVibrate) try { navigator.vibrate(pattern); } catch (_) {}
+  }
+  haptic.tap       = () => haptic(8);        // light tap — card press, toggle
+  haptic.light     = () => haptic(10);       // drag pickup, swipe snap
+  haptic.medium    = () => haptic(25);       // edge bounce, threshold reached
+  haptic.heavy     = () => haptic(50);       // destructive action confirm
+  haptic.double    = () => haptic([12, 30, 12]); // mode change, refresh trigger
+  haptic.success   = () => haptic([10, 40, 15]); // save complete, action done
 
   function _gradientText(str, from, to) {
     const chars = str.split('');
@@ -57,16 +75,29 @@ const App = (() => {
     return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="search-hi">$1</mark>');
   }
 
-  // ─── Primary chart helper ────────────────────────────────
+  // ─── Ordered charts helper ────────────────────────────────
 
-  function _getPrimaryChart(song) {
+  function _getOrderedCharts(song) {
     const charts = song.assets?.charts || [];
-    if (!charts.length) return null;
-    if (song.primaryChartId) {
-      const found = charts.find(c => c.driveId === song.primaryChartId);
-      if (found) return found;
+    if (!charts.length) return [];
+    // Migration: convert legacy primaryChartId to chartOrder
+    if (song.primaryChartId && !song.chartOrder) {
+      song.chartOrder = [{ driveId: song.primaryChartId, order: 1 }];
+      delete song.primaryChartId;
     }
-    return charts[0];
+    const order = song.chartOrder || [];
+    if (!order.length) return [charts[0]]; // fallback: first chart only
+    // Return charts in order, only those that still exist
+    return order
+      .sort((a, b) => a.order - b.order)
+      .map(o => charts.find(c => c.driveId === o.driveId))
+      .filter(Boolean);
+  }
+
+  function _getChartOrderNum(song, driveId) {
+    const order = song.chartOrder || [];
+    const entry = order.find(o => o.driveId === driveId);
+    return entry ? entry.order : 0;
   }
 
   // ─── Duplicate detection helpers ──────────────────────────
@@ -126,6 +157,7 @@ const App = (() => {
   function showToast(msg, duration = 3000) {
     const el = document.getElementById('toast');
     if (!el) return;
+    haptic.tap();
     el.textContent = msg;
     el.classList.remove('hidden');
     el.classList.add('show');
@@ -163,9 +195,90 @@ const App = (() => {
 
   async function _getBlobUrl(driveId) {
     if (_blobCache[driveId]) return _blobCache[driveId];
+
+    // Try PDF cache from service worker first
+    const cachedBlob = await _getCachedPdfBlob(driveId);
+    if (cachedBlob) {
+      const url = URL.createObjectURL(cachedBlob);
+      _blobCache[driveId] = url;
+      return url;
+    }
+
+    // Fetch from Drive
     const url = await Drive.fetchFileAsBlob(driveId);
     _blobCache[driveId] = url;
+
+    // Cache the PDF blob in the service worker (fire and forget)
+    _cachePdfBlob(driveId, url);
+
     return url;
+  }
+
+  /**
+   * Send a blob URL's data to the SW for offline PDF caching.
+   */
+  async function _cachePdfBlob(driveId, blobUrl) {
+    try {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+      const resp = await fetch(blobUrl);
+      const blob = await resp.blob();
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CACHE_PDF', driveId, blob,
+      });
+      _cachedPdfSet.add(driveId);
+      // Update any visible badges for this driveId
+      document.querySelectorAll(`.pdf-cached-badge[data-cache-id="${driveId}"]`).forEach(el => {
+        el.classList.add('cached');
+      });
+    } catch (err) {
+      console.warn('PDF cache send failed:', err);
+    }
+  }
+
+  /**
+   * Retrieve a cached PDF blob from the service worker.
+   */
+  function _getCachedPdfBlob(driveId) {
+    return new Promise((resolve) => {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
+      const handler = (e) => {
+        if (e.data && e.data.type === 'CACHED_PDF' && e.data.driveId === driveId) {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve(e.data.blob || null);
+        }
+      };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(null); }, 1000);
+      navigator.serviceWorker.addEventListener('message', handler);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_PDF', driveId });
+    });
+  }
+
+  /**
+   * Fetch the list of cached PDF driveIds from the SW and populate the local Set.
+   */
+  function _loadCachedPdfList() {
+    return new Promise((resolve) => {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve();
+      const handler = (e) => {
+        if (e.data && e.data.type === 'CACHED_PDF_LIST') {
+          clearTimeout(timeout);
+          navigator.serviceWorker.removeEventListener('message', handler);
+          _cachedPdfSet = new Set(e.data.driveIds || []);
+          resolve();
+        }
+      };
+      const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(); }, 1000);
+      navigator.serviceWorker.addEventListener('message', handler);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_PDF_LIST' });
+    });
+  }
+
+  /**
+   * Check if a PDF is cached for offline access.
+   */
+  function _isPdfCached(driveId) {
+    return _cachedPdfSet.has(driveId);
   }
 
   // ─── Download helper ────────────────────────────────────
@@ -641,6 +754,8 @@ const App = (() => {
 
   function renderList() {
     _revokeBlobCache();
+    // If not explicitly in selection mode re-render, clear selection state
+    if (!_selectionMode) { _selectedSongIds = new Set(); _removeSelectionBar(); }
     _navStack = [];
     _showView('list');
     // Two-line title: CATMAN gradient 1→6, TRIO gradient matching positions 2→5
@@ -717,11 +832,32 @@ const App = (() => {
 
     filtered.forEach((song, i) => {
       const card = document.createElement('div');
-      card.className  = 'song-card';
+      card.className  = 'song-card' + (_selectionMode && _selectedSongIds.has(song.id) ? ' song-card-selected' : '');
+      card.dataset.songId = song.id;
       card.style.animationDelay = `${i * 30}ms`;
-      card.innerHTML  = _songCardHTML(song);
-      card.addEventListener('click', () => renderDetail(song));
-      if (Admin.isEditMode()) {
+      card.innerHTML  = (_selectionMode ? _selectionCheckboxHTML(song.id) : '') + _songCardHTML(song);
+
+      if (_selectionMode) {
+        card.addEventListener('click', () => {
+          haptic.tap();
+          _toggleSongSelection(song.id, card);
+        });
+      } else {
+        card.addEventListener('click', () => { haptic.tap(); renderDetail(song); });
+        if (Admin.isEditMode()) {
+          let lpTimer = null;
+          card.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            lpTimer = setTimeout(() => { lpTimer = null; e.preventDefault(); _enterSelectionMode(song.id); }, 500);
+          });
+          const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+          card.addEventListener('pointerup', cancelLp);
+          card.addEventListener('pointercancel', cancelLp);
+          card.addEventListener('pointermove', (e) => { if (lpTimer && (Math.abs(e.movementX) > 5 || Math.abs(e.movementY) > 5)) cancelLp(); });
+          card.addEventListener('contextmenu', (e) => e.preventDefault());
+        }
+      }
+      if (!_selectionMode && Admin.isEditMode()) {
         card.querySelector('.song-card-edit-btn')?.addEventListener('click', (e) => {
           e.stopPropagation();
           renderEdit(song, false);
@@ -730,6 +866,13 @@ const App = (() => {
       container.appendChild(card);
     });
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+    if (_selectionMode) {
+      _showSelectionBar();
+      // Ensure back-button can exit selection mode after any re-render
+      if (!_navStack.length) _navStack.push(function() { _exitSelectionMode(); });
+    } else {
+      _removeSelectionBar();
+    }
   }
 
   function _songCardHTML(song) {
@@ -764,6 +907,132 @@ const App = (() => {
       </div>`;
   }
 
+  // ─── BATCH SELECTION MODE ──────────────────────────────────
+
+  function _selectionCheckboxHTML(songId) {
+    const checked = _selectedSongIds.has(songId);
+    return '<div class="sel-checkbox ' + (checked ? 'sel-checked' : '') + '">' + (checked ? '<i data-lucide="check"></i>' : '') + '</div>';
+  }
+
+  function _enterSelectionMode(firstSongId) {
+    if (_selectionMode) return;
+    _selectionMode = true;
+    _selectedSongIds = new Set([firstSongId]);
+    haptic.medium();
+    renderList();
+    // Push after renderList (which clears _navStack) so back-button exits selection
+    _navStack.push(function() { _exitSelectionMode(); });
+  }
+
+  function _exitSelectionMode() {
+    if (!_selectionMode) return;
+    _selectionMode = false;
+    _selectedSongIds = new Set();
+    _removeSelectionBar();
+    renderList();
+  }
+
+  function _toggleSongSelection(songId, card) {
+    if (_selectedSongIds.has(songId)) {
+      _selectedSongIds.delete(songId);
+      card.classList.remove('song-card-selected');
+      var cb = card.querySelector('.sel-checkbox');
+      if (cb) { cb.classList.remove('sel-checked'); cb.innerHTML = ''; }
+    } else {
+      _selectedSongIds.add(songId);
+      card.classList.add('song-card-selected');
+      var cb2 = card.querySelector('.sel-checkbox');
+      if (cb2) { cb2.classList.add('sel-checked'); cb2.innerHTML = '<i data-lucide="check"></i>'; }
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [card] });
+    }
+    _updateSelectionCount();
+  }
+
+  function _showSelectionBar() {
+    _removeSelectionBar();
+    var bar = document.createElement('div');
+    bar.id = 'batch-selection-bar';
+    bar.className = 'batch-selection-bar';
+    bar.innerHTML = '<span class="batch-sel-count">' + _selectedSongIds.size + ' selected</span>' +
+      '<button class="batch-sel-add-btn">Add to Setlist</button>' +
+      '<button class="batch-sel-cancel" aria-label="Cancel selection"><i data-lucide="x"></i></button>';
+    document.body.appendChild(bar);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bar] });
+    bar.querySelector('.batch-sel-add-btn').addEventListener('click', function() { _batchAddToSetlist(); });
+    bar.querySelector('.batch-sel-cancel').addEventListener('click', function() { _exitSelectionMode(); });
+    var escHandler = function(e) { if (e.key === 'Escape' && _selectionMode) _exitSelectionMode(); };
+    document.addEventListener('keydown', escHandler);
+    bar._escHandler = escHandler;
+    requestAnimationFrame(function() { bar.classList.add('batch-bar-visible'); });
+  }
+
+  function _removeSelectionBar() {
+    var bar = document.getElementById('batch-selection-bar');
+    if (!bar) return;
+    if (bar._escHandler) document.removeEventListener('keydown', bar._escHandler);
+    bar.remove();
+  }
+
+  function _updateSelectionCount() {
+    var el = document.querySelector('.batch-sel-count');
+    if (el) el.textContent = _selectedSongIds.size + ' selected';
+    var addBtn = document.querySelector('.batch-sel-add-btn');
+    if (addBtn) addBtn.disabled = _selectedSongIds.size === 0;
+  }
+
+  function _batchAddToSetlist() {
+    if (_selectedSongIds.size === 0) { showToast('No songs selected'); return; }
+    var available = _setlists.filter(function(s) { return !s.archived; });
+    if (!available.length) { showToast('No setlists yet'); return; }
+    var existing = document.getElementById('batch-setlist-picker');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'batch-setlist-picker';
+    overlay.className = 'modal-overlay';
+    var selCount = _selectedSongIds.size;
+    var rows = available.map(function(s, i) {
+      var count = (s.songs || []).length;
+      return '<div class="setlist-pick-row" data-sl-idx="' + i + '">' +
+        '<span class="setlist-pick-name">' + esc(s.name) + '</span>' +
+        '<span class="setlist-pick-count">' + count + ' song' + (count !== 1 ? 's' : '') + '</span>' +
+        '</div>';
+    }).join('');
+    overlay.innerHTML = '<div class="setlist-picker">' +
+      '<h3>Add ' + selCount + ' song' + (selCount !== 1 ? 's' : '') + ' to Setlist</h3>' +
+      rows +
+      '<button class="setlist-picker-cancel">Cancel</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('.setlist-picker-cancel').addEventListener('click', function() { overlay.remove(); });
+    overlay.querySelectorAll('.setlist-pick-row').forEach(function(row) {
+      row.addEventListener('click', function() {
+        var idx = parseInt(row.dataset.slIdx, 10);
+        var setlist = available[idx];
+        if (!setlist) return;
+        if (!setlist.songs) setlist.songs = [];
+        var existingIds = new Set(setlist.songs.map(function(e) { return e.id; }));
+        var added = 0;
+        _selectedSongIds.forEach(function(songId) {
+          if (!existingIds.has(songId)) {
+            setlist.songs.push({ id: songId, comment: '' });
+            added++;
+          }
+        });
+        if (added === 0) {
+          showToast('All songs already in ' + setlist.name);
+        } else {
+          _saveSetlistsLocal(_setlists);
+          saveSetlists();
+          haptic.success();
+          showToast('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + setlist.name);
+        }
+        overlay.remove();
+        _exitSelectionMode();
+      });
+    });
+  }
+
   // ─── DETAIL VIEW ───────────────────────────────────────────
 
   function renderDetail(song, skipNavPush) {
@@ -795,14 +1064,25 @@ const App = (() => {
       if (!_blobCache[id]) _getBlobUrl(id).catch(() => {});
     });
 
-    // Primary chart star toggles (edit mode only)
+    // Chart order star toggles (edit mode only)
     if (Admin.isEditMode()) {
-      container.querySelectorAll('.primary-chart-star').forEach(btn => {
+      container.querySelectorAll('.chart-order-star').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           e.preventDefault();
+          haptic.tap();
           const driveId = btn.dataset.starChart;
-          song.primaryChartId = (song.primaryChartId === driveId) ? null : driveId;
+          if (!song.chartOrder) song.chartOrder = [];
+          const existing = song.chartOrder.findIndex(o => o.driveId === driveId);
+          if (existing !== -1) {
+            // Remove from order and renumber remaining
+            song.chartOrder.splice(existing, 1);
+            song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
+          } else {
+            // Add with next available number
+            const maxOrder = song.chartOrder.reduce((m, o) => Math.max(m, o.order), 0);
+            song.chartOrder.push({ driveId, order: maxOrder + 1 });
+          }
           song._ts = Date.now();
           const idx = _songs.findIndex(s => s.id === song.id);
           if (idx > -1) _songs[idx] = song;
@@ -964,17 +1244,21 @@ const App = (() => {
         <div class="detail-section-label">Charts</div>
         <div class="file-list">
           ${charts.map(c => {
-            const isPrimary = song.primaryChartId ? c.driveId === song.primaryChartId : charts.indexOf(c) === 0;
+            const orderNum = _getChartOrderNum(song, c.driveId);
             return `
             <div class="file-item-row">
               <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
-                <span class="primary-chart-star${isPrimary ? ' active' : ''}${Admin.isEditMode() ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode">
-                  <i data-lucide="star" style="width:16px;height:16px;${isPrimary ? 'fill:var(--accent);' : ''}"></i>
+                <span class="chart-order-star${orderNum ? ' active' : ''}${Admin.isEditMode() ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode">
+                  <i data-lucide="star" style="width:16px;height:16px;${orderNum ? 'fill:var(--accent);' : ''}"></i>
+                  ${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}
                 </span>
                 <div class="file-item-icon pdf">
                   <i data-lucide="file-text"></i>
                 </div>
                 <span class="file-item-name">${esc(c.name)}</span>
+                <span class="pdf-cached-badge${_isPdfCached(c.driveId) ? ' cached' : ''}" data-cache-id="${esc(c.driveId)}" title="${_isPdfCached(c.driveId) ? 'Available offline' : 'Not cached'}">
+                  <i data-lucide="cloud-download" style="width:14px;height:14px;"></i>
+                </span>
                 <i data-lucide="chevron-right" class="file-item-arrow"></i>
               </button>
               <button class="dl-btn" data-dl-id="${esc(c.driveId)}" data-dl-name="${esc(c.name)}" aria-label="Download">
@@ -1119,8 +1403,8 @@ const App = (() => {
         <div class="edit-section-title">Charts (PDF)</div>
         <div class="asset-edit-list" id="ef-chart-list">
           ${(assets.charts||[]).map(c => {
-            const isPrimary = song.primaryChartId ? c.driveId === song.primaryChartId : assets.charts.indexOf(c) === 0;
-            return `<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><button class="primary-chart-star${isPrimary ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode"><i data-lucide="star" style="width:14px;height:14px;${isPrimary ? 'fill:var(--accent);' : ''}"></i></button><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`;
+            const orderNum = _getChartOrderNum(song, c.driveId);
+            return `<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><button class="chart-order-star${orderNum ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode"><i data-lucide="star" style="width:14px;height:14px;${orderNum ? 'fill:var(--accent);' : ''}"></i>${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}</button><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`;
           }).join('')}
         </div>
         <button class="btn-ghost" id="ef-add-chart">+ Add Chart PDF</button>
@@ -1222,19 +1506,42 @@ const App = (() => {
     tagInput.addEventListener('blur', () => { if(tagInput.value.trim()){addTag(tagInput.value);tagInput.value='';} tagSuggest.classList.add('hidden'); });
     tagWrap.addEventListener('click', () => tagInput.focus());
 
-    // Primary chart star toggles in edit view
+    // Chart order star toggles in edit view
     document.getElementById('ef-chart-list').addEventListener('click', e => {
-      const starBtn = e.target.closest('.primary-chart-star');
+      const starBtn = e.target.closest('.chart-order-star');
       if (starBtn) {
+        haptic.tap();
         const driveId = starBtn.dataset.starChart;
-        song.primaryChartId = (song.primaryChartId === driveId) ? null : driveId;
+        if (!song.chartOrder) song.chartOrder = [];
+        const existing = song.chartOrder.findIndex(o => o.driveId === driveId);
+        if (existing !== -1) {
+          // Remove from order and renumber remaining
+          song.chartOrder.splice(existing, 1);
+          song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
+        } else {
+          // Add with next available number
+          const maxOrder = song.chartOrder.reduce((m, o) => Math.max(m, o.order), 0);
+          song.chartOrder.push({ driveId, order: maxOrder + 1 });
+        }
         // Update all star visuals
-        document.querySelectorAll('#ef-chart-list .primary-chart-star').forEach(s => {
-          const isThis = s.dataset.starChart === song.primaryChartId ||
-            (!song.primaryChartId && s.dataset.starChart === (assets.charts[0]?.driveId));
-          s.classList.toggle('active', isThis);
-          const icon = s.querySelector('i');
-          if (icon) icon.style.fill = isThis ? 'var(--accent)' : '';
+        document.querySelectorAll('#ef-chart-list .chart-order-star').forEach(s => {
+          const id = s.dataset.starChart;
+          const num = _getChartOrderNum(song, id);
+          s.classList.toggle('active', !!num);
+          const icon = s.querySelector('i[data-lucide]');
+          if (icon) icon.style.fill = num ? 'var(--accent)' : '';
+          // Update or create/remove number overlay
+          let numSpan = s.querySelector('.chart-order-num');
+          if (num) {
+            if (!numSpan) {
+              numSpan = document.createElement('span');
+              numSpan.className = 'chart-order-num';
+              s.appendChild(numSpan);
+            }
+            numSpan.textContent = num;
+          } else if (numSpan) {
+            numSpan.remove();
+          }
         });
         return;
       }
@@ -1251,9 +1558,10 @@ const App = (() => {
         Admin.showConfirm('Remove Attachment', `Remove "${name}" from this song?`, () => {
           const removedId = row.dataset.driveId;
           assets[assetKey] = assets[assetKey].filter(a => a.driveId !== removedId);
-          // Clear primaryChartId if the removed chart was primary
-          if (type === 'chart' && song.primaryChartId === removedId) {
-            song.primaryChartId = null;
+          // Remove from chartOrder if present and renumber
+          if (type === 'chart' && song.chartOrder) {
+            song.chartOrder = song.chartOrder.filter(o => o.driveId !== removedId);
+            song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
           }
           row.remove();
         });
@@ -1568,7 +1876,7 @@ const App = (() => {
     const songs = setlist.songs || [];
 
     let html = `<div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button></div>` : ''}
+      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button>' : ''}</div>
     </div>`;
@@ -1626,6 +1934,19 @@ const App = (() => {
     container.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
       renderSetlistEdit(setlist, false);
     });
+
+    // Wire duplicate button
+    container.querySelector('.btn-duplicate-setlist')?.addEventListener('click', () => {
+      haptic.success();
+      const dupe = deepClone(setlist);
+      dupe.id = 'sl_' + Date.now();
+      dupe.name = (setlist.name || 'Setlist') + ' (Copy)';
+      dupe._ts = Date.now();
+      _setlists.push(dupe);
+      saveSetlists('Setlist duplicated');
+      renderSetlistEdit(dupe, false);
+    });
+
     if (!Admin.isEditMode()) {
       container.querySelector('.detail-edit-bar')?.remove();
     }
@@ -1688,6 +2009,14 @@ const App = (() => {
     let _clockInterval = null;
     let _zpHandle = null; // zoom/pan handle for chart canvas
     let _overlayTimer = null;
+    let _wakeLock = null;
+
+    // Screen Wake Lock — keep screen on during Live Mode only
+    (async () => {
+      try {
+        if ('wakeLock' in navigator) _wakeLock = await navigator.wakeLock.request('screen');
+      } catch (_) {}
+    })();
 
     // ── Build flat page list ──
     // Start with one placeholder per song; chart songs get expanded as PDFs load
@@ -1698,9 +2027,11 @@ const App = (() => {
       _pages = [];
       for (let si = 0; si < _songEntries.length; si++) {
         const song = _songEntries[si];
-        const chart = _getPrimaryChart(song);
-        if (chart) {
-          _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.driveId, chartName: chart.name });
+        const orderedCharts = _getOrderedCharts(song);
+        if (orderedCharts.length) {
+          orderedCharts.forEach(chart => {
+            _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.driveId, chartName: chart.name });
+          });
         } else {
           _pages.push({ type: 'metadata', songIdx: si, song });
         }
@@ -1741,12 +2072,16 @@ const App = (() => {
     // ── Build persistent DOM ──
     container.innerHTML = `
       <div class="lm-header">
+        <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:20px;height:20px;"></i></button>
         <span class="lm-progress"></span>
         <div class="lm-clock-group">
           <span class="lm-clock"></span>
           <span class="lm-timer">0:00</span>
         </div>
         <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+      </div>
+      <div class="lm-jump-overlay hidden">
+        <div class="lm-jump-list"></div>
       </div>
       <div class="lm-page-wrapper">
         <div class="lm-canvas-area hidden">
@@ -1788,6 +2123,57 @@ const App = (() => {
     nextBtn.addEventListener('click', () => _goPage(1));
     container.querySelector('.lm-close-btn').addEventListener('click', _exitLiveMode);
 
+    // ── Quick-Jump Song Picker ──
+    const jumpBtn = container.querySelector('.lm-jump-btn');
+    const jumpOverlay = container.querySelector('.lm-jump-overlay');
+    const jumpList = container.querySelector('.lm-jump-list');
+
+    function _openJumpPicker() {
+      const curSongIdx = _pages[currentPageIdx] ? _pages[currentPageIdx].songIdx : -1;
+      jumpList.innerHTML = _songEntries.map((song, idx) => {
+        const isActive = idx === curSongIdx ? ' active' : '';
+        return `<button class="lm-jump-item${isActive}" data-song-idx="${idx}"><span class="lm-jump-item-num">${idx + 1}.</span> ${esc(song.title)}</button>`;
+      }).join('');
+      jumpOverlay.classList.remove('hidden');
+      // Scroll current song into view
+      const activeItem = jumpList.querySelector('.lm-jump-item.active');
+      if (activeItem) activeItem.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }
+
+    function _closeJumpPicker() {
+      jumpOverlay.classList.add('hidden');
+    }
+
+    function _toggleJumpPicker() {
+      if (jumpOverlay.classList.contains('hidden')) {
+        _openJumpPicker();
+      } else {
+        _closeJumpPicker();
+      }
+    }
+
+    jumpBtn.addEventListener('click', _toggleJumpPicker);
+
+    // Tap a song to jump
+    jumpList.addEventListener('click', (e) => {
+      const item = e.target.closest('.lm-jump-item');
+      if (!item) return;
+      const targetSongIdx = parseInt(item.dataset.songIdx, 10);
+      if (isNaN(targetSongIdx)) return;
+      haptic.tap();
+      const targetPageIdx = _pages.findIndex(p => p.songIdx === targetSongIdx);
+      if (targetPageIdx >= 0 && targetPageIdx !== currentPageIdx) {
+        currentPageIdx = targetPageIdx;
+        _renderCurrentPage();
+      }
+      _closeJumpPicker();
+    });
+
+    // Dismiss overlay by tapping outside the list
+    jumpOverlay.addEventListener('click', (e) => {
+      if (e.target === jumpOverlay) _closeJumpPicker();
+    });
+
     // ── Navigation ──
     let _lastRenderedSongIdx = -1;
     let _isAnimating = false;
@@ -1796,6 +2182,7 @@ const App = (() => {
       if (_isAnimating) return;
       const newIdx = currentPageIdx + delta;
       if (newIdx < 0 || newIdx >= _pages.length) return;
+      haptic.light();
       if (animate !== false) {
         _slideTransition(delta > 0 ? 'left' : 'right', () => {
           currentPageIdx = newIdx;
@@ -1912,6 +2299,7 @@ const App = (() => {
     }
 
     function _showOverlay(song) {
+      haptic.medium(); // song boundary feedback
       if (_overlayTimer) clearTimeout(_overlayTimer);
       const meta = [song.key, song.bpm ? song.bpm + ' BPM' : '', song.timeSig].filter(Boolean).join(' · ');
       chartOverlay.innerHTML = `<div class="lm-overlay-title">${esc(song.title)}</div>${meta ? `<div class="lm-overlay-meta">${esc(meta)}</div>` : ''}`;
@@ -1939,7 +2327,7 @@ const App = (() => {
         if (numPages === 0) {
           pdfDoc.destroy();
           _spliceLock = _spliceLock.then(() => {
-            const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+            const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading' && p.chartDriveId === chartDriveId);
             if (idx !== -1) {
               _pages[idx] = { type: 'metadata', songIdx, song: _pages[idx].song };
               if (idx === currentPageIdx) _renderCurrentPage();
@@ -1952,7 +2340,7 @@ const App = (() => {
         _spliceLock = _spliceLock.then(() => {
           if (!_liveModeActive) { pdfDoc.destroy(); return; }
 
-          const placeholderIdx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+          const placeholderIdx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading' && p.chartDriveId === chartDriveId);
           if (placeholderIdx === -1) { pdfDoc.destroy(); return; }
 
           const song = _pages[placeholderIdx].song;
@@ -1977,7 +2365,7 @@ const App = (() => {
       } catch (err) {
         console.error('Failed to load chart for song', songIdx, err);
         _spliceLock = _spliceLock.then(() => {
-          const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+          const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading' && p.chartDriveId === chartDriveId);
           if (idx !== -1) {
             const song = _pages[idx].song;
             _pages[idx] = { type: 'metadata', songIdx, song };
@@ -1990,10 +2378,10 @@ const App = (() => {
     // Fire all PDF loads in parallel
     const loadPromises = [];
     for (let si = 0; si < _songEntries.length; si++) {
-      const chart = _getPrimaryChart(_songEntries[si]);
-      if (chart) {
+      const orderedCharts = _getOrderedCharts(_songEntries[si]);
+      orderedCharts.forEach(chart => {
         loadPromises.push(_loadChartPDF(si, chart.driveId));
-      }
+      });
     }
 
     // ── Exit Live Mode ──
@@ -2011,10 +2399,12 @@ const App = (() => {
       for (const pg of _pages) {
         if (pg.pdfDoc && !seenDocs.has(pg.pdfDoc)) {
           seenDocs.add(pg.pdfDoc);
-          try { pg.pdfDoc.destroy(); } catch (_) {}
+          try { pg.pdfDoc.destroy(); } catch (e) { console.warn('PDF destroy failed', e); }
         }
       }
       _pages = [];
+      // Release wake lock
+      if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; }
       document.body.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
       pageWrapper.removeEventListener('touchstart', _onDragStart);
@@ -2031,6 +2421,8 @@ const App = (() => {
 
     // ── Keyboard navigation (with pedal support) ──
     function _onKey(e) {
+      // Close jump picker on any navigation key
+      if (!jumpOverlay.classList.contains('hidden')) _closeJumpPicker();
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
         _goPage(1);
@@ -2038,13 +2430,17 @@ const App = (() => {
         e.preventDefault();
         _goPage(-1);
       } else if (e.key === 'Escape') {
-        _exitLiveMode();
+        if (!jumpOverlay.classList.contains('hidden')) {
+          _closeJumpPicker();
+        } else {
+          _exitLiveMode();
+        }
       }
     }
     document.addEventListener('keydown', _onKey);
 
     // ── Carousel swipe navigation (drag-follow + snap) ──
-    let _dragX0 = 0, _dragY0 = 0, _dragging = false, _dragLocked = false;
+    let _dragX0 = 0, _dragY0 = 0, _dragging = false, _dragLocked = false, _edgeBuzzed = false;
     const SWIPE_THRESHOLD = 60;
 
     function _onDragStart(e) {
@@ -2055,6 +2451,7 @@ const App = (() => {
       _dragY0 = t.clientY;
       _dragging = true;
       _dragLocked = false;
+      _edgeBuzzed = false;
       pageWrapper.style.transition = 'none';
     }
 
@@ -2084,6 +2481,7 @@ const App = (() => {
       // Rubber-band effect at edges
       let tx = dx;
       if ((dx > 0 && currentPageIdx === 0) || (dx < 0 && currentPageIdx === _pages.length - 1)) {
+        if (!_edgeBuzzed) { haptic.medium(); _edgeBuzzed = true; } // edge bounce
         tx = dx * 0.25; // resist at edges
       }
       pageWrapper.style.transform = `translateX(${tx}px)`;
@@ -2102,6 +2500,7 @@ const App = (() => {
         const direction = dx < 0 ? 'left' : 'right';
         const canGo = dx < 0 ? currentPageIdx < _pages.length - 1 : currentPageIdx > 0;
         if (canGo) {
+          haptic.light(); // swipe snap
           _isAnimating = true;
           const slideOut = direction === 'left' ? '-100%' : '100%';
           const slideIn  = direction === 'left' ? '100%' : '-100%';
@@ -2271,7 +2670,9 @@ const App = (() => {
           animation: 150,
           ghostClass: 'sortable-ghost',
           chosenClass: 'sortable-chosen',
+          onStart: () => { haptic.light(); },
           onEnd: (evt) => {
+            haptic.tap();
             const moved = sl.songs.splice(evt.oldIndex, 1)[0];
             sl.songs.splice(evt.newIndex, 0, moved);
             _renderSelectedSongs();
@@ -3823,7 +4224,9 @@ const App = (() => {
           animation: 150,
           ghostClass: 'sortable-ghost',
           chosenClass: 'sortable-chosen',
+          onStart: () => { haptic.light(); },
           onEnd: (evt) => {
+            haptic.tap();
             const moved = pl.songs.splice(evt.oldIndex, 1)[0];
             pl.songs.splice(evt.newIndex, 0, moved);
             _renderPLSongs();
@@ -4183,6 +4586,8 @@ const App = (() => {
       navigator.serviceWorker.register('./service-worker.js', { scope: './' })
         .then(reg => console.info('SW registered:', reg.scope))
         .catch(e => console.warn('SW registration failed:', e));
+      // Load cached PDF list once SW is ready
+      navigator.serviceWorker.ready.then(() => _loadCachedPdfList()).catch(() => {});
     }
 
     // PWA install gate — mobile browsers only
@@ -4216,6 +4621,7 @@ const App = (() => {
     });
 
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
+      haptic.double(); // mode toggle
       if (Admin.isEditMode()) {
         Admin.exitEditMode();
         if (_view === 'list')              renderList();
@@ -4287,8 +4693,9 @@ const App = (() => {
       _refreshTimes.push(now);
       try { sessionStorage.setItem('bb_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
 
-      if (!_ptrTriggered) showToast('Refreshing app…');
+      const wasPtr = _ptrTriggered;
       _ptrTriggered = false;
+      if (!wasPtr) showToast('Refreshing app…');
       try {
         // Wipe all service worker caches so fresh files are fetched on reload
         const keys = await caches.keys();
@@ -4313,8 +4720,8 @@ const App = (() => {
       const ptrEl = document.getElementById('ptr-indicator');
       const ptrText = ptrEl?.querySelector('.ptr-text');
       let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
-      const PTR_THRESHOLD = 190;
-      const PTR_MAX = 240;
+      const PTR_THRESHOLD = 260;
+      const PTR_MAX = 310;
 
       function _getScrollTop() {
         const activeView = appEl.querySelector('.view.active');
@@ -4322,7 +4729,7 @@ const App = (() => {
       }
 
       appEl.addEventListener('touchstart', (e) => {
-        if (_view !== 'list' || _getScrollTop() > 5) return;
+        if (_view !== 'list' || _selectionMode || _getScrollTop() > 5) return;
         _ptrStartY = e.touches[0].clientY;
         _ptrActive = true;
         _ptrPulling = false;
@@ -4345,6 +4752,7 @@ const App = (() => {
         ptrEl.style.height = h + 'px';
         ptrEl.classList.add('ptr-pulling');
         if (dy >= PTR_THRESHOLD) {
+          if (!ptrEl.classList.contains('ptr-ready')) haptic.medium(); // threshold reached
           ptrEl.classList.add('ptr-ready');
           if (ptrText) ptrText.textContent = 'Release to refresh';
         } else {
@@ -4361,6 +4769,7 @@ const App = (() => {
 
         const dy = (e.changedTouches[0]?.clientY || 0) - _ptrStartY;
         if (wasPulling && dy >= PTR_THRESHOLD && _getScrollTop() <= 5) {
+          haptic.double(); // refresh triggered
           // Show refreshing state
           ptrEl.classList.remove('ptr-ready');
           ptrEl.classList.add('ptr-refreshing');
@@ -4386,11 +4795,13 @@ const App = (() => {
 
     // Setlists button
     document.getElementById('btn-setlists').addEventListener('click', () => {
+      if (_selectionMode) _exitSelectionMode();
       renderSetlists();
     });
 
     // Practice button
     document.getElementById('btn-practice').addEventListener('click', () => {
+      if (_selectionMode) _exitSelectionMode();
       renderPractice();
     });
 
@@ -5113,7 +5524,7 @@ const App = (() => {
     _updateQueueBadge();
   }
 
-  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard, runDiagnostics };
+  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard, runDiagnostics, hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap };
 
 })();
 

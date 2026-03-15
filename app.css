@@ -1037,8 +1037,8 @@ a { color: inherit; text-decoration: none; }
   gap: 8px;
 }
 
-/* Primary chart star */
-.primary-chart-star {
+/* Chart order star */
+.chart-order-star {
   background: none;
   border: none;
   padding: 4px;
@@ -1046,10 +1046,25 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.primary-chart-star:not(.readonly):hover { color: var(--accent); }
-.primary-chart-star.active { color: var(--accent); }
-.primary-chart-star.readonly { cursor: default; pointer-events: none; }
+.chart-order-star:not(.readonly):hover { color: var(--accent); }
+.chart-order-star.active { color: var(--accent); }
+.chart-order-star.readonly { cursor: default; pointer-events: none; }
+.chart-order-num {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--bg);
+  line-height: 1;
+  pointer-events: none;
+}
 
 .file-item-row {
   width: calc((100% - 16px) / 3);
@@ -1100,6 +1115,23 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pdf-cached-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  color: var(--text-3);
+  opacity: 0.35;
+  transition: color 0.2s, opacity 0.2s;
+}
+.pdf-cached-badge.cached {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .file-item-arrow {
@@ -2985,6 +3017,7 @@ body.live-mode-active { background: #000; }
   padding: 0;
   user-select: none;
   -webkit-user-select: none;
+  position: relative;
 }
 .lm-header {
   display: flex;
@@ -3013,6 +3046,73 @@ body.live-mode-active { background: #000; }
   transition: all 0.15s;
 }
 .lm-close-btn:hover { color: #fff; background: rgba(255,255,255,0.15); }
+/* Quick-Jump Song Picker */
+.lm-jump-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.lm-jump-btn:hover { color: #fff; background: rgba(255,255,255,0.15); }
+.lm-jump-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 70px;
+}
+.lm-jump-overlay.hidden { display: none; }
+.lm-jump-list {
+  background: rgba(30,30,30,0.95);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  max-height: 60vh;
+  width: min(360px, 85vw);
+  overflow-y: auto;
+  padding: 8px 0;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.lm-jump-item {
+  display: block;
+  width: 100%;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  font-size: 16px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lm-jump-item:hover { background: rgba(255,255,255,0.08); }
+.lm-jump-item.active {
+  color: var(--accent);
+  font-weight: 700;
+  background: rgba(212,180,120,0.1);
+}
+.lm-jump-item-num {
+  display: inline-block;
+  min-width: 28px;
+  color: rgba(255,255,255,0.35);
+  font-variant-numeric: tabular-nums;
+}
+.lm-jump-item.active .lm-jump-item-num { color: var(--accent); opacity: 0.6; }
 .lm-body {
   flex: 1;
   display: flex;
@@ -3371,4 +3471,138 @@ body.live-mode-active { background: #000; }
 .tag-mgr-input {
   flex: 1;
   min-width: 0;
+}
+
+/* ═══════════════════════════════════════════
+   BATCH SELECTION MODE
+═══════════════════════════════════════════ */
+
+/* Selection checkbox on song cards */
+.sel-checkbox {
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid var(--border-light);
+  background: var(--bg-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 2;
+  animation: selCheckIn 0.2s ease-out both;
+}
+.sel-checkbox svg {
+  width: 14px;
+  height: 14px;
+  color: var(--bg);
+}
+.sel-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+@keyframes selCheckIn {
+  from { opacity: 0; transform: translateY(-50%) scale(0.5); }
+  to   { opacity: 1; transform: translateY(-50%) scale(1); }
+}
+
+/* Song card adjustments in selection mode */
+.song-card[data-song-id] {
+  position: relative;
+}
+.song-card.song-card-selected {
+  border-color: var(--accent-dim);
+  background: var(--accent-bg);
+}
+.song-card.song-card-selected:hover {
+  border-color: var(--accent);
+}
+/* Shift card content right to make room for checkbox */
+.song-card:has(.sel-checkbox) {
+  padding-left: 36px;
+}
+
+/* Floating action bar */
+.batch-selection-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(20, 20, 24, 0.85);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
+  transform: translateY(100%);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.batch-bar-visible {
+  transform: translateY(0);
+}
+.batch-sel-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+  min-width: 80px;
+}
+.batch-sel-add-btn {
+  flex: 1;
+  max-width: 220px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--gradient-gold);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  text-align: center;
+}
+.batch-sel-add-btn:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+.batch-sel-add-btn:active {
+  transform: scale(0.98);
+}
+.batch-sel-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.batch-sel-cancel {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.12s;
+  padding: 0;
+  flex-shrink: 0;
+}
+.batch-sel-cancel:hover {
+  color: var(--text-bright);
+  background: var(--bg-4);
+  border-color: var(--border-light);
+}
+.batch-sel-cancel svg {
+  width: 18px;
+  height: 18px;
 }
