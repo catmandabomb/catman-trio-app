@@ -230,6 +230,69 @@ const Admin = (() => {
     _driveCleanup = cleanup;
   }
 
+  // ─── GitHub setup modal ──────────────────────────────────
+
+  let _ghCleanup = null;
+  function showGitHubModal(onSave) {
+    if (_ghCleanup) _ghCleanup();
+    const overlay = document.getElementById('modal-github');
+    const cfg = GitHub.getConfig();
+    document.getElementById('github-pat').value   = cfg.pat;
+    document.getElementById('github-owner').value = cfg.owner;
+    document.getElementById('github-repo').value  = cfg.repo;
+    const resultEl = document.getElementById('github-test-result');
+    resultEl.classList.add('hidden');
+    resultEl.className = 'github-test-result hidden';
+    resultEl.textContent = '';
+    overlay.classList.remove('hidden');
+
+    const test = async () => {
+      resultEl.classList.remove('hidden', 'success', 'error');
+      resultEl.textContent = 'Testing…';
+      // Temporarily save config for test
+      const tempCfg = {
+        pat:   document.getElementById('github-pat').value,
+        owner: document.getElementById('github-owner').value,
+        repo:  document.getElementById('github-repo').value,
+      };
+      GitHub.saveConfig(tempCfg);
+      const result = await GitHub.testConnection();
+      if (result.ok) {
+        resultEl.className = 'github-test-result success';
+        resultEl.textContent = `Connected to ${result.repoName}` +
+          (result.hasBranch ? ' — data branch found' : ' — data branch not yet created');
+      } else {
+        resultEl.className = 'github-test-result error';
+        resultEl.textContent = result.error;
+      }
+    };
+
+    const save = () => {
+      GitHub.saveConfig({
+        pat:   document.getElementById('github-pat').value,
+        owner: document.getElementById('github-owner').value,
+        repo:  document.getElementById('github-repo').value,
+      });
+      overlay.classList.add('hidden');
+      cleanup();
+      if (onSave) onSave();
+    };
+
+    const cancel = () => { overlay.classList.add('hidden'); cleanup(); };
+
+    document.getElementById('btn-github-test').addEventListener('click', test);
+    document.getElementById('btn-github-save').addEventListener('click', save);
+    document.getElementById('btn-github-cancel').addEventListener('click', cancel);
+
+    function cleanup() {
+      document.getElementById('btn-github-test').removeEventListener('click', test);
+      document.getElementById('btn-github-save').removeEventListener('click', save);
+      document.getElementById('btn-github-cancel').removeEventListener('click', cancel);
+      _ghCleanup = null;
+    }
+    _ghCleanup = cleanup;
+  }
+
   return {
     isEditMode,
     enterEditMode,
@@ -243,6 +306,7 @@ const Admin = (() => {
     showPasswordModal,
     showConfirm,
     showDriveModal,
+    showGitHubModal,
   };
 
 })();

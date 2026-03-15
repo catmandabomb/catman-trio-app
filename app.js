@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.51';
+  const APP_VERSION = 'v17.52';
 
   let _songs      = [];
   let _setlists   = [];
@@ -208,7 +208,7 @@ const App = (() => {
   let _manualSyncHistory = []; // timestamps of recent manual syncs
 
   async function _syncAllFromDrive(force) {
-    if (!Drive.isConfigured()) {
+    if (!Drive.isConfigured() && !GitHub.isConfigured()) {
       _syncDone();
       return;
     }
@@ -233,7 +233,9 @@ const App = (() => {
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
-      const driveData = await Drive.loadAllData();
+      const driveData = GitHub.isConfigured()
+        ? await GitHub.loadAllData()
+        : await Drive.loadAllData();
       _lastDriveSnapshot = driveData; // cache for dashboard diagnostic
       const { songs, setlists, practice } = driveData;
       if (songs !== null) {
@@ -276,7 +278,7 @@ const App = (() => {
 
   /** Lightweight sync + re-render for non-main-page views */
   async function _doSyncRefresh(afterCallback) {
-    showToast('Syncing from Drive…');
+    showToast(GitHub.isConfigured() ? 'Syncing from GitHub…' : 'Syncing from Drive…');
     await _syncAllFromDrive(true);
     showToast('Sync complete.');
     if (afterCallback) afterCallback();
@@ -284,6 +286,12 @@ const App = (() => {
 
   async function saveSongs(toastMsg) {
     _saveLocal(_songs);
+    if (GitHub.isConfigured()) {
+      GitHub.saveSongs(_songs); // queued, non-blocking
+      showToast(toastMsg || 'Saved.');
+      _markSynced();
+      return;
+    }
     if (Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -298,7 +306,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only)');
     }
   }
 
@@ -351,6 +359,12 @@ const App = (() => {
 
   async function saveSetlists(toastMsg) {
     _saveSetlistsLocal(_setlists);
+    if (GitHub.isConfigured()) {
+      GitHub.saveSetlists(_setlists);
+      showToast(toastMsg || 'Saved.');
+      _markSynced();
+      return;
+    }
     if (Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -365,7 +379,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only)');
     }
   }
 
@@ -907,7 +921,7 @@ const App = (() => {
     // Uploads
     function wireUpload(btnId, inputId, assetKey, listId) {
       document.getElementById(btnId).addEventListener('click', () => {
-        if (!Drive.isWriteConfigured()) {
+        if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
           Admin.showDriveModal(() => {});
           return;
         }
@@ -995,6 +1009,7 @@ const App = (() => {
     // Delete
     document.getElementById('ef-delete')?.addEventListener('click', () => {
       Admin.showConfirm('Delete Song', `Permanently delete "${song.title||'this song'}"?`, async () => {
+        if (GitHub.isConfigured()) GitHub.trackDeletion('songs', song.id);
         _songs = _songs.filter(s => s.id !== song.id);
         await saveSongs();
         _activeSong = null;
@@ -1166,9 +1181,9 @@ const App = (() => {
 
     // Wire new setlist
     document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
-      if (!Drive.isWriteConfigured()) {
+      if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
         Admin.showDriveModal(() => {});
-        showToast('Configure Drive, then try again.');
+        showToast('Configure Drive or GitHub, then try again.');
         return;
       }
       renderSetlistEdit(Admin.newSetlist(_setlists), true);
@@ -1458,6 +1473,7 @@ const App = (() => {
     // Delete
     document.getElementById('slf-delete')?.addEventListener('click', () => {
       Admin.showConfirm('Delete Setlist', `Permanently delete "${sl.name || 'this setlist'}"?`, async () => {
+        if (GitHub.isConfigured()) GitHub.trackDeletion('setlists', sl.id);
         _setlists = _setlists.filter(s => s.id !== sl.id);
         await saveSetlists();
         _activeSetlist = null;
@@ -1759,6 +1775,36 @@ const App = (() => {
       </div>
     `;
 
+    // GitHub sync status (when configured)
+    if (GitHub.isConfigured()) {
+      const rl = GitHub.getRateLimitStatus();
+      const wq = GitHub.getWriteQueueStatus();
+      const migrated = localStorage.getItem('bb_migrated_to_github') === '1';
+      const fillClass = rl.warnLevel === 'critical' ? 'critical' : rl.warnLevel === 'warning' ? 'warning' : '';
+      html += `
+        <div class="dash-section">
+          <div class="dash-section-title">GitHub Sync Status</div>
+          <div class="dash-alert info">
+            <div class="dash-alert-title">${_codeTag(4601)} GitHub Connection</div>
+            <div class="dash-github-status">
+              <div class="status-row"><span>Repository</span><span>${esc(GitHub.getConfig().owner + '/' + GitHub.getConfig().repo)}</span></div>
+              <div class="status-row"><span>Data Branch</span><span>data</span></div>
+              <div class="status-row"><span>Migrated</span><span style="color:${migrated ? 'var(--green)' : 'var(--text-3)'}">${migrated ? 'Yes' : 'No'}</span></div>
+              <div class="status-row"><span>Write Queue</span><span>${wq.hasPending ? wq.pendingTypes.join(', ') + (wq.flushing ? ' (flushing)' : ' (pending)') : 'Empty'}</span></div>
+            </div>
+            <div style="margin-top:8px;">
+              <div class="dash-alert-detail" style="font-size:11px;margin-bottom:4px;">API Usage: ${rl.callsThisHour} / ${rl.limit} (${rl.pct}%)</div>
+              <div class="dash-rate-bar"><div class="dash-rate-fill ${fillClass}" style="width:${Math.min(rl.pct, 100)}%"></div></div>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="dash-github-push" class="btn-primary" style="font-size:11px;padding:6px 14px;">Push Now</button>
+              <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:6px 14px;">GitHub Setup</button>
+              ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:6px 14px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
+            </div>
+          </div>
+        </div>`;
+    }
+
     // Drive sync diagnostic — runs async after initial render
     html += `
       <div class="dash-section">
@@ -1771,6 +1817,51 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire GitHub dashboard buttons
+    const ghPushBtn = document.getElementById('dash-github-push');
+    if (ghPushBtn) {
+      ghPushBtn.addEventListener('click', async () => {
+        ghPushBtn.disabled = true;
+        ghPushBtn.textContent = 'Pushing…';
+        try {
+          await GitHub.flushNow();
+          showToast('GitHub push complete.');
+          renderDashboard();
+        } catch (e) {
+          showToast('GitHub push failed: ' + (e.message || 'unknown error'));
+          ghPushBtn.disabled = false;
+          ghPushBtn.textContent = 'Push Now';
+        }
+      });
+    }
+    const ghSetupBtn = document.getElementById('dash-github-setup');
+    if (ghSetupBtn) {
+      ghSetupBtn.addEventListener('click', () => Admin.showGitHubModal(() => renderDashboard()));
+    }
+    const ghMigrateBtn = document.getElementById('dash-github-migrate');
+    if (ghMigrateBtn) {
+      ghMigrateBtn.addEventListener('click', async () => {
+        ghMigrateBtn.disabled = true;
+        ghMigrateBtn.textContent = 'Migrating…';
+        try {
+          // Backup
+          localStorage.setItem('_migration_backup', JSON.stringify({
+            songs: _songs, setlists: _setlists, practice: _practice,
+          }));
+          // Migrate
+          await GitHub.migrateData({ songs: _songs, setlists: _setlists, practice: _practice });
+          localStorage.setItem('bb_migrated_to_github', '1');
+          showToast('Migration complete! Data is now syncing via GitHub.');
+          renderDashboard();
+        } catch (e) {
+          console.error('Migration failed', e);
+          showToast('Migration failed: ' + (e.message || 'unknown error'));
+          ghMigrateBtn.disabled = false;
+          ghMigrateBtn.textContent = 'Migrate to GitHub';
+        }
+      });
+    }
 
     // Async Drive check — uses cached sync data if available, else fetches fresh
     (async () => {
@@ -1967,6 +2058,12 @@ const App = (() => {
 
   async function savePractice(toastMsg) {
     _savePracticeLocal(_practice);
+    if (GitHub.isConfigured()) {
+      GitHub.savePractice(_practice);
+      showToast(toastMsg || 'Saved.');
+      _markSynced();
+      return;
+    }
     if (Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -1981,7 +2078,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only — Drive write not configured)');
+      showToast((toastMsg || 'Saved') + ' (local only)');
     }
   }
 
@@ -2068,6 +2165,7 @@ const App = (() => {
         Admin.showConfirm('Delete Persona', `Permanently delete "${esc(p.name || 'this persona')}" and all their practice lists?`, async () => {
           if (_saving) return;
           _saving = true;
+          if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
           const backup = [..._practice];
           try {
             _practice = _practice.filter(x => x.id !== p.id);
@@ -2540,6 +2638,7 @@ const App = (() => {
 
     document.getElementById('pf-delete')?.addEventListener('click', () => {
       Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and all their practice lists?`, async () => {
+        if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
         _practice = _practice.filter(x => x.id !== p.id);
         await savePractice();
         _activePersona = null;
@@ -3016,9 +3115,9 @@ const App = (() => {
 
     document.getElementById('btn-add-song').addEventListener('click', () => {
       if (!Admin.isEditMode()) return;
-      if (!Drive.isWriteConfigured()) {
+      if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
         Admin.showDriveModal(() => {});
-        showToast('Configure Drive, then try again.');
+        showToast('Configure Drive or GitHub, then try again.');
         return;
       }
       renderEdit(Admin.newSong(_songs), true);
@@ -3132,12 +3231,23 @@ const App = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (Drive.isWriteConfigured() && !document.getElementById('gis-script')) {
+  // GIS only on desktop — mobile never writes to Drive (uses GitHub for metadata)
+  const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!isMobile && Drive.isWriteConfigured() && !document.getElementById('gis-script')) {
     const s = document.createElement('script');
     s.id    = 'gis-script';
     s.src   = 'https://accounts.google.com/gsi/client';
     s.async = true;
     document.head.appendChild(s);
   }
+
+  // Wire GitHub callbacks
+  if (typeof GitHub !== 'undefined') {
+    GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
+    GitHub.onFlushSuccess = () => {};
+    GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
+  }
+
   App.init();
 });

@@ -2436,6 +2436,75 @@ textarea.form-input {
 }
 
 /* ═══════════════════════════════════════════
+   GITHUB INTEGRATION
+═══════════════════════════════════════════ */
+
+.github-test-result {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.github-test-result.success {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.github-test-result.error {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.dash-rate-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-4);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+.dash-rate-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background 0.3s ease;
+  background: var(--green);
+}
+.dash-rate-fill.warning { background: #f59e0b; }
+.dash-rate-fill.critical { background: var(--red); }
+
+.dash-github-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.dash-github-status .status-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.github-field { margin-bottom: 12px; }
+.github-field label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+}
+.github-field input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+}
+.github-field input:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ═══════════════════════════════════════════
    SCROLLBAR
 ═══════════════════════════════════════════ */
 ::-webkit-scrollbar { width: 4px; height: 4px; }

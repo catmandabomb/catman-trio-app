@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.51" />
+  <link rel="stylesheet" href="app.css?v=17.52" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -212,11 +212,38 @@
     </div>
   </div>
 
+  <!-- GITHUB SETUP MODAL -->
+  <div id="modal-github" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <h2>GitHub Setup</h2>
+      <p class="muted">Connect to GitHub for encrypted data sync. Stored locally on this device only.</p>
+      <div class="github-field">
+        <label for="github-pat">Personal Access Token</label>
+        <input type="password" id="github-pat" placeholder="ghp_…" autocomplete="off" />
+      </div>
+      <div class="github-field">
+        <label for="github-owner">Repository Owner</label>
+        <input type="text" id="github-owner" placeholder="username or org" autocomplete="off" />
+      </div>
+      <div class="github-field">
+        <label for="github-repo">Repository Name</label>
+        <input type="text" id="github-repo" placeholder="my-repo" autocomplete="off" />
+      </div>
+      <div id="github-test-result" class="github-test-result hidden"></div>
+      <div class="modal-actions">
+        <button id="btn-github-cancel" class="btn-secondary">Cancel</button>
+        <button id="btn-github-test" class="btn-secondary">Test</button>
+        <button id="btn-github-save" class="btn-primary">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION -->
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
   <script src="drive.js"></script>
+  <script src="github.js"></script>
   <script src="pdf-viewer.js"></script>
   <script src="player.js"></script>
   <script src="admin.js"></script>
