@@ -114,8 +114,8 @@ const GitHub = (() => {
     const pat = _getPat();
     if (!pat || typeof Drive === 'undefined' || !Drive.isWriteConfigured()) return;
     try {
-      const pwHash = localStorage.getItem('bb_pw_hash');
-      if (!pwHash) return; // No admin password set, can't encrypt
+      // Fall back to default hash if password was never changed from default
+      const pwHash = localStorage.getItem('bb_pw_hash') || 'e5c128a06031c45577c71b9a49a5fffa3a93e077354ce609bd616b5cf70d32f4';
       const key = await crypto.subtle.importKey(
         'raw',
         await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwHash)),
