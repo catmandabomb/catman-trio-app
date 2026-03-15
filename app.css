@@ -2505,6 +2505,21 @@ textarea.form-input {
 }
 
 /* ═══════════════════════════════════════════
+   DESKTOP CONTENT CENTERING
+   Inner 70% of screen on wide viewports
+═══════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  #topbar {
+    padding-left: 15vw;
+    padding-right: 15vw;
+  }
+  .view {
+    padding-left: 15vw;
+    padding-right: 15vw;
+  }
+}
+
+/* ═══════════════════════════════════════════
    SCROLLBAR
 ═══════════════════════════════════════════ */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
