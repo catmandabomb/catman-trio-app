@@ -3021,7 +3021,7 @@ textarea.form-input {
 .btn-live-mode:hover { filter: brightness(1.1); }
 
 body.live-mode-active #topbar { display: none; }
-body.live-mode-active #app { padding-top: 0; }
+body.live-mode-active #app { padding-top: 0; top: 0; }
 body.live-mode-active { background: #000; }
 
 #view-setlist-live.active {
