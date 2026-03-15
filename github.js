@@ -213,9 +213,11 @@ const GitHub = (() => {
   }
 
   function _toBase64(bytes) {
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
+    const chunks = [];
+    for (let i = 0; i < bytes.length; i += 8192) {
+      chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 8192)));
+    }
+    return btoa(chunks.join(''));
   }
 
   function _fromBase64(str) {

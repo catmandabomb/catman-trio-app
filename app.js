@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.72';
+  const APP_VERSION = 'v17.73';
 
   let _songs      = [];
   let _setlists   = [];
@@ -117,19 +117,19 @@ const App = (() => {
         document.body.removeChild(a);
       }
       btnEl.innerHTML = '<i data-lucide="check" class="dl-icon"></i>';
-      if (typeof lucide !== 'undefined') lucide.createIcons();
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btnEl] });
       setTimeout(() => {
         btnEl.innerHTML = '<i data-lucide="download" class="dl-icon"></i><span class="dl-spinner hidden"></span>';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btnEl] });
         btnEl.disabled = false;
       }, 1500);
     } catch (e) {
       btnEl.innerHTML = '<i data-lucide="x" class="dl-icon"></i>';
-      if (typeof lucide !== 'undefined') lucide.createIcons();
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btnEl] });
       showToast('Download failed');
       setTimeout(() => {
         btnEl.innerHTML = '<i data-lucide="download" class="dl-icon"></i><span class="dl-spinner hidden"></span>';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btnEl] });
         btnEl.disabled = false;
       }, 1500);
     }
@@ -582,7 +582,7 @@ const App = (() => {
       }
       container.appendChild(card);
     });
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
   }
 
   function _songCardHTML(song) {
@@ -629,7 +629,7 @@ const App = (() => {
 
     const container = document.getElementById('detail-content');
     container.innerHTML = _buildDetailHTML(song);
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     if (Admin.isEditMode()) {
       container.querySelector('.btn-edit-song')?.addEventListener('click', () => renderEdit(song, false));
@@ -676,7 +676,7 @@ const App = (() => {
           const url = _isIOS() ? Drive.getDirectUrl(driveId) : await _getBlobUrl(driveId);
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '' });
           _playerRefs.push(ref);
         } catch {
           el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
@@ -746,7 +746,7 @@ const App = (() => {
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${audio.map(a => `
             <div class="audio-row">
-              <div class="audio-row-player" data-audio-container="${esc(a.driveId)}" data-name="${esc(a.name)}"></div>
+              <div class="audio-row-player" data-audio-container="${esc(a.driveId)}" data-name="${esc(a.name)}" data-song-title="${esc(song.title || '')}"></div>
               <button class="dl-btn" data-dl-id="${esc(a.driveId)}" data-dl-name="${esc(a.name)}" aria-label="Download">
                 <i data-lucide="download" class="dl-icon"></i>
                 <span class="dl-spinner hidden"></span>
@@ -818,8 +818,9 @@ const App = (() => {
     }
     _showView('edit');
     _setTopbar(isNew ? 'New Song' : 'Edit Song', true);
-    document.getElementById('edit-content').innerHTML = _buildEditHTML(_editSong);
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    const editContainer = document.getElementById('edit-content');
+    editContainer.innerHTML = _buildEditHTML(_editSong);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [editContainer] });
     _wireEditForm();
   }
 
@@ -1204,7 +1205,7 @@ const App = (() => {
     }
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire refresh
     document.getElementById('btn-refresh-setlists')?.addEventListener('click', () => {
@@ -1315,7 +1316,7 @@ const App = (() => {
     }
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire song clicks
     container.querySelectorAll('.setlist-song-row:not(.setlist-song-missing)').forEach(row => {
@@ -1356,7 +1357,7 @@ const App = (() => {
 
     const container = document.getElementById('setlist-edit-content');
     container.innerHTML = _buildSetlistEditHTML();
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
     _wireSetlistEditForm();
   }
 
@@ -1432,7 +1433,7 @@ const App = (() => {
             </div>
           </div>`;
       }).join('');
-      if (typeof lucide !== 'undefined') lucide.createIcons();
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
       // Init SortableJS (destroy previous instance first)
       if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
@@ -1899,7 +1900,7 @@ const App = (() => {
     `;
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire GitHub dashboard buttons
     const ghPushBtn = document.getElementById('dash-github-push');
@@ -2269,7 +2270,7 @@ const App = (() => {
     }
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire refresh
     document.getElementById('btn-refresh-practice')?.addEventListener('click', () => {
@@ -2410,7 +2411,7 @@ const App = (() => {
     }
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire refresh
     document.getElementById('btn-refresh-practice-detail')?.addEventListener('click', () => {
@@ -2596,7 +2597,7 @@ const App = (() => {
     </div>`;
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire song clicks
     container.querySelectorAll('.setlist-song-row').forEach(row => {
@@ -2856,7 +2857,7 @@ const App = (() => {
             </div>
           </div>`;
       }).join('');
-      if (typeof lucide !== 'undefined') lucide.createIcons();
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [songContainer] });
 
       if (_sortablePL) { try { _sortablePL.destroy(); } catch(_){} _sortablePL = null; }
       if (typeof Sortable !== 'undefined' && pl.songs.length > 1) {
@@ -2985,7 +2986,7 @@ const App = (() => {
             ${(a.audio || []).length ? `<div class="detail-section" style="margin-bottom:12px">
               <div class="detail-section-label">Audio</div>
               <div style="display:flex;flex-direction:column;gap:10px;">
-                ${(a.audio || []).map(au => `<div data-audio-container="${esc(au.driveId)}" data-name="${esc(au.name)}"></div>`).join('')}
+                ${(a.audio || []).map(au => `<div data-audio-container="${esc(au.driveId)}" data-name="${esc(au.name)}" data-song-title="${esc(song.title || '')}"></div>`).join('')}
               </div>
             </div>` : ''}
             ${(a.links || []).length ? `<div class="detail-section" style="margin-bottom:12px">
@@ -2998,7 +2999,7 @@ const App = (() => {
     html += `</div>`;
 
     container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Auto-load all audio/charts since all items are expanded
     function _loadAccordionAssets(body) {
@@ -3015,7 +3016,7 @@ const App = (() => {
           const url = _isIOS() ? Drive.getDirectUrl(driveId) : await _getBlobUrl(driveId);
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '' });
           _playerRefs.push(ref);
         } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
       });
@@ -3217,7 +3218,12 @@ const App = (() => {
         document.head.appendChild(link);
       }
     });
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (typeof lucide !== 'undefined') {
+      const topbar = document.getElementById('topbar');
+      const modals = document.querySelectorAll('.modal-overlay');
+      const nodes = [topbar, ...modals].filter(Boolean);
+      if (nodes.length) lucide.createIcons({ nodes });
+    }
 
     // Populate version badge (shown on home page for all users)
     const vBadge = document.getElementById('admin-version-badge');
