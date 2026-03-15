@@ -390,7 +390,7 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   flex-wrap: wrap;
   color: var(--text-2);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 400;
   letter-spacing: 0.02em;
   padding: var(--space-md) var(--space-md) 0 var(--space-sm);
