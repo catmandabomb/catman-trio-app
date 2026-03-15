@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.53';
+  const APP_VERSION = 'v17.54';
 
   let _songs      = [];
   let _setlists   = [];
@@ -208,11 +208,17 @@ const App = (() => {
   let _manualSyncHistory = []; // timestamps of recent manual syncs
 
   async function _syncAllFromDrive(force) {
-    if (!Drive.isConfigured() && !GitHub.isConfigured()) {
+    const _useGitHub = GitHub.isConfigured() && localStorage.getItem('bb_migrated_to_github') === '1';
+    if (!Drive.isConfigured() && !_useGitHub) {
       _syncDone();
       return;
     }
     if (_syncing) return; // already syncing, ignore
+    // Skip sync if GitHub has pending writes (avoid overwriting in-flight edits)
+    if (_useGitHub && GitHub.getWriteQueueStatus().hasPending && !force) {
+      _syncDone();
+      return;
+    }
     // Always sync on first load (no snapshot yet), respect cooldown otherwise
     if (!force && _lastDriveSnapshot && !_shouldSync()) {
       _syncDone();
@@ -220,7 +226,6 @@ const App = (() => {
     }
     if (force) {
       const now = Date.now();
-      // Keep only clicks within the cooldown window
       _manualSyncHistory = _manualSyncHistory.filter(t => now - t < MANUAL_SYNC_COOLDOWN_MS);
       if (_manualSyncHistory.length >= 2) {
         showToast('Please wait a moment before refreshing again.');
@@ -233,11 +238,11 @@ const App = (() => {
     const indicator = document.getElementById('sync-indicator');
     if (indicator) indicator.classList.remove('hidden');
     try {
-      const driveData = GitHub.isConfigured()
+      const remoteData = _useGitHub
         ? await GitHub.loadAllData()
         : await Drive.loadAllData();
-      _lastDriveSnapshot = driveData; // cache for dashboard diagnostic
-      const { songs, setlists, practice } = driveData;
+      _lastDriveSnapshot = remoteData; // cache for dashboard diagnostic
+      const { songs, setlists, practice } = remoteData;
       if (songs !== null) {
         const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
         _songs = songs;
@@ -255,10 +260,15 @@ const App = (() => {
       }
       _markSynced();
     } catch (e) {
-      console.warn('Drive sync failed, using local cache', e);
+      const backend = _useGitHub ? 'GitHub' : 'Drive';
+      console.warn(`${backend} sync failed, using local cache`, e);
       const msg = String(e.message || e || '');
-      if (msg.includes('403') || msg.includes('429')) {
-        showToast('Drive is temporarily rate-limited. Using cached data — try again in a few minutes.', 4000);
+      if (msg.includes('403') || msg.includes('429') || msg.includes('rate')) {
+        showToast(`${backend} is temporarily rate-limited. Using cached data.`, 4000);
+      } else if (msg.includes('timed out')) {
+        showToast(`${backend} request timed out. Using cached data.`, 4000);
+      } else if (msg.includes('Decryption failed')) {
+        showToast('Decryption failed — PAT may have changed.', 5000);
       }
     } finally {
       _syncing = false;
@@ -288,7 +298,7 @@ const App = (() => {
     _saveLocal(_songs);
     if (GitHub.isConfigured()) {
       GitHub.saveSongs(_songs); // queued, non-blocking
-      showToast(toastMsg || 'Saved.');
+      showToast(toastMsg || 'Saved. Syncing to GitHub…');
       _markSynced();
       return;
     }
@@ -361,7 +371,7 @@ const App = (() => {
     _saveSetlistsLocal(_setlists);
     if (GitHub.isConfigured()) {
       GitHub.saveSetlists(_setlists);
-      showToast(toastMsg || 'Saved.');
+      showToast(toastMsg || 'Saved. Syncing to GitHub…');
       _markSynced();
       return;
     }
@@ -1814,9 +1824,11 @@ const App = (() => {
     html += `</div>`;
 
     // Drive sync diagnostic — runs async after initial render
+    const _driveSectionTitle = (GitHub.isConfigured() && localStorage.getItem('bb_migrated_to_github') === '1')
+      ? 'Drive Status (Legacy — PDFs/Audio only)' : 'Drive Sync Status';
     html += `
       <div class="dash-section">
-        <div class="dash-section-title">Drive Sync Status</div>
+        <div class="dash-section-title">${_driveSectionTitle}</div>
         <div id="dash-drive-sync" class="dash-alert info">
           <div class="dash-alert-detail">Checking Drive…</div>
         </div>
@@ -1847,9 +1859,12 @@ const App = (() => {
     if (ghSetupBtn) {
       ghSetupBtn.addEventListener('click', () => Admin.showGitHubModal(() => renderDashboard()));
     }
+    let _migrating = false;
     const ghMigrateBtn = document.getElementById('dash-github-migrate');
     if (ghMigrateBtn) {
       ghMigrateBtn.addEventListener('click', async () => {
+        if (_migrating) return;
+        _migrating = true;
         ghMigrateBtn.disabled = true;
         ghMigrateBtn.textContent = 'Migrating…';
         try {
@@ -1860,6 +1875,7 @@ const App = (() => {
           // Migrate
           await GitHub.migrateData({ songs: _songs, setlists: _setlists, practice: _practice });
           localStorage.setItem('bb_migrated_to_github', '1');
+          localStorage.removeItem('_migration_backup'); // Cleanup
           showToast('Migration complete! Data is now syncing via GitHub.');
           renderDashboard();
         } catch (e) {
@@ -1867,6 +1883,8 @@ const App = (() => {
           showToast('Migration failed: ' + (e.message || 'unknown error'));
           ghMigrateBtn.disabled = false;
           ghMigrateBtn.textContent = 'Migrate to GitHub';
+        } finally {
+          _migrating = false;
         }
       });
     }
@@ -2068,7 +2086,7 @@ const App = (() => {
     _savePracticeLocal(_practice);
     if (GitHub.isConfigured()) {
       GitHub.savePractice(_practice);
-      showToast(toastMsg || 'Saved.');
+      showToast(toastMsg || 'Saved. Syncing to GitHub…');
       _markSynced();
       return;
     }
@@ -3240,7 +3258,7 @@ const App = (() => {
 
 document.addEventListener('DOMContentLoaded', () => {
   // GIS only on desktop — mobile never writes to Drive (uses GitHub for metadata)
-  const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent) ||
+  const isMobile = /iPad|iPhone|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (!isMobile && Drive.isWriteConfigured() && !document.getElementById('gis-script')) {
     const s = document.createElement('script');
@@ -3250,11 +3268,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.head.appendChild(s);
   }
 
-  // Wire GitHub callbacks
+  // Wire GitHub callbacks and init crash recovery
   if (typeof GitHub !== 'undefined') {
     GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
     GitHub.onFlushSuccess = () => {};
     GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
+    GitHub.init(); // Restore pending writes from crash recovery
   }
 
   App.init();

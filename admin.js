@@ -236,58 +236,107 @@ const Admin = (() => {
   function showGitHubModal(onSave) {
     if (_ghCleanup) _ghCleanup();
     const overlay = document.getElementById('modal-github');
-    const cfg = GitHub.getConfig();
-    document.getElementById('github-pat').value   = cfg.pat;
-    document.getElementById('github-owner').value = cfg.owner;
-    document.getElementById('github-repo').value  = cfg.repo;
-    const resultEl = document.getElementById('github-test-result');
-    resultEl.classList.add('hidden');
+    const patInput   = document.getElementById('github-pat');
+    const ownerInput = document.getElementById('github-owner');
+    const repoInput  = document.getElementById('github-repo');
+    const testBtn    = document.getElementById('btn-github-test');
+    const resultEl   = document.getElementById('github-test-result');
+
+    // Snapshot original config to restore on cancel
+    const origPat   = localStorage.getItem('bb_github_pat')   || '';
+    const origOwner = localStorage.getItem('bb_github_owner') || '';
+    const origRepo  = localStorage.getItem('bb_github_repo')  || '';
+
+    patInput.value   = origPat;
+    ownerInput.value = origOwner;
+    repoInput.value  = origRepo;
     resultEl.className = 'github-test-result hidden';
     resultEl.textContent = '';
     overlay.classList.remove('hidden');
+    setTimeout(() => patInput.focus(), 50);
+
+    let _testing = false;
 
     const test = async () => {
-      resultEl.classList.remove('hidden', 'success', 'error');
-      resultEl.textContent = 'Testing…';
-      // Temporarily save config for test
-      const tempCfg = {
-        pat:   document.getElementById('github-pat').value,
-        owner: document.getElementById('github-owner').value,
-        repo:  document.getElementById('github-repo').value,
-      };
-      GitHub.saveConfig(tempCfg);
-      const result = await GitHub.testConnection();
-      if (result.ok) {
-        resultEl.className = 'github-test-result success';
-        resultEl.textContent = `Connected to ${result.repoName}` +
-          (result.hasBranch ? ' — data branch found' : ' — data branch not yet created');
-      } else {
+      if (_testing) return;
+      const pat   = patInput.value.trim();
+      const owner = ownerInput.value.trim();
+      const repo  = repoInput.value.trim();
+      if (!pat || !owner || !repo) {
         resultEl.className = 'github-test-result error';
-        resultEl.textContent = result.error;
+        resultEl.textContent = 'All three fields are required.';
+        return;
+      }
+      _testing = true;
+      testBtn.disabled = true;
+      resultEl.className = 'github-test-result';
+      resultEl.textContent = 'Testing…';
+      // Temporarily save for test, restore originals after
+      GitHub.saveConfig({ pat, owner, repo });
+      try {
+        const result = await GitHub.testConnection();
+        if (result.ok) {
+          resultEl.className = 'github-test-result success';
+          resultEl.textContent = `Connected to ${result.repoName}` +
+            (result.hasBranch ? ' — data branch found' : ' — data branch not yet created');
+        } else {
+          resultEl.className = 'github-test-result error';
+          resultEl.textContent = result.error;
+          // Restore original config on failed test
+          GitHub.saveConfig({ pat: origPat, owner: origOwner, repo: origRepo });
+        }
+      } catch (e) {
+        resultEl.className = 'github-test-result error';
+        resultEl.textContent = e.message || 'Test failed';
+        GitHub.saveConfig({ pat: origPat, owner: origOwner, repo: origRepo });
+      } finally {
+        _testing = false;
+        testBtn.disabled = false;
       }
     };
 
     const save = () => {
-      GitHub.saveConfig({
-        pat:   document.getElementById('github-pat').value,
-        owner: document.getElementById('github-owner').value,
-        repo:  document.getElementById('github-repo').value,
-      });
+      const pat   = patInput.value.trim();
+      const owner = ownerInput.value.trim();
+      const repo  = repoInput.value.trim();
+      if (!pat || !owner || !repo) {
+        resultEl.className = 'github-test-result error';
+        resultEl.textContent = 'All three fields are required.';
+        return;
+      }
+      GitHub.saveConfig({ pat, owner, repo });
       overlay.classList.add('hidden');
       cleanup();
       if (onSave) onSave();
     };
 
-    const cancel = () => { overlay.classList.add('hidden'); cleanup(); };
+    const cancel = () => {
+      // Restore original config (test may have temporarily changed it)
+      GitHub.saveConfig({ pat: origPat, owner: origOwner, repo: origRepo });
+      overlay.classList.add('hidden');
+      cleanup();
+    };
 
-    document.getElementById('btn-github-test').addEventListener('click', test);
+    const keydown = (e) => {
+      if (e.key === 'Escape') cancel();
+    };
+
+    const overlayClick = (e) => {
+      if (e.target === overlay) cancel();
+    };
+
+    testBtn.addEventListener('click', test);
     document.getElementById('btn-github-save').addEventListener('click', save);
     document.getElementById('btn-github-cancel').addEventListener('click', cancel);
+    document.addEventListener('keydown', keydown);
+    overlay.addEventListener('click', overlayClick);
 
     function cleanup() {
-      document.getElementById('btn-github-test').removeEventListener('click', test);
+      testBtn.removeEventListener('click', test);
       document.getElementById('btn-github-save').removeEventListener('click', save);
       document.getElementById('btn-github-cancel').removeEventListener('click', cancel);
+      document.removeEventListener('keydown', keydown);
+      overlay.removeEventListener('click', overlayClick);
       _ghCleanup = null;
     }
     _ghCleanup = cleanup;

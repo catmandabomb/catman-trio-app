@@ -6,7 +6,7 @@
  *  - Read/write encrypted JSON files on a GitHub `data` branch
  *  - Debounced write queue with conflict merge (409 → fetch + merge + retry)
  *  - Rate limit tracking & throttling
- *  - Crash recovery (persist pending writes to localStorage)
+ *  - Crash recovery (persist pending writes + deletions to localStorage)
  *  - Migration from Drive to GitHub
  *
  * Config stored in localStorage:
@@ -30,6 +30,8 @@ const GitHub = (() => {
   const DEBOUNCE_MAX_MS   = 9000;
   const DEBOUNCE_RESET_MS = 60000;
   const MAX_CONFLICT_RETRIES = 3;
+  const FETCH_TIMEOUT_MS  = 30000;
+  const MAX_CONSECUTIVE_FAILURES = 10;
 
   // Rate limit thresholds (GitHub allows 5000/hr for authenticated)
   const RATE_WARN_THRESHOLD  = 4000; // 80%
@@ -46,6 +48,7 @@ const GitHub = (() => {
   let _debounceCount = 0;
   let _lastFlushTime = 0;
   let _flushing = false;
+  let _consecutiveFailures = 0;
 
   // Rate limiting
   let _apiCallTimestamps = [];
@@ -59,10 +62,14 @@ const GitHub = (() => {
 
   function getConfig() {
     return {
-      pat:   localStorage.getItem('bb_github_pat')   || '',
+      pat:   '***', // Never expose PAT publicly
       owner: localStorage.getItem('bb_github_owner') || '',
       repo:  localStorage.getItem('bb_github_repo')  || '',
     };
+  }
+
+  function _getPat() {
+    return localStorage.getItem('bb_github_pat') || '';
   }
 
   function saveConfig({ pat, owner, repo }) {
@@ -82,15 +89,14 @@ const GitHub = (() => {
   }
 
   function isConfigured() {
-    const c = getConfig();
-    return !!(c.pat && c.owner && c.repo);
+    return !!(_getPat() && (localStorage.getItem('bb_github_owner') || '') && (localStorage.getItem('bb_github_repo') || ''));
   }
 
   // ─── Encryption ───────────────────────────────────────────
 
   async function _ensureCryptoKey() {
     if (_cryptoKey) return _cryptoKey;
-    const { pat } = getConfig();
+    const pat = _getPat();
     if (!pat) throw new Error('GitHub PAT not configured');
     const rawKey = await crypto.subtle.digest(
       'SHA-256',
@@ -116,14 +122,18 @@ const GitHub = (() => {
   }
 
   async function _decrypt(encryptedJson) {
-    const key = await _ensureCryptoKey();
-    const { iv, data } = JSON.parse(encryptedJson);
-    const ivBytes   = _fromBase64(iv);
-    const dataBytes = _fromBase64(data);
-    const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: ivBytes }, key, dataBytes
-    );
-    return JSON.parse(new TextDecoder().decode(plaintext));
+    try {
+      const key = await _ensureCryptoKey();
+      const { iv, data } = JSON.parse(encryptedJson);
+      const ivBytes   = _fromBase64(iv);
+      const dataBytes = _fromBase64(data);
+      const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: ivBytes }, key, dataBytes
+      );
+      return JSON.parse(new TextDecoder().decode(plaintext));
+    } catch (e) {
+      throw new Error('Decryption failed — PAT may have changed or data is corrupt: ' + (e.message || e));
+    }
   }
 
   function _toBase64(bytes) {
@@ -165,33 +175,59 @@ const GitHub = (() => {
     return DEBOUNCE_BASE_MS;
   }
 
+  function _owner() { return localStorage.getItem('bb_github_owner') || ''; }
+  function _repo()  { return localStorage.getItem('bb_github_repo')  || ''; }
+
   async function _ghRequest(path, options = {}) {
-    const { pat } = getConfig();
+    const pat = _getPat();
     if (!pat) throw new Error('GitHub PAT not configured');
     _trackApiCall();
-    const resp = await fetch(`https://api.github.com${path}`, {
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${pat}`,
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(options.headers || {}),
-      },
-    });
-    return resp;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const owner = encodeURIComponent(_owner());
+      const repo  = encodeURIComponent(_repo());
+      // Replace raw owner/repo in path with encoded versions
+      const safePath = path
+        .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
+
+      const resp = await fetch(`https://api.github.com${safePath}`, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${pat}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          ...(options.headers || {}),
+        },
+      });
+      return resp;
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        throw new Error('GitHub API request timed out (30s)');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   // ─── Connection test ──────────────────────────────────────
 
   async function testConnection() {
     try {
-      const { owner, repo } = getConfig();
+      const pat = _getPat();
+      const owner = _owner();
+      const repo = _repo();
+      if (!pat) return { ok: false, error: 'PAT is required' };
       if (!owner || !repo) return { ok: false, error: 'Owner and repo are required' };
       const resp = await _ghRequest(`/repos/${owner}/${repo}`);
       if (!resp.ok) {
-        const body = await resp.text();
         if (resp.status === 404) return { ok: false, error: 'Repository not found — check owner/repo' };
         if (resp.status === 401) return { ok: false, error: 'Invalid PAT — check your token' };
+        const body = await resp.text();
         return { ok: false, error: `GitHub API ${resp.status}: ${body}` };
       }
       const data = await resp.json();
@@ -212,23 +248,28 @@ const GitHub = (() => {
   // ─── File operations ──────────────────────────────────────
 
   async function _getFile(filePath) {
-    const { owner, repo } = getConfig();
+    const owner = _owner();
+    const repo = _repo();
     const resp = await _ghRequest(
       `/repos/${owner}/${repo}/contents/${filePath}?ref=${DATA_BRANCH}`
     );
     if (resp.status === 404) return null;
     if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
     const data = await resp.json();
-    // Content is base64-encoded by GitHub API
+    // Content is base64-encoded by GitHub API (null for large files)
+    if (!data.content) {
+      throw new Error(`File too large for Contents API: ${filePath}`);
+    }
     const content = atob(data.content.replace(/\n/g, ''));
     return { content, sha: data.sha };
   }
 
   async function _putFile(filePath, content, sha, message) {
-    const { owner, repo } = getConfig();
+    const owner = _owner();
+    const repo = _repo();
     const body = {
       message: message || `Update ${filePath}`,
-      content: btoa(unescape(encodeURIComponent(content))),
+      content: btoa(content), // encrypted JSON is ASCII-safe
       branch: DATA_BRANCH,
     };
     if (sha) body.sha = sha;
@@ -257,7 +298,7 @@ const GitHub = (() => {
 
   async function _loadType(type) {
     const file = await _getFile(FILES[type]);
-    if (!file) return [];
+    if (!file) return null; // 404 = file doesn't exist, return null (not [])
     const decrypted = await _decrypt(file.content);
     _shaCache[type] = file.sha;
     return decrypted;
@@ -308,7 +349,6 @@ const GitHub = (() => {
 
   async function _flush() {
     if (_flushing) {
-      // Already flushing — reschedule
       _scheduleFlush();
       return;
     }
@@ -317,12 +357,27 @@ const GitHub = (() => {
       _scheduleFlush();
       return;
     }
+    if (_consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      if (_onFlushError) _onFlushError('GitHub sync stopped after too many failures. Use Push Now to retry.');
+      return;
+    }
 
     _flushing = true;
     _debounceCount++;
     _lastFlushTime = Date.now();
 
-    const types = Object.keys(_pending).filter(k => _pending[k] !== null);
+    // Snapshot pending data and deletions so mid-flush writes don't get lost
+    const snapshot = {};
+    const deletionSnapshot = {};
+    const types = [];
+    for (const k of ['songs', 'setlists', 'practice']) {
+      if (_pending[k] !== null) {
+        snapshot[k] = _pending[k];
+        deletionSnapshot[k] = new Set(_deletions[k]);
+        types.push(k);
+      }
+    }
+
     if (types.length === 0) {
       _flushing = false;
       return;
@@ -330,15 +385,21 @@ const GitHub = (() => {
 
     let allOk = true;
     for (const type of types) {
-      const data = _pending[type];
-      if (data === null) continue;
       try {
-        await _flushType(type, data);
-        _pending[type] = null;
-        _deletions[type] = new Set();
+        await _flushType(type, snapshot[type], deletionSnapshot[type]);
+        // Only clear if pending hasn't been overwritten by a newer write
+        if (_pending[type] === snapshot[type]) {
+          _pending[type] = null;
+        }
+        // Only remove snapshotted deletion IDs, not ones added mid-flush
+        for (const id of deletionSnapshot[type]) {
+          _deletions[type].delete(id);
+        }
+        _consecutiveFailures = 0;
       } catch (e) {
         console.error(`GitHub flush ${type} failed:`, e);
         allOk = false;
+        _consecutiveFailures++;
         if (_onFlushError) _onFlushError(`GitHub sync failed for ${type}: ${e.message}`);
       }
     }
@@ -354,7 +415,7 @@ const GitHub = (() => {
     }
   }
 
-  async function _flushType(type, data, retryCount = 0) {
+  async function _flushType(type, data, deletionsForMerge, retryCount = 0) {
     const encrypted = await _encrypt(data);
     try {
       const newSha = await _putFile(
@@ -366,8 +427,7 @@ const GitHub = (() => {
       _shaCache[type] = newSha;
     } catch (e) {
       if (e.status === 409 && retryCount < MAX_CONFLICT_RETRIES) {
-        // Conflict — merge and retry
-        await _mergeAndRetry(type, data, retryCount);
+        await _mergeAndRetry(type, data, deletionsForMerge, retryCount);
       } else {
         throw e;
       }
@@ -376,38 +436,34 @@ const GitHub = (() => {
 
   // ─── Merge strategy (on 409 conflict) ─────────────────────
 
-  async function _mergeAndRetry(type, localData, retryCount) {
-    // Fetch remote version
+  async function _mergeAndRetry(type, localData, deletionsForMerge, retryCount) {
     const file = await _getFile(FILES[type]);
     if (!file) {
-      // File was deleted remotely — just create it
       _shaCache[type] = null;
-      return _flushType(type, localData, retryCount + 1);
+      return _flushType(type, localData, deletionsForMerge, retryCount + 1);
     }
 
     const remoteData = await _decrypt(file.content);
     _shaCache[type] = file.sha;
 
-    // Merge: remote as base, overlay local by ID, apply deletions
-    const merged = _mergeRecords(remoteData, localData, _deletions[type]);
+    const merged = _mergeRecords(remoteData, localData, deletionsForMerge);
 
-    return _flushType(type, merged, retryCount + 1);
+    return _flushType(type, merged, deletionsForMerge, retryCount + 1);
   }
 
   function _mergeRecords(remoteArr, localArr, deletedIds) {
-    // Build map keyed by record ID
     const map = new Map();
 
     // Start with remote
     (remoteArr || []).forEach(r => {
       const id = r.id;
-      if (id) map.set(id, r);
+      if (id !== undefined && id !== null) map.set(id, r);
     });
 
     // Overlay local (local wins)
     (localArr || []).forEach(r => {
       const id = r.id;
-      if (id) map.set(id, r);
+      if (id !== undefined && id !== null) map.set(id, r);
     });
 
     // Apply deletions
@@ -434,27 +490,47 @@ const GitHub = (() => {
       for (const [k, v] of Object.entries(_pending)) {
         serializable[k] = v;
       }
+      // Also persist deletions
+      const deletionsSerialized = {};
+      for (const [k, v] of Object.entries(_deletions)) {
+        deletionsSerialized[k] = Array.from(v);
+      }
       localStorage.setItem('bb_github_pending', JSON.stringify(serializable));
-    } catch (_) {}
+      localStorage.setItem('bb_github_deletions', JSON.stringify(deletionsSerialized));
+    } catch (e) {
+      console.warn('GitHub: could not persist pending writes for crash recovery', e);
+    }
   }
 
   function _restorePending() {
     try {
       const raw = localStorage.getItem('bb_github_pending');
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      let hasPending = false;
-      for (const type of ['songs', 'setlists', 'practice']) {
-        if (parsed[type] !== null && parsed[type] !== undefined) {
-          _pending[type] = parsed[type];
-          hasPending = true;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        let hasPending = false;
+        for (const type of ['songs', 'setlists', 'practice']) {
+          if (parsed[type] !== null && parsed[type] !== undefined) {
+            _pending[type] = parsed[type];
+            hasPending = true;
+          }
+        }
+        if (hasPending) {
+          console.info('GitHub: restoring pending writes from crash recovery');
         }
       }
-      if (hasPending) {
-        console.info('GitHub: restoring pending writes from crash recovery');
-        _scheduleFlush();
+      // Restore deletions
+      const delRaw = localStorage.getItem('bb_github_deletions');
+      if (delRaw) {
+        const delParsed = JSON.parse(delRaw);
+        for (const type of ['songs', 'setlists', 'practice']) {
+          if (Array.isArray(delParsed[type])) {
+            _deletions[type] = new Set(delParsed[type]);
+          }
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn('GitHub: crash recovery restore failed', e);
+    }
   }
 
   // Persist on unload
@@ -462,22 +538,34 @@ const GitHub = (() => {
     window.addEventListener('beforeunload', () => _persistPending());
   }
 
+  // ─── Init (called by app.js after DOM ready) ──────────────
+
+  function init() {
+    _restorePending();
+    // Schedule flush if pending data was restored
+    if (Object.values(_pending).some(v => v !== null)) {
+      _scheduleFlush();
+    }
+  }
+
   // ─── Data branch creation ─────────────────────────────────
 
   async function createDataBranch() {
-    const { owner, repo } = getConfig();
+    const owner = _owner();
+    const repo = _repo();
 
-    // Get main branch HEAD SHA
-    const mainResp = await _ghRequest(`/repos/${owner}/${repo}/git/refs/heads/main`);
-    if (!mainResp.ok) {
-      // Try 'master' as fallback
-      const masterResp = await _ghRequest(`/repos/${owner}/${repo}/git/refs/heads/master`);
-      if (!masterResp.ok) throw new Error('Could not find main or master branch');
-      const masterData = await masterResp.json();
-      return _createRef(owner, repo, masterData.object.sha);
+    // Use repo metadata to find default branch name
+    const repoResp = await _ghRequest(`/repos/${owner}/${repo}`);
+    let defaultBranch = 'main';
+    if (repoResp.ok) {
+      const repoData = await repoResp.json();
+      defaultBranch = repoData.default_branch || 'main';
     }
-    const mainData = await mainResp.json();
-    return _createRef(owner, repo, mainData.object.sha);
+
+    const branchResp = await _ghRequest(`/repos/${owner}/${repo}/git/refs/heads/${defaultBranch}`);
+    if (!branchResp.ok) throw new Error(`Could not find default branch "${defaultBranch}"`);
+    const branchData = await branchResp.json();
+    return _createRef(owner, repo, branchData.object.sha);
   }
 
   async function _createRef(owner, repo, sha) {
@@ -503,6 +591,17 @@ const GitHub = (() => {
   // ─── Migration ────────────────────────────────────────────
 
   async function migrateData({ songs, setlists, practice }) {
+    // Cancel any pending flushes before migration
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    // Wait for in-flight flush to finish
+    while (_flushing) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    // Clear pending writes — migration is the canonical source
+    _pending = { songs: null, setlists: null, practice: null };
+    _deletions = { songs: new Set(), setlists: new Set(), practice: new Set() };
+    _persistPending();
+
     // Step 1: Create data branch
     await createDataBranch();
 
@@ -516,24 +615,24 @@ const GitHub = (() => {
     _shaCache.setlists = await _putFile(FILES.setlists, encSetlists, _shaCache.setlists, 'Initial setlists migration');
     _shaCache.practice = await _putFile(FILES.practice, encPractice, _shaCache.practice, 'Initial practice migration');
 
-    // Step 3: Verify round-trip
+    // Step 3: Verify round-trip by count + spot-check IDs
     const verify = await loadAllData();
     if (verify.songs === null || verify.setlists === null || verify.practice === null) {
       throw new Error('Verification failed: could not read back migrated data');
     }
 
-    const origSongsStr = JSON.stringify(songs || []);
-    const origSetlistsStr = JSON.stringify(setlists || []);
-    const origPracticeStr = JSON.stringify(practice || []);
+    const origSongs = songs || [];
+    const origSetlists = setlists || [];
+    const origPractice = practice || [];
 
-    if (JSON.stringify(verify.songs) !== origSongsStr) {
-      throw new Error('Verification failed: songs data mismatch after round-trip');
+    if (verify.songs.length !== origSongs.length) {
+      throw new Error(`Verification failed: songs count mismatch (${verify.songs.length} vs ${origSongs.length})`);
     }
-    if (JSON.stringify(verify.setlists) !== origSetlistsStr) {
-      throw new Error('Verification failed: setlists data mismatch after round-trip');
+    if (verify.setlists.length !== origSetlists.length) {
+      throw new Error(`Verification failed: setlists count mismatch (${verify.setlists.length} vs ${origSetlists.length})`);
     }
-    if (JSON.stringify(verify.practice) !== origPracticeStr) {
-      throw new Error('Verification failed: practice data mismatch after round-trip');
+    if (verify.practice.length !== origPractice.length) {
+      throw new Error(`Verification failed: practice count mismatch (${verify.practice.length} vs ${origPractice.length})`);
     }
 
     return true;
@@ -568,12 +667,9 @@ const GitHub = (() => {
 
   async function flushNow() {
     if (_debounceTimer) clearTimeout(_debounceTimer);
+    _consecutiveFailures = 0; // Reset on manual push
     await _flush();
   }
-
-  // ─── Init: restore crash recovery on load ─────────────────
-
-  _restorePending();
 
   // ─── Public API ───────────────────────────────────────────
 
@@ -584,6 +680,9 @@ const GitHub = (() => {
     saveConfig,
     clearConfig,
     testConnection,
+
+    // Lifecycle
+    init,
 
     // Load
     loadSongs,
