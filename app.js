@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.62';
+  const APP_VERSION = 'v17.63';
 
   let _songs      = [];
   let _setlists   = [];
@@ -3469,28 +3469,24 @@ const App = (() => {
 
     await _test(SEC1, 'Service Worker registered', async () => {
       if (!('serviceWorker' in navigator)) return { status: 'fail', detail: 'Service Worker API not supported' };
-      // Try getRegistration first
+      // Check existing registration
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         const swState = reg.active ? 'active' : reg.waiting ? 'waiting' : reg.installing ? 'installing' : 'unknown';
         return { status: 'pass', detail: `SW state: ${swState}, scope: ${reg.scope}` };
       }
-      // Fallback: navigator.serviceWorker.ready (iOS sometimes needs this)
+      // Check controller (SW running but getRegistration is flaky on iOS)
+      if (navigator.serviceWorker.controller) {
+        return { status: 'pass', detail: `SW controller active (${navigator.serviceWorker.controller.scriptURL})` };
+      }
+      // No existing SW — try registering now and capture the actual error
       try {
-        const ready = await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
-        ]);
-        if (ready && ready.active) {
-          return { status: 'pass', detail: `SW active (via .ready), scope: ${ready.scope}` };
-        }
-        return { status: 'warn', detail: 'SW .ready resolved but no active worker. Try closing and reopening the app.' };
-      } catch (e) {
-        // Last resort: check if controller exists (means a SW is running even if reg API is flaky)
-        if (navigator.serviceWorker.controller) {
-          return { status: 'pass', detail: `SW controller present (scriptURL: ${navigator.serviceWorker.controller.scriptURL})` };
-        }
-        return { status: 'warn', detail: 'No SW registration found after 5s. iOS may not have activated it yet — try closing and reopening the app completely.' };
+        const newReg = await navigator.serviceWorker.register('./service-worker.js', { scope: './' });
+        const state = newReg.active ? 'active' : newReg.waiting ? 'waiting' : newReg.installing ? 'installing' : 'pending';
+        return { status: 'pass', detail: `SW registered by diagnostic (state: ${state}, scope: ${newReg.scope})` };
+      } catch (regErr) {
+        // This is the actual error — show it
+        return { status: 'fail', detail: `SW registration failed: ${regErr.message || regErr}` };
       }
     });
 
