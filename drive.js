@@ -21,8 +21,41 @@ const Drive = (() => {
   const SCOPES = 'https://www.googleapis.com/auth/drive';
 
   let _accessToken = null;
+  let _tokenExpiry = 0;  // Unix ms when token expires
   let _tokenClient = null;
   let _tokenPromise = null;
+
+  function _persistToken(token, expiresIn) {
+    _accessToken = token;
+    _tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
+    try {
+      localStorage.setItem('bb_access_token', token);
+      localStorage.setItem('bb_token_expiry', String(_tokenExpiry));
+    } catch (_) {}
+  }
+
+  function _loadPersistedToken() {
+    try {
+      const token = localStorage.getItem('bb_access_token');
+      const expiry = parseInt(localStorage.getItem('bb_token_expiry') || '0', 10);
+      if (token && expiry > Date.now()) {
+        _accessToken = token;
+        _tokenExpiry = expiry;
+      }
+    } catch (_) {}
+  }
+
+  function _clearPersistedToken() {
+    _accessToken = null;
+    _tokenExpiry = 0;
+    try {
+      localStorage.removeItem('bb_access_token');
+      localStorage.removeItem('bb_token_expiry');
+    } catch (_) {}
+  }
+
+  // Load on module init
+  _loadPersistedToken();
 
   // ─── Config ───────────────────────────────────────────────
 
@@ -61,7 +94,14 @@ const Drive = (() => {
    * resolves with the token string.
    */
   function ensureToken() {
-    if (_accessToken) return Promise.resolve(_accessToken);
+    // Reuse valid persisted token
+    if (_accessToken && _tokenExpiry > Date.now()) {
+      return Promise.resolve(_accessToken);
+    }
+    // Token expired — clear it so we refresh
+    if (_accessToken && _tokenExpiry <= Date.now()) {
+      _clearPersistedToken();
+    }
     if (_tokenPromise) return _tokenPromise;
     _tokenPromise = new Promise((resolve, reject) => {
       const { clientId } = getConfig();
@@ -76,12 +116,13 @@ const Drive = (() => {
             if (resp.error) {
               return reject(new Error(resp.error));
             }
-            _accessToken = resp.access_token;
+            _persistToken(resp.access_token, resp.expires_in || 3600);
             resolve(_accessToken);
           },
         });
       }
 
+      // Silent refresh — no popup if consent was previously granted
       _tokenClient.requestAccessToken({ prompt: '' });
     });
     return _tokenPromise;
@@ -90,13 +131,13 @@ const Drive = (() => {
   function signOut() {
     if (_accessToken) {
       google.accounts.oauth2.revoke(_accessToken);
-      _accessToken = null;
+      _clearPersistedToken();
     }
   }
 
   // ─── Core fetch helper ─────────────────────────────────────
 
-  async function driveRequest(url, options = {}) {
+  async function driveRequest(url, options = {}, _retry = false) {
     const token = await ensureToken();
     const resp = await fetch(url, {
       ...options,
@@ -105,6 +146,11 @@ const Drive = (() => {
         'Authorization': `Bearer ${token}`,
       },
     });
+    // If 401 and we haven't retried, clear token and try once more
+    if (resp.status === 401 && !_retry) {
+      _clearPersistedToken();
+      return driveRequest(url, options, true);
+    }
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`Drive API ${resp.status}: ${text}`);
@@ -246,6 +292,29 @@ const Drive = (() => {
 
   // ─── Shared JSON save helper ─────────────────────────────
 
+  async function _ensurePublic(fileId) {
+    try {
+      // Check if file already has public permissions
+      const permResp = await driveRequest(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(type,role)`
+      );
+      const perms = await permResp.json();
+      const hasPublic = (perms.permissions || []).some(p => p.type === 'anyone');
+      if (hasPublic) return; // already public
+      // Set public read permission
+      await driveRequest(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+        }
+      );
+    } catch (e) {
+      console.warn('Could not ensure public sharing:', e);
+    }
+  }
+
   async function _saveJsonFile(filename, data) {
     const { folderId } = getConfig();
     const existing = await findFile(filename);
@@ -260,6 +329,8 @@ const Drive = (() => {
         `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
         { method: 'PATCH', body: form }
       );
+      // Ensure existing file is publicly readable
+      await _ensurePublic(existing.id);
     } else {
       const form = new FormData();
       const meta = { name: filename, parents: [folderId], mimeType: 'application/json' };
@@ -269,21 +340,9 @@ const Drive = (() => {
         'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
         { method: 'POST', body: form }
       );
-      // Make newly created file publicly readable so all users can sync
       const created = await resp.json();
       if (created && created.id) {
-        try {
-          await driveRequest(
-            `https://www.googleapis.com/drive/v3/files/${created.id}/permissions`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-            }
-          );
-        } catch (permErr) {
-          console.warn('Could not set public sharing on new file:', permErr);
-        }
+        await _ensurePublic(created.id);
       }
     }
   }
