@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.80';
+  const APP_VERSION = 'v17.81';
 
   let _songs      = [];
   let _setlists   = [];
@@ -55,6 +55,18 @@ const App = (() => {
     const escaped = esc(text);
     const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="search-hi">$1</mark>');
+  }
+
+  // ─── Primary chart helper ────────────────────────────────
+
+  function _getPrimaryChart(song) {
+    const charts = song.assets?.charts || [];
+    if (!charts.length) return null;
+    if (song.primaryChartId) {
+      const found = charts.find(c => c.driveId === song.primaryChartId);
+      if (found) return found;
+    }
+    return charts[0];
   }
 
   // ─── Duplicate detection helpers ──────────────────────────
@@ -783,6 +795,23 @@ const App = (() => {
       if (!_blobCache[id]) _getBlobUrl(id).catch(() => {});
     });
 
+    // Primary chart star toggles (edit mode only)
+    if (Admin.isEditMode()) {
+      container.querySelectorAll('.primary-chart-star').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const driveId = btn.dataset.starChart;
+          song.primaryChartId = (song.primaryChartId === driveId) ? null : driveId;
+          song._ts = Date.now();
+          const idx = _songs.findIndex(s => s.id === song.id);
+          if (idx > -1) _songs[idx] = song;
+          await saveSongs();
+          renderDetail(song, true); // re-render to update star states
+        });
+      });
+    }
+
     // Chart buttons
     container.querySelectorAll('[data-open-chart]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -934,9 +963,14 @@ const App = (() => {
       html += `<div class="detail-section">
         <div class="detail-section-label">Charts</div>
         <div class="file-list">
-          ${charts.map(c => `
+          ${charts.map(c => {
+            const isPrimary = song.primaryChartId ? c.driveId === song.primaryChartId : charts.indexOf(c) === 0;
+            return `
             <div class="file-item-row">
               <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
+                <span class="primary-chart-star${isPrimary ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode">
+                  <i data-lucide="star" style="width:16px;height:16px;${isPrimary ? 'fill:var(--accent);' : ''}"></i>
+                </span>
                 <div class="file-item-icon pdf">
                   <i data-lucide="file-text"></i>
                 </div>
@@ -947,7 +981,8 @@ const App = (() => {
                 <i data-lucide="download" class="dl-icon"></i>
                 <span class="dl-spinner hidden"></span>
               </button>
-            </div>`).join('')}
+            </div>`;
+          }).join('')}
         </div>
       </div>`;
     }
@@ -1083,7 +1118,10 @@ const App = (() => {
       <div class="edit-section">
         <div class="edit-section-title">Charts (PDF)</div>
         <div class="asset-edit-list" id="ef-chart-list">
-          ${(assets.charts||[]).map(c=>`<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`).join('')}
+          ${(assets.charts||[]).map(c => {
+            const isPrimary = song.primaryChartId ? c.driveId === song.primaryChartId : assets.charts.indexOf(c) === 0;
+            return `<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><button class="primary-chart-star${isPrimary ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode"><i data-lucide="star" style="width:14px;height:14px;${isPrimary ? 'fill:var(--accent);' : ''}"></i></button><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`;
+          }).join('')}
         </div>
         <button class="btn-ghost" id="ef-add-chart">+ Add Chart PDF</button>
         <input type="file" id="ef-chart-file" accept=".pdf,application/pdf" style="display:none" multiple />
@@ -1184,6 +1222,24 @@ const App = (() => {
     tagInput.addEventListener('blur', () => { if(tagInput.value.trim()){addTag(tagInput.value);tagInput.value='';} tagSuggest.classList.add('hidden'); });
     tagWrap.addEventListener('click', () => tagInput.focus());
 
+    // Primary chart star toggles in edit view
+    document.getElementById('ef-chart-list').addEventListener('click', e => {
+      const starBtn = e.target.closest('.primary-chart-star');
+      if (starBtn) {
+        const driveId = starBtn.dataset.starChart;
+        song.primaryChartId = (song.primaryChartId === driveId) ? null : driveId;
+        // Update all star visuals
+        document.querySelectorAll('#ef-chart-list .primary-chart-star').forEach(s => {
+          const isThis = s.dataset.starChart === song.primaryChartId ||
+            (!song.primaryChartId && s.dataset.starChart === (assets.charts[0]?.driveId));
+          s.classList.toggle('active', isThis);
+          const icon = s.querySelector('i');
+          if (icon) icon.style.fill = isThis ? 'var(--accent)' : '';
+        });
+        return;
+      }
+    });
+
     // Asset removes (with confirm)
     ['chart','audio'].forEach(type => {
       const assetKey = type === 'chart' ? 'charts' : 'audio';
@@ -1193,7 +1249,12 @@ const App = (() => {
         const row = btn.closest('.asset-edit-row');
         const name = row.querySelector('.asset-edit-name')?.textContent || 'this file';
         Admin.showConfirm('Remove Attachment', `Remove "${name}" from this song?`, () => {
-          assets[assetKey] = assets[assetKey].filter(a => a.driveId !== row.dataset.driveId);
+          const removedId = row.dataset.driveId;
+          assets[assetKey] = assets[assetKey].filter(a => a.driveId !== removedId);
+          // Clear primaryChartId if the removed chart was primary
+          if (type === 'chart' && song.primaryChartId === removedId) {
+            song.primaryChartId = null;
+          }
           row.remove();
         });
       });
@@ -1605,7 +1666,7 @@ const App = (() => {
     });
   }
 
-  // ─── SETLIST LIVE MODE ──────────────────────────────────
+  // ─── SETLIST LIVE MODE (ForScore-style charts + pedal support) ──
 
   let _liveModeActive = false;
   let _exitLiveModeRef = null; // stored so navigateBack can call it
@@ -1622,19 +1683,46 @@ const App = (() => {
     _liveModeActive = true;
     _revokeBlobCache();
     Player.stopAll();
-    // Restore slide position if resuming same setlist
-    let currentIdx = 0;
-    try {
-      const saved = JSON.parse(sessionStorage.getItem('bb_live_state') || 'null');
-      if (saved && saved.setlistId === setlist.id && saved.idx >= 0 && saved.idx < songs.length) {
-        currentIdx = saved.idx;
-      }
-    } catch (_) {}
+
     const _startTime = Date.now();
     let _clockInterval = null;
+    let _zpHandle = null; // zoom/pan handle for chart canvas
+    let _overlayTimer = null;
 
-    function _persistSlide() {
-      try { sessionStorage.setItem('bb_live_state', JSON.stringify({ setlistId: setlist.id, idx: currentIdx })); } catch (_) {}
+    // ── Build flat page list ──
+    // Start with one placeholder per song; chart songs get expanded as PDFs load
+    let _pages = [];
+    const _songEntries = songs; // keep reference to original song list
+
+    function _buildInitialPages() {
+      _pages = [];
+      for (let si = 0; si < _songEntries.length; si++) {
+        const song = _songEntries[si];
+        const chart = _getPrimaryChart(song);
+        if (chart) {
+          _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.driveId, chartName: chart.name });
+        } else {
+          _pages.push({ type: 'metadata', songIdx: si, song });
+        }
+      }
+    }
+    _buildInitialPages();
+
+    // ── Session restore ──
+    let currentPageIdx = 0;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('bb_live_state') || 'null');
+      if (saved && saved.setlistId === setlist.id && typeof saved.pageIdx === 'number') {
+        currentPageIdx = Math.max(0, Math.min(saved.pageIdx, _pages.length - 1));
+      } else if (saved && saved.setlistId === setlist.id && typeof saved.idx === 'number') {
+        // Legacy format — find first page of that song index
+        const target = _pages.findIndex(p => p.songIdx === saved.idx);
+        if (target >= 0) currentPageIdx = target;
+      }
+    } catch (_) {}
+
+    function _persistPage() {
+      try { sessionStorage.setItem('bb_live_state', JSON.stringify({ setlistId: setlist.id, pageIdx: currentPageIdx })); } catch (_) {}
     }
 
     _showView('setlist-live');
@@ -1650,111 +1738,381 @@ const App = (() => {
 
     const container = document.getElementById('setlist-live-content');
 
-    function _renderSlide() {
-      _persistSlide();
-      const song = songs[currentIdx];
-      container.innerHTML = `
-        <div class="lm-header">
-          <span class="lm-progress">${currentIdx + 1} / ${songs.length}</span>
-          <div class="lm-clock-group">
-            <span class="lm-clock"></span>
-            <span class="lm-timer">0:00</span>
-          </div>
-          <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+    // ── Build persistent DOM ──
+    container.innerHTML = `
+      <div class="lm-header">
+        <span class="lm-progress"></span>
+        <div class="lm-clock-group">
+          <span class="lm-clock"></span>
+          <span class="lm-timer">0:00</span>
         </div>
-        <div class="lm-body">
-          <div class="lm-song-num">${currentIdx + 1}</div>
-          <div class="lm-song-title">${esc(song.title)}</div>
-          ${song.subtitle ? `<div class="lm-song-subtitle">${esc(song.subtitle)}</div>` : ''}
-          <div class="lm-song-meta">
-            ${song.key ? `<span class="lm-meta-item">${esc(song.key)}</span>` : ''}
-            ${song.bpm ? `<span class="lm-meta-item">${esc(String(song.bpm))} BPM</span>` : ''}
-            ${song.timeSig ? `<span class="lm-meta-item">${esc(song.timeSig)}</span>` : ''}
-          </div>
-          ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
-          ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
+        <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+      </div>
+      <div class="lm-page-wrapper">
+        <div class="lm-canvas-area hidden">
+          <canvas class="lm-chart-canvas"></canvas>
+          <div class="lm-chart-overlay"></div>
         </div>
-        <div class="lm-nav">
-          <button class="lm-nav-btn lm-prev" ${currentIdx === 0 ? 'disabled' : ''} aria-label="Previous">
-            <i data-lucide="chevron-left" style="width:32px;height:32px;"></i>
-          </button>
-          <button class="lm-nav-btn lm-next" ${currentIdx === songs.length - 1 ? 'disabled' : ''} aria-label="Next">
-            <i data-lucide="chevron-right" style="width:32px;height:32px;"></i>
-          </button>
+        <div class="lm-metadata-slide hidden">
+          <div class="lm-body"></div>
         </div>
-      `;
-      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+        <div class="lm-loading-slide hidden">
+          <div class="lm-loading-spinner"></div>
+          <div class="lm-loading-text">Loading chart…</div>
+        </div>
+      </div>
+      <div class="lm-nav">
+        <button class="lm-nav-btn lm-prev" aria-label="Previous">
+          <i data-lucide="chevron-left" style="width:32px;height:32px;"></i>
+        </button>
+        <button class="lm-nav-btn lm-next" aria-label="Next">
+          <i data-lucide="chevron-right" style="width:32px;height:32px;"></i>
+        </button>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-      // Wire navigation
-      container.querySelector('.lm-prev')?.addEventListener('click', () => {
-        if (currentIdx > 0) { currentIdx--; _renderSlide(); }
-      });
-      container.querySelector('.lm-next')?.addEventListener('click', () => {
-        if (currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
-      });
-      container.querySelector('.lm-close-btn')?.addEventListener('click', _exitLiveMode);
+    const pageWrapper    = container.querySelector('.lm-page-wrapper');
+    const canvasArea     = container.querySelector('.lm-canvas-area');
+    const chartCanvas    = container.querySelector('.lm-chart-canvas');
+    const chartOverlay   = container.querySelector('.lm-chart-overlay');
+    const metadataSlide  = container.querySelector('.lm-metadata-slide');
+    const metadataBody   = container.querySelector('.lm-metadata-slide .lm-body');
+    const loadingSlide   = container.querySelector('.lm-loading-slide');
+    const progressEl     = container.querySelector('.lm-progress');
+    const prevBtn        = container.querySelector('.lm-prev');
+    const nextBtn        = container.querySelector('.lm-next');
+
+    // Wire buttons
+    prevBtn.addEventListener('click', () => _goPage(-1));
+    nextBtn.addEventListener('click', () => _goPage(1));
+    container.querySelector('.lm-close-btn').addEventListener('click', _exitLiveMode);
+
+    // ── Navigation ──
+    let _lastRenderedSongIdx = -1;
+    let _isAnimating = false;
+
+    function _goPage(delta, animate) {
+      if (_isAnimating) return;
+      const newIdx = currentPageIdx + delta;
+      if (newIdx < 0 || newIdx >= _pages.length) return;
+      if (animate !== false) {
+        _slideTransition(delta > 0 ? 'left' : 'right', () => {
+          currentPageIdx = newIdx;
+          _renderCurrentPage();
+        });
+      } else {
+        currentPageIdx = newIdx;
+        _renderCurrentPage();
+      }
     }
 
+    function _slideTransition(direction, onMid) {
+      _isAnimating = true;
+      const slideOut = direction === 'left' ? '-100%' : '100%';
+      const slideIn  = direction === 'left' ? '100%' : '-100%';
+
+      // Slide current page out
+      pageWrapper.style.transition = 'transform 0.2s ease-in';
+      pageWrapper.style.transform = `translateX(${slideOut})`;
+
+      function _afterSlideOut() {
+        pageWrapper.removeEventListener('transitionend', _afterSlideOut);
+        // Render new page off-screen on the opposite side
+        pageWrapper.style.transition = 'none';
+        pageWrapper.style.transform = `translateX(${slideIn})`;
+        onMid();
+        // Force reflow before animating in
+        void pageWrapper.offsetWidth;
+        pageWrapper.style.transition = 'transform 0.2s ease-out';
+        pageWrapper.style.transform = 'translateX(0)';
+
+        function _afterSlideIn() {
+          pageWrapper.removeEventListener('transitionend', _afterSlideIn);
+          pageWrapper.style.transition = '';
+          pageWrapper.style.transform = '';
+          _isAnimating = false;
+        }
+        pageWrapper.addEventListener('transitionend', _afterSlideIn, { once: true });
+        // Safety timeout in case transitionend doesn't fire
+        setTimeout(() => { if (_isAnimating) { _afterSlideIn(); } }, 500);
+      }
+      pageWrapper.addEventListener('transitionend', _afterSlideOut, { once: true });
+      // Safety timeout
+      setTimeout(() => {
+        if (_isAnimating && pageWrapper.style.transform.includes(slideOut)) {
+          _afterSlideOut();
+        }
+      }, 500);
+    }
+
+    function _renderCurrentPage() {
+      _persistPage();
+      const page = _pages[currentPageIdx];
+      if (!page) return;
+
+      // Update progress
+      const songNum = page.songIdx + 1;
+      const totalSongs = _songEntries.length;
+      if (page.type === 'chart') {
+        progressEl.textContent = `Song ${songNum}/${totalSongs} · Page ${page.pageNum}/${page.totalSongPages}`;
+      } else {
+        progressEl.textContent = `Song ${songNum}/${totalSongs}`;
+      }
+
+      // Update nav buttons
+      prevBtn.disabled = currentPageIdx === 0;
+      nextBtn.disabled = currentPageIdx === _pages.length - 1;
+
+      // Show appropriate panel
+      canvasArea.classList.toggle('hidden', page.type !== 'chart');
+      metadataSlide.classList.toggle('hidden', page.type !== 'metadata');
+      loadingSlide.classList.toggle('hidden', page.type !== 'loading');
+
+      // Reset zoom when changing pages
+      if (_zpHandle) _zpHandle.resetZoom();
+
+      if (page.type === 'chart') {
+        _renderChartPage(page);
+      } else if (page.type === 'metadata') {
+        _renderMetadataPage(page);
+      }
+
+      // Show overlay at song boundaries or first page
+      const isNewSong = page.songIdx !== _lastRenderedSongIdx;
+      _lastRenderedSongIdx = page.songIdx;
+      if (isNewSong) {
+        _showOverlay(page.song);
+      }
+    }
+
+    function _renderChartPage(page) {
+      PDFViewer.renderToCanvas(page.pdfDoc, page.pageNum, chartCanvas, canvasArea).catch(err => {
+        console.error('Live mode chart render error', err);
+        // Fallback: convert to metadata page
+        _pages[currentPageIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
+        _renderCurrentPage();
+      });
+    }
+
+    function _renderMetadataPage(page) {
+      const song = page.song;
+      metadataBody.innerHTML = `
+        <div class="lm-song-num">${page.songIdx + 1}</div>
+        <div class="lm-song-title">${esc(song.title)}</div>
+        ${song.subtitle ? `<div class="lm-song-subtitle">${esc(song.subtitle)}</div>` : ''}
+        <div class="lm-song-meta">
+          ${song.key ? `<span class="lm-meta-item">${esc(song.key)}</span>` : ''}
+          ${song.bpm ? `<span class="lm-meta-item">${esc(String(song.bpm))} BPM</span>` : ''}
+          ${song.timeSig ? `<span class="lm-meta-item">${esc(song.timeSig)}</span>` : ''}
+        </div>
+        ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
+        ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
+      `;
+    }
+
+    function _showOverlay(song) {
+      if (_overlayTimer) clearTimeout(_overlayTimer);
+      const meta = [song.key, song.bpm ? song.bpm + ' BPM' : '', song.timeSig].filter(Boolean).join(' · ');
+      chartOverlay.innerHTML = `<div class="lm-overlay-title">${esc(song.title)}</div>${meta ? `<div class="lm-overlay-meta">${esc(meta)}</div>` : ''}`;
+      chartOverlay.classList.add('lm-overlay-visible');
+      _overlayTimer = setTimeout(() => {
+        chartOverlay.classList.remove('lm-overlay-visible');
+      }, 3000);
+    }
+
+    // ── Zoom/Pan for chart canvas ──
+    _zpHandle = PDFViewer.attachZoomPan(chartCanvas, canvasArea);
+
+    // ── Progressive PDF loading ──
+    async function _loadChartPDF(songIdx, chartDriveId) {
+      try {
+        const blobUrl = await _getBlobUrl(chartDriveId);
+        const pdfDoc = await pdfjsLib.getDocument(blobUrl).promise;
+        const numPages = pdfDoc.numPages;
+
+        // Find the loading placeholder and expand it into chart pages
+        const placeholderIdx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+        if (placeholderIdx === -1) return; // already replaced or live mode exited
+
+        const song = _pages[placeholderIdx].song;
+        const chartPages = [];
+        for (let p = 1; p <= numPages; p++) {
+          chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, totalSongPages: numPages });
+        }
+
+        // Adjust currentPageIdx if pages were inserted before current position
+        const wasBeforeCurrent = placeholderIdx < currentPageIdx;
+        const wasAtCurrent = placeholderIdx === currentPageIdx;
+
+        _pages.splice(placeholderIdx, 1, ...chartPages);
+
+        if (wasBeforeCurrent) {
+          currentPageIdx += (chartPages.length - 1);
+        }
+
+        // If we were on the loading page for this song, render the first chart page
+        if (wasAtCurrent) {
+          _renderCurrentPage();
+        }
+      } catch (err) {
+        console.error('Failed to load chart for song', songIdx, err);
+        // Convert loading placeholder to metadata fallback
+        const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+        if (idx !== -1) {
+          const song = _pages[idx].song;
+          _pages[idx] = { type: 'metadata', songIdx, song };
+          if (idx === currentPageIdx) _renderCurrentPage();
+        }
+      }
+    }
+
+    // Fire all PDF loads in parallel
+    const loadPromises = [];
+    for (let si = 0; si < _songEntries.length; si++) {
+      const chart = _getPrimaryChart(_songEntries[si]);
+      if (chart) {
+        loadPromises.push(_loadChartPDF(si, chart.driveId));
+      }
+    }
+
+    // ── Exit Live Mode ──
     function _exitLiveMode() {
-      if (!_liveModeActive) return; // prevent double-exit
+      if (!_liveModeActive) return;
       _liveModeActive = false;
       _exitLiveModeRef = null;
       try { sessionStorage.removeItem('bb_live_state'); } catch (_) {}
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
+      if (_overlayTimer) { clearTimeout(_overlayTimer); _overlayTimer = null; }
+      if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
       document.body.classList.remove('live-mode-active');
-      document.removeEventListener('fullscreenchange', _onFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', _onFullscreenChange);
+      document.removeEventListener('keydown', _onKey);
+      pageWrapper.removeEventListener('touchstart', _onDragStart);
+      pageWrapper.removeEventListener('touchmove', _onDragMove);
+      pageWrapper.removeEventListener('touchend', _onDragEnd);
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitFullscreenElement) {
         document.webkitExitFullscreen();
       }
-      document.removeEventListener('keydown', _onKey);
-      container.removeEventListener('touchstart', _onTouchStart);
-      container.removeEventListener('touchend', _onTouchEnd);
       renderSetlistDetail(setlist, true);
     }
     _exitLiveModeRef = _exitLiveMode;
 
-    // Exit live mode when user leaves fullscreen via browser controls
-    function _onFullscreenChange() {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement && _liveModeActive) {
-        _exitLiveMode();
-      }
-    }
-    document.addEventListener('fullscreenchange', _onFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', _onFullscreenChange);
-
-    // Keyboard navigation
+    // ── Keyboard navigation (with pedal support) ──
     function _onKey(e) {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-        if (currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        if (currentIdx > 0) { currentIdx--; _renderSlide(); }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault();
+        _goPage(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault();
+        _goPage(-1);
       } else if (e.key === 'Escape') {
         _exitLiveMode();
       }
     }
     document.addEventListener('keydown', _onKey);
 
-    // Swipe navigation (mobile)
-    let _touchStartX = 0;
-    function _onTouchStart(e) {
-      _touchStartX = e.changedTouches[0]?.screenX || 0;
+    // ── Carousel swipe navigation (drag-follow + snap) ──
+    let _dragX0 = 0, _dragY0 = 0, _dragging = false, _dragLocked = false;
+    const SWIPE_THRESHOLD = 60;
+
+    function _onDragStart(e) {
+      if (_isAnimating) return;
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
+      const t = e.touches[0];
+      _dragX0 = t.clientX;
+      _dragY0 = t.clientY;
+      _dragging = true;
+      _dragLocked = false;
+      pageWrapper.style.transition = 'none';
     }
-    function _onTouchEnd(e) {
-      const dx = (e.changedTouches[0]?.screenX || 0) - _touchStartX;
-      if (Math.abs(dx) > 50) {
-        if (dx < 0 && currentIdx < songs.length - 1) { currentIdx++; _renderSlide(); }
-        else if (dx > 0 && currentIdx > 0) { currentIdx--; _renderSlide(); }
+
+    function _onDragMove(e) {
+      if (!_dragging || _isAnimating) return;
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) { _dragging = false; return; }
+      const t = e.touches[0];
+      const dx = t.clientX - _dragX0;
+      const dy = t.clientY - _dragY0;
+
+      // Lock direction on first significant movement
+      if (!_dragLocked) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          // Vertical — abort carousel, let page scroll
+          _dragging = false;
+          pageWrapper.style.transform = '';
+          return;
+        }
+        _dragLocked = true;
       }
+
+      // Rubber-band effect at edges
+      let tx = dx;
+      if ((dx > 0 && currentPageIdx === 0) || (dx < 0 && currentPageIdx === _pages.length - 1)) {
+        tx = dx * 0.25; // resist at edges
+      }
+      pageWrapper.style.transform = `translateX(${tx}px)`;
     }
-    container.addEventListener('touchstart', _onTouchStart, { passive: true });
-    container.addEventListener('touchend', _onTouchEnd, { passive: true });
 
-    _renderSlide();
+    function _onDragEnd(e) {
+      if (!_dragging) return;
+      _dragging = false;
+      if (_isAnimating) { pageWrapper.style.transform = ''; return; }
 
-    // Clock + timer updates
+      const t = e.changedTouches[0];
+      const dx = t ? t.clientX - _dragX0 : 0;
+
+      if (Math.abs(dx) >= SWIPE_THRESHOLD) {
+        // Complete the swipe with animation
+        const direction = dx < 0 ? 'left' : 'right';
+        const canGo = dx < 0 ? currentPageIdx < _pages.length - 1 : currentPageIdx > 0;
+        if (canGo) {
+          _isAnimating = true;
+          const slideOut = direction === 'left' ? '-100%' : '100%';
+          const slideIn  = direction === 'left' ? '100%' : '-100%';
+          pageWrapper.style.transition = 'transform 0.18s ease-in';
+          pageWrapper.style.transform = `translateX(${slideOut})`;
+
+          function _afterOut() {
+            pageWrapper.removeEventListener('transitionend', _afterOut);
+            pageWrapper.style.transition = 'none';
+            pageWrapper.style.transform = `translateX(${slideIn})`;
+            currentPageIdx += (dx < 0 ? 1 : -1);
+            _renderCurrentPage();
+            void pageWrapper.offsetWidth;
+            pageWrapper.style.transition = 'transform 0.18s ease-out';
+            pageWrapper.style.transform = 'translateX(0)';
+            function _afterIn() {
+              pageWrapper.removeEventListener('transitionend', _afterIn);
+              pageWrapper.style.transition = '';
+              pageWrapper.style.transform = '';
+              _isAnimating = false;
+            }
+            pageWrapper.addEventListener('transitionend', _afterIn, { once: true });
+            setTimeout(() => { if (_isAnimating) _afterIn(); }, 400);
+          }
+          pageWrapper.addEventListener('transitionend', _afterOut, { once: true });
+          setTimeout(() => {
+            if (_isAnimating && !pageWrapper.style.transform.includes('0')) _afterOut();
+          }, 400);
+          return;
+        }
+      }
+      // Snap back
+      pageWrapper.style.transition = 'transform 0.2s ease-out';
+      pageWrapper.style.transform = 'translateX(0)';
+      setTimeout(() => { pageWrapper.style.transition = ''; pageWrapper.style.transform = ''; }, 250);
+    }
+
+    pageWrapper.addEventListener('touchstart', _onDragStart, { passive: true });
+    pageWrapper.addEventListener('touchmove', _onDragMove, { passive: true });
+    pageWrapper.addEventListener('touchend', _onDragEnd, { passive: true });
+
+    // ── Initial render ──
+    _renderCurrentPage();
+
+    // ── Clock + timer ──
     function _updateClock() {
       const now = new Date();
       let h = now.getHours();
@@ -3879,32 +4237,72 @@ const App = (() => {
       location.reload();
     });
 
-    // Pull-to-refresh (swipe down when at top of list view)
+    // Pull-to-refresh with visual indicator
     {
       const appEl = document.getElementById('app');
-      let _ptrStartX = 0, _ptrStartY = 0, _ptrActive = false;
-      const PTR_THRESHOLD = 80;
+      const ptrEl = document.getElementById('ptr-indicator');
+      const ptrText = ptrEl?.querySelector('.ptr-text');
+      let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
+      const PTR_THRESHOLD = 140;
+      const PTR_MAX = 200;
 
       function _getScrollTop() {
-        // .view.active is the actual scrollable element (not #app which is overflow:hidden)
         const activeView = appEl.querySelector('.view.active');
         return activeView ? activeView.scrollTop : 0;
       }
 
       appEl.addEventListener('touchstart', (e) => {
         if (_view !== 'list' || _getScrollTop() > 5) return;
-        _ptrStartX = e.touches[0].clientX;
         _ptrStartY = e.touches[0].clientY;
         _ptrActive = true;
+        _ptrPulling = false;
+      }, { passive: true });
+
+      appEl.addEventListener('touchmove', (e) => {
+        if (!_ptrActive || !ptrEl) return;
+        const dy = e.touches[0].clientY - _ptrStartY;
+        if (dy <= 0 || _getScrollTop() > 5) {
+          if (_ptrPulling) {
+            _ptrPulling = false;
+            ptrEl.style.height = '0';
+            ptrEl.classList.remove('ptr-pulling', 'ptr-ready');
+          }
+          return;
+        }
+        _ptrPulling = true;
+        const clamped = Math.min(dy, PTR_MAX);
+        const h = Math.round(clamped * 0.5);
+        ptrEl.style.height = h + 'px';
+        ptrEl.classList.add('ptr-pulling');
+        if (dy >= PTR_THRESHOLD) {
+          ptrEl.classList.add('ptr-ready');
+          if (ptrText) ptrText.textContent = 'Release to refresh';
+        } else {
+          ptrEl.classList.remove('ptr-ready');
+          if (ptrText) ptrText.textContent = 'Pull down to refresh';
+        }
       }, { passive: true });
 
       appEl.addEventListener('touchend', (e) => {
-        if (!_ptrActive) return;
+        if (!_ptrActive || !ptrEl) return;
+        const wasPulling = _ptrPulling;
         _ptrActive = false;
-        const dx = (e.changedTouches[0]?.clientX || 0) - _ptrStartX;
+        _ptrPulling = false;
+
         const dy = (e.changedTouches[0]?.clientY || 0) - _ptrStartY;
-        if (dy >= PTR_THRESHOLD && Math.abs(dx) < 40 && _getScrollTop() <= 5) {
+        if (wasPulling && dy >= PTR_THRESHOLD && _getScrollTop() <= 5) {
+          // Show refreshing state
+          ptrEl.classList.remove('ptr-ready');
+          ptrEl.classList.add('ptr-refreshing');
+          if (ptrText) ptrText.textContent = 'Refreshing…';
+          ptrEl.style.height = '40px';
+          // Trigger the actual refresh
           document.getElementById('btn-refresh').click();
+        } else {
+          // Snap back
+          ptrEl.style.height = '0';
+          ptrEl.classList.remove('ptr-pulling', 'ptr-ready', 'ptr-refreshing');
+          if (ptrText) ptrText.textContent = 'Pull down to refresh';
         }
       }, { passive: true });
     }

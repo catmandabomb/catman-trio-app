@@ -101,6 +101,7 @@ const Admin = (() => {
       timeSig:  '',
       tags:     [],
       notes:    '',
+      primaryChartId: null, // driveId of preferred chart for live mode
       assets: {
         charts: [],   // [{ driveId, name }]
         audio:  [],   // [{ driveId, name }]

@@ -9,6 +9,10 @@
  * - Pan via drag when zoomed in
  * - Multi-page navigation
  * - Pre-fetchable: accepts blob URLs cached by caller
+ *
+ * Public API for live mode reuse:
+ * - renderToCanvas(pdfDoc, pageNum, canvas, containerEl) — render a page to any canvas
+ * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
 const PDFViewer = (() => {
@@ -19,30 +23,17 @@ const PDFViewer = (() => {
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  let _pdfDoc     = null;
-  let _pageNum    = 1;
-  let _rendering  = false;
-  let _blobUrl    = null;
+  const MIN_ZOOM = 0.5;
+  const MAX_ZOOM = 5;
+
+  // ─── Modal viewer state ─────────────────────────────────
+  let _pdfDoc      = null;
+  let _pageNum     = 1;
+  let _rendering   = false;
+  let _pendingPage = null;
+  let _blobUrl     = null;
   let _ownsBlobUrl = false;
-
-  // Zoom/pan state
-  let _zoom       = 1;
-  let _panX       = 0;
-  let _panY       = 0;
-  let _fitScale   = 1;  // the scale that makes PDF fit container width
-  const MIN_ZOOM  = 0.5;
-  const MAX_ZOOM  = 5;
-
-  // Touch tracking
-  let _pinchStartDist = 0;
-  let _pinchStartZoom = 1;
-  let _isPinching     = false;
-  let _dragStartX     = 0;
-  let _dragStartY     = 0;
-  let _dragStartPanX  = 0;
-  let _dragStartPanY  = 0;
-  let _isDragging     = false;
-  let _lastTap        = 0;
+  let _zpHandle    = null;  // zoom/pan handle for modal
 
   const modal     = () => document.getElementById('modal-pdf');
   const canvasEl  = () => document.getElementById('pdf-canvas');
@@ -52,132 +43,273 @@ const PDFViewer = (() => {
   const zoomLabel = () => document.getElementById('pdf-zoom-level');
 
   function _updateNav() {
-    document.getElementById('pdf-prev').disabled = _pageNum <= 1;
-    document.getElementById('pdf-next').disabled = !_pdfDoc || _pageNum >= _pdfDoc.numPages;
-    pageInfo().textContent = _pdfDoc ? `${_pageNum} / ${_pdfDoc.numPages}` : '1 / 1';
+    const prev = document.getElementById('pdf-prev');
+    const next = document.getElementById('pdf-next');
+    if (prev) prev.disabled = _pageNum <= 1;
+    if (next) next.disabled = !_pdfDoc || _pageNum >= _pdfDoc.numPages;
+    const pi = pageInfo();
+    if (pi) pi.textContent = _pdfDoc ? `${_pageNum} / ${_pdfDoc.numPages}` : '1 / 1';
   }
 
-  function _applyTransform() {
-    const cvs = canvasEl();
-    cvs.style.transform = `translate(${_panX}px, ${_panY}px) scale(${_zoom})`;
-    cvs.style.transformOrigin = '0 0';
-    const lbl = zoomLabel();
-    if (lbl) lbl.textContent = Math.round(_zoom * 100) + '%';
-    // Toggle cursor class
-    const ctr = container();
-    if (ctr) ctr.classList.toggle('zoomed', _zoom > 1.05);
+  // ─── Reusable: render a PDF page to any canvas ──────────
+
+  /**
+   * Render a single PDF page onto a canvas, fit-to-width of containerEl.
+   * @param {PDFDocumentProxy} pdfDoc
+   * @param {number} pageNum — 1-based
+   * @param {HTMLCanvasElement} canvas
+   * @param {HTMLElement} containerEl
+   * @returns {Promise<void>}
+   */
+  async function renderToCanvas(pdfDoc, pageNum, canvas, containerEl) {
+    const page = await pdfDoc.getPage(pageNum);
+    const containerWidth = containerEl.clientWidth;
+    if (containerWidth <= 0) return; // container not laid out yet
+
+    const viewport = page.getViewport({ scale: 1 });
+    const fitScale = containerWidth / viewport.width;
+    const renderScale = Math.min(fitScale * 2, 4); // render at 2x fit for crisp zoom
+    const scaled = page.getViewport({ scale: renderScale });
+
+    canvas.width  = scaled.width;
+    canvas.height = scaled.height;
+
+    const displayW = viewport.width * fitScale;
+    const displayH = viewport.height * fitScale;
+    canvas.style.width  = displayW + 'px';
+    canvas.style.height = displayH + 'px';
+
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport: scaled }).promise;
   }
 
-  function _clampPan() {
-    const cvs = canvasEl();
-    const ctr = container();
-    if (!cvs || !ctr) return;
+  // ─── Reusable: attach zoom/pan handlers to any canvas ───
 
-    const cw = parseFloat(cvs.style.width) || cvs.width;
-    const ch = parseFloat(cvs.style.height) || cvs.height;
-    const scaledW = cw * _zoom;
-    const scaledH = ch * _zoom;
-    const boxW = ctr.clientWidth;
-    const boxH = ctr.clientHeight;
+  /**
+   * Attach pinch-zoom, wheel-zoom, drag-pan, and double-tap handlers.
+   * @param {HTMLCanvasElement} canvas
+   * @param {HTMLElement} containerEl
+   * @returns {{ destroy: Function, resetZoom: Function, getZoom: Function }}
+   */
+  function attachZoomPan(canvas, containerEl, opts) {
+    const onZoomChange = opts?.onZoomChange || null;
+    let zoom = 1, panX = 0, panY = 0;
+    let pinchStartDist = 0, pinchStartZoom = 1;
+    let isPinching = false, isDragging = false;
+    let dragStartX = 0, dragStartY = 0, dragStartPanX = 0, dragStartPanY = 0;
+    let lastTap = 0, lastPinchEnd = 0;
+    let mouseDown = false;
 
-    if (scaledW <= boxW) {
-      // Center horizontally when smaller than container
-      _panX = (boxW - scaledW) / 2;
-    } else {
-      _panX = Math.min(0, Math.max(boxW - scaledW, _panX));
+    function clampPan() {
+      const cw = parseFloat(canvas.style.width) || canvas.width;
+      const ch = parseFloat(canvas.style.height) || canvas.height;
+      const scaledW = cw * zoom;
+      const scaledH = ch * zoom;
+      const boxW = containerEl.clientWidth;
+      const boxH = containerEl.clientHeight;
+
+      if (scaledW <= boxW) {
+        panX = (boxW - scaledW) / 2;
+      } else {
+        panX = Math.min(0, Math.max(boxW - scaledW, panX));
+      }
+      if (scaledH <= boxH) {
+        panY = (boxH - scaledH) / 2;
+      } else {
+        panY = Math.min(0, Math.max(boxH - scaledH, panY));
+      }
     }
 
-    if (scaledH <= boxH) {
-      _panY = (boxH - scaledH) / 2;
-    } else {
-      _panY = Math.min(0, Math.max(boxH - scaledH, _panY));
-    }
-  }
-
-  function _setZoom(newZoom, originX, originY) {
-    const old = _zoom;
-    _zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
-
-    if (originX !== undefined && originY !== undefined) {
-      // Zoom toward the point (originX, originY) in container coords
-      const ratio = _zoom / old;
-      _panX = originX - ratio * (originX - _panX);
-      _panY = originY - ratio * (originY - _panY);
+    function applyTransform() {
+      canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      canvas.style.transformOrigin = '0 0';
+      containerEl.classList.toggle('zoomed', zoom > 1.05);
+      if (onZoomChange) onZoomChange(zoom);
     }
 
-    _clampPan();
-    _applyTransform();
+    function setZoom(newZoom, originX, originY) {
+      const old = zoom;
+      zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
+      if (originX !== undefined && originY !== undefined) {
+        const ratio = zoom / old;
+        panX = originX - ratio * (originX - panX);
+        panY = originY - ratio * (originY - panY);
+      }
+      if (isNaN(panX)) panX = 0;
+      if (isNaN(panY)) panY = 0;
+      clampPan();
+      applyTransform();
+    }
+
+    function resetZoom() {
+      zoom = 1; panX = 0; panY = 0;
+      clampPan();
+      applyTransform();
+    }
+
+    function getTouchDist(t1, t2) {
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function onTouchStart(e) {
+      if (e.touches.length > 2) { isPinching = false; isDragging = false; return; }
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        isPinching = true;
+        isDragging = false;
+        pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+        if (pinchStartDist < 1) { isPinching = false; return; }
+        pinchStartZoom = zoom;
+      } else if (e.touches.length === 1 && zoom > 1.05) {
+        isDragging = true;
+        dragStartX = e.touches[0].clientX;
+        dragStartY = e.touches[0].clientY;
+        dragStartPanX = panX;
+        dragStartPanY = panY;
+      }
+      // Double-tap detection
+      if (e.touches.length === 1) {
+        if (Date.now() - lastPinchEnd < 400) { lastTap = 0; return; }
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          e.preventDefault();
+          if (zoom > 1.05) {
+            resetZoom();
+          } else {
+            const rect = containerEl.getBoundingClientRect();
+            setZoom(2, e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+          }
+          lastTap = 0;
+        } else {
+          lastTap = now;
+        }
+      }
+    }
+
+    function onTouchMove(e) {
+      if (isPinching && e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDist(e.touches[0], e.touches[1]);
+        const newZoom = pinchStartZoom * (dist / pinchStartDist);
+        const rect = containerEl.getBoundingClientRect();
+        const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
+        const cy = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+        setZoom(newZoom, cx, cy);
+      } else if (isDragging && e.touches.length === 1) {
+        e.preventDefault();
+        panX = dragStartPanX + (e.touches[0].clientX - dragStartX);
+        panY = dragStartPanY + (e.touches[0].clientY - dragStartY);
+        clampPan();
+        applyTransform();
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (isPinching && e.touches.length < 2) {
+        isPinching = false;
+        lastPinchEnd = Date.now();
+      }
+      if (e.touches.length === 0) isDragging = false;
+    }
+
+    function onWheel(e) {
+      e.preventDefault();
+      const rect = containerEl.getBoundingClientRect();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(zoom * delta, e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    function onMouseDown(e) {
+      if (zoom <= 1.05) return;
+      mouseDown = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragStartPanX = panX;
+      dragStartPanY = panY;
+      e.preventDefault();
+    }
+
+    function onMouseMove(e) {
+      if (!mouseDown) return;
+      panX = dragStartPanX + (e.clientX - dragStartX);
+      panY = dragStartPanY + (e.clientY - dragStartY);
+      clampPan();
+      applyTransform();
+    }
+
+    function onMouseUp() { mouseDown = false; }
+    function onBlur() { mouseDown = false; }
+
+    containerEl.addEventListener('touchstart', onTouchStart, { passive: false });
+    containerEl.addEventListener('touchmove', onTouchMove, { passive: false });
+    containerEl.addEventListener('touchend', onTouchEnd, { passive: true });
+    containerEl.addEventListener('wheel', onWheel, { passive: false });
+    containerEl.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('blur', onBlur);
+
+    function destroy() {
+      containerEl.removeEventListener('touchstart', onTouchStart);
+      containerEl.removeEventListener('touchmove', onTouchMove);
+      containerEl.removeEventListener('touchend', onTouchEnd);
+      containerEl.removeEventListener('wheel', onWheel);
+      containerEl.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('blur', onBlur);
+    }
+
+    function zoomInFn()  { setZoom(zoom * 1.25); }
+    function zoomOutFn() { setZoom(zoom / 1.25); }
+
+    return { destroy, resetZoom, getZoom: () => zoom, zoomIn: zoomInFn, zoomOut: zoomOutFn };
   }
 
-  function _resetZoom() {
-    _zoom = 1;
-    _panX = 0;
-    _panY = 0;
-    _clampPan();
-    _applyTransform();
-  }
+  // ─── Modal-specific render (uses renderToCanvas + pending page) ──
 
   async function _renderPage(num) {
-    if (!_pdfDoc || _rendering) return;
+    if (!_pdfDoc) return;
+    if (_rendering) { _pendingPage = num; return; }
     _rendering = true;
     try {
-      const page = await _pdfDoc.getPage(num);
-      const ctr = container();
-      const containerWidth = ctr.clientWidth;
-
-      const viewport = page.getViewport({ scale: 1 });
-      const dpr = window.devicePixelRatio || 1;
-
-      // Scale to fit container width
-      _fitScale = containerWidth / viewport.width;
-      const renderScale = Math.min(_fitScale * 2, 4); // render at 2x fit for crisp zoom
-      const scaled = page.getViewport({ scale: renderScale });
-      const cvs = canvasEl();
-      cvs.width  = scaled.width;
-      cvs.height = scaled.height;
-
-      // Display size = fit scale (1x zoom fills width)
-      const displayW = viewport.width * _fitScale;
-      const displayH = viewport.height * _fitScale;
-      cvs.style.width  = displayW + 'px';
-      cvs.style.height = displayH + 'px';
-
-      const ctx = cvs.getContext('2d');
-      await page.render({
-        canvasContext: ctx,
-        viewport: scaled,
-      }).promise;
-
-      // Reset zoom/pan for new page
-      _zoom = 1;
-      _panX = 0;
-      _panY = 0;
-      _clampPan();
-      _applyTransform();
+      await renderToCanvas(_pdfDoc, num, canvasEl(), container());
+      if (_zpHandle) _zpHandle.resetZoom();
+      const lbl = zoomLabel();
+      if (lbl) lbl.textContent = '100%';
       _updateNav();
     } catch (e) {
       console.error('PDF render error', e);
     } finally {
       _rendering = false;
+      if (_pendingPage !== null) {
+        const p = _pendingPage;
+        _pendingPage = null;
+        _renderPage(p);
+      }
     }
   }
 
-  /**
-   * Open the PDF viewer with a given blob URL or data URL.
-   * @param {string} url     — blob URL or remote URL
-   * @param {string} name    — display filename
-   */
   async function open(url, name, opts) {
-    _pdfDoc   = null;
-    _pageNum  = 1;
-    _blobUrl  = url;
-    _ownsBlobUrl = opts?.ownsBlobUrl || false; // only revoke if we own it
-    _zoom     = 1;
-    _panX     = 0;
-    _panY     = 0;
+    _pdfDoc      = null;
+    _pageNum     = 1;
+    _pendingPage = null;
+    _blobUrl     = url;
+    _ownsBlobUrl = opts?.ownsBlobUrl || false;
 
     fileLabel().textContent = name || 'Chart';
     modal().classList.remove('hidden');
+
+    // Attach zoom/pan to modal canvas
+    if (_zpHandle) _zpHandle.destroy();
+    _zpHandle = attachZoomPan(canvasEl(), container(), {
+      onZoomChange: (z) => {
+        const lbl = zoomLabel();
+        if (lbl) lbl.textContent = Math.round(z * 100) + '%';
+      },
+    });
 
     try {
       _pdfDoc = await pdfjsLib.getDocument(url).promise;
@@ -198,7 +330,8 @@ const PDFViewer = (() => {
     _pdfDoc    = null;
     _pageNum   = 1;
     _rendering = false;
-    _zoom = 1; _panX = 0; _panY = 0;
+    _pendingPage = null;
+    if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
     const cvs = canvasEl();
     cvs.style.transform = '';
     cvs.getContext('2d').clearRect(0, 0, cvs.width, cvs.height);
@@ -216,115 +349,10 @@ const PDFViewer = (() => {
     _renderPage(_pageNum);
   }
 
-  function zoomIn()  { _setZoom(_zoom * 1.25); }
-  function zoomOut() { _setZoom(_zoom / 1.25); }
+  function zoomIn()  { if (_zpHandle) _zpHandle.zoomIn(); }
+  function zoomOut() { if (_zpHandle) _zpHandle.zoomOut(); }
 
-  // ─── Touch handlers ──────────────────────────────────────
-
-  function _getTouchDist(t1, t2) {
-    const dx = t1.clientX - t2.clientX;
-    const dy = t1.clientY - t2.clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  function _onTouchStart(e) {
-    if (e.touches.length === 2) {
-      // Pinch start
-      e.preventDefault();
-      _isPinching = true;
-      _isDragging = false;
-      _pinchStartDist = _getTouchDist(e.touches[0], e.touches[1]);
-      _pinchStartZoom = _zoom;
-    } else if (e.touches.length === 1 && _zoom > 1.05) {
-      // Pan start (only when zoomed in)
-      _isDragging = true;
-      _dragStartX = e.touches[0].clientX;
-      _dragStartY = e.touches[0].clientY;
-      _dragStartPanX = _panX;
-      _dragStartPanY = _panY;
-    }
-
-    // Double-tap detection
-    if (e.touches.length === 1) {
-      const now = Date.now();
-      if (now - _lastTap < 300) {
-        e.preventDefault();
-        // Toggle between fit and 2x
-        if (_zoom > 1.05) {
-          _resetZoom();
-        } else {
-          const rect = container().getBoundingClientRect();
-          const ox = e.touches[0].clientX - rect.left;
-          const oy = e.touches[0].clientY - rect.top;
-          _setZoom(2, ox, oy);
-        }
-        _lastTap = 0;
-      } else {
-        _lastTap = now;
-      }
-    }
-  }
-
-  function _onTouchMove(e) {
-    if (_isPinching && e.touches.length === 2) {
-      e.preventDefault();
-      const dist = _getTouchDist(e.touches[0], e.touches[1]);
-      const newZoom = _pinchStartZoom * (dist / _pinchStartDist);
-      const rect = container().getBoundingClientRect();
-      const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
-      const cy = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
-      _setZoom(newZoom, cx, cy);
-    } else if (_isDragging && e.touches.length === 1) {
-      e.preventDefault();
-      _panX = _dragStartPanX + (e.touches[0].clientX - _dragStartX);
-      _panY = _dragStartPanY + (e.touches[0].clientY - _dragStartY);
-      _clampPan();
-      _applyTransform();
-    }
-  }
-
-  function _onTouchEnd(e) {
-    if (e.touches.length < 2) _isPinching = false;
-    if (e.touches.length === 0) _isDragging = false;
-  }
-
-  // ─── Mouse wheel zoom (desktop) ──────────────────────────
-
-  function _onWheel(e) {
-    e.preventDefault();
-    const rect = container().getBoundingClientRect();
-    const ox = e.clientX - rect.left;
-    const oy = e.clientY - rect.top;
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    _setZoom(_zoom * delta, ox, oy);
-  }
-
-  // ─── Mouse drag (desktop) ────────────────────────────────
-
-  let _mouseDown = false;
-  function _onMouseDown(e) {
-    if (_zoom <= 1.05) return;
-    _mouseDown = true;
-    _dragStartX = e.clientX;
-    _dragStartY = e.clientY;
-    _dragStartPanX = _panX;
-    _dragStartPanY = _panY;
-    e.preventDefault();
-  }
-
-  function _onMouseMove(e) {
-    if (!_mouseDown) return;
-    _panX = _dragStartPanX + (e.clientX - _dragStartX);
-    _panY = _dragStartPanY + (e.clientY - _dragStartY);
-    _clampPan();
-    _applyTransform();
-  }
-
-  function _onMouseUp() {
-    _mouseDown = false;
-  }
-
-  // ─── Wire up controls ────────────────────────────────────
+  // ─── Wire up modal controls ─────────────────────────────
 
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('pdf-close').addEventListener('click', close);
@@ -336,37 +364,25 @@ const PDFViewer = (() => {
     const resetBtn   = document.getElementById('pdf-zoom-reset');
     if (zoomInBtn)  zoomInBtn.addEventListener('click', zoomIn);
     if (zoomOutBtn) zoomOutBtn.addEventListener('click', zoomOut);
-    if (resetBtn)   resetBtn.addEventListener('click', _resetZoom);
+    if (resetBtn)   resetBtn.addEventListener('click', () => { if (_zpHandle) _zpHandle.resetZoom(); });
 
     // Close on backdrop click
     modal().addEventListener('click', (e) => {
       if (e.target === modal()) close();
     });
 
-    // Touch events on canvas container
-    const ctr = container();
-    ctr.addEventListener('touchstart', _onTouchStart, { passive: false });
-    ctr.addEventListener('touchmove', _onTouchMove, { passive: false });
-    ctr.addEventListener('touchend', _onTouchEnd, { passive: true });
-
-    // Mouse events for desktop zoom/pan
-    ctr.addEventListener('wheel', _onWheel, { passive: false });
-    ctr.addEventListener('mousedown', _onMouseDown);
-    window.addEventListener('mousemove', _onMouseMove);
-    window.addEventListener('mouseup', _onMouseUp);
-
     // Keyboard shortcuts when modal is open
     document.addEventListener('keydown', (e) => {
       if (modal().classList.contains('hidden')) return;
       if (e.key === 'Escape') { close(); e.preventDefault(); }
-      if (e.key === 'ArrowLeft')  { prevPage(); e.preventDefault(); }
-      if (e.key === 'ArrowRight') { nextPage(); e.preventDefault(); }
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp')  { prevPage(); e.preventDefault(); }
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { nextPage(); e.preventDefault(); }
       if (e.key === '+' || e.key === '=') { zoomIn(); e.preventDefault(); }
       if (e.key === '-') { zoomOut(); e.preventDefault(); }
-      if (e.key === '0') { _resetZoom(); e.preventDefault(); }
+      if (e.key === '0') { if (_zpHandle) _zpHandle.resetZoom(); e.preventDefault(); }
     });
   });
 
-  return { open, close, prevPage, nextPage, zoomIn, zoomOut };
+  return { open, close, prevPage, nextPage, zoomIn, zoomOut, renderToCanvas, attachZoomPan };
 
 })();
