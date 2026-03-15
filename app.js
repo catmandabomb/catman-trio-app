@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.74';
+  const APP_VERSION = 'v17.75';
 
   let _songs      = [];
   let _setlists   = [];
@@ -53,6 +53,42 @@ const App = (() => {
     const escaped = esc(text);
     const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="search-hi">$1</mark>');
+  }
+
+  // ─── Duplicate detection helpers ──────────────────────────
+
+  function _levenshtein(a, b) {
+    const la = a.length, lb = b.length;
+    if (la === 0) return lb;
+    if (lb === 0) return la;
+    const dp = Array.from({ length: la + 1 }, (_, i) => i);
+    for (let j = 1; j <= lb; j++) {
+      let prev = dp[0];
+      dp[0] = j;
+      for (let i = 1; i <= la; i++) {
+        const tmp = dp[i];
+        dp[i] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[i], dp[i - 1]);
+        prev = tmp;
+      }
+    }
+    return dp[la];
+  }
+
+  function _findSimilarSongs(title, excludeId) {
+    if (!title) return [];
+    const norm = title.trim().toLowerCase();
+    return _songs.filter(s => {
+      if (s.id === excludeId) return false;
+      const other = (s.title || '').trim().toLowerCase();
+      if (!other) return false;
+      // Exact case-insensitive match
+      if (norm === other) return true;
+      // Levenshtein distance ≤ 2 (only for titles of similar length to avoid false positives on short titles)
+      if (norm.length >= 4 && other.length >= 4) {
+        return _levenshtein(norm, other) <= 2;
+      }
+      return false;
+    });
   }
 
   // ─── Toast ─────────────────────────────────────────────────
@@ -684,6 +720,11 @@ const App = (() => {
       container.querySelector('.detail-edit-bar')?.remove();
     }
 
+    // Quick-add to setlist
+    container.querySelector('.btn-add-to-setlist')?.addEventListener('click', () => {
+      _showSetlistPicker(song);
+    });
+
     // Chart buttons
     container.querySelectorAll('[data-open-chart]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -739,6 +780,67 @@ const App = (() => {
     });
   }
 
+  function _showSetlistPicker(song) {
+    const available = _setlists.filter(s => !s.archived);
+    if (!available.length) {
+      showToast('No setlists yet');
+      return;
+    }
+
+    document.getElementById('setlist-picker-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'setlist-picker-overlay';
+    overlay.className = 'modal-overlay';
+
+    const rows = available.map((s, i) => {
+      const count = (s.songs || []).length;
+      return `<div class="setlist-pick-row" data-sl-idx="${i}">
+        <span class="setlist-pick-name">${esc(s.name)}</span>
+        <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
+      </div>`;
+    }).join('');
+
+    overlay.innerHTML = `<div class="setlist-picker">
+      <h3>Add to Setlist</h3>
+      ${rows}
+      <button class="setlist-picker-cancel">Cancel</button>
+    </div>`;
+
+    document.body.appendChild(overlay);
+
+    // Close on backdrop click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    // Cancel button
+    overlay.querySelector('.setlist-picker-cancel').addEventListener('click', () => overlay.remove());
+
+    // Setlist row clicks
+    overlay.querySelectorAll('.setlist-pick-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const idx = parseInt(row.dataset.slIdx, 10);
+        const setlist = available[idx];
+        if (!setlist) return;
+
+        const already = (setlist.songs || []).some(entry => entry.id === song.id);
+        if (already) {
+          showToast('Already in ' + setlist.name);
+          overlay.remove();
+          return;
+        }
+
+        if (!setlist.songs) setlist.songs = [];
+        setlist.songs.push({ id: song.id, comment: '' });
+        _saveSetlistsLocal(_setlists);
+        saveSetlists('Added to setlist');
+        showToast('Added to ' + setlist.name);
+        overlay.remove();
+      });
+    });
+  }
+
   function _buildDetailHTML(song) {
     const a      = song.assets || {};
     const charts = a.charts || [];
@@ -756,6 +858,11 @@ const App = (() => {
           ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
         </div>
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+      <div class="detail-quick-add">
+        <button class="btn-ghost btn-add-to-setlist">
+          <i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist
+        </button>
       </div>`;
 
     if (song.notes) {
@@ -1106,17 +1213,33 @@ const App = (() => {
 
       if (!song.title) { showToast('Title is required.'); document.getElementById('ef-title').focus(); return; }
 
-      _saving = true;
-      if (_editIsNew) {
-        _songs.push(song);
-      } else {
-        const idx = _songs.findIndex(s => s.id === song.id);
-        if (idx > -1) _songs[idx] = song;
+      async function _doSaveSong() {
+        _saving = true;
+        if (_editIsNew) {
+          _songs.push(song);
+        } else {
+          const idx = _songs.findIndex(s => s.id === song.id);
+          if (idx > -1) _songs[idx] = song;
+        }
+        await saveSongs();
+        _saving = false;
+        _activeSong = null;
+        renderList();
       }
-      await saveSongs();
-      _saving = false;
-      _activeSong = null;
-      renderList();
+
+      // Duplicate check
+      const similar = _findSimilarSongs(song.title, _editIsNew ? null : song.id);
+      if (similar.length > 0) {
+        const names = similar.map(s => s.title).join(', ');
+        Admin.showConfirm(
+          'Similar Song Exists',
+          `A similar song already exists: "${names}". Save anyway?`,
+          () => _doSaveSong(),
+          'Save'
+        );
+        return;
+      }
+      _doSaveSong();
     });
 
     // Cancel

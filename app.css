@@ -173,12 +173,12 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
 }
 .title-catman {
-  font-size: 15px;
+  font-size: 20px;
   display: block;
   white-space: nowrap;
 }
 .title-trio {
-  font-size: 14px;
+  font-size: 19px;
   display: block;
   text-align: center;
 }
@@ -2594,10 +2594,10 @@ textarea.form-input {
     margin-left: 30px;
   }
   .title-catman {
-    font-size: 18px;
+    font-size: 23px;
   }
   .title-trio {
-    font-size: 17px;
+    font-size: 22px;
   }
   .list-subheader {
     padding-left: 30px;
@@ -3007,4 +3007,76 @@ body.live-mode-active { background: #000; }
   .lm-comment { font-size: 16px; }
   .lm-notes { font-size: 14px; }
   .lm-nav-btn { width: 50px; height: 50px; }
+}
+
+/* ═══════════════════════════════════════════
+   QUICK-ADD TO SETLIST
+═══════════════════════════════════════════ */
+.detail-quick-add {
+  margin-top: 8px;
+}
+.btn-add-to-setlist {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.btn-add-to-setlist:hover {
+  color: var(--accent);
+}
+#setlist-picker-overlay {
+  z-index: 1000;
+}
+.setlist-picker {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  max-width: 340px;
+  width: 90vw;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.setlist-picker h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--text-bright);
+}
+.setlist-pick-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.setlist-pick-row:hover {
+  background: var(--bg-3);
+}
+.setlist-pick-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 14px;
+}
+.setlist-pick-count {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.setlist-picker-cancel {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.12s;
+}
+.setlist-picker-cancel:hover {
+  color: var(--text-bright);
+  background: var(--bg-4);
 }
