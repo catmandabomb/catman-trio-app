@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.57';
+  const APP_VERSION = 'v17.58';
 
   let _songs      = [];
   let _setlists   = [];
@@ -206,6 +206,89 @@ const App = (() => {
   let _lastDriveSnapshot = null; // cached Drive data from last sync
   const MANUAL_SYNC_COOLDOWN_MS = 10 * 1000; // 10 seconds per 2 clicks
   let _manualSyncHistory = []; // timestamps of recent manual syncs
+
+  /**
+   * Auto-configure GitHub from encrypted PAT stored on Drive.
+   * Checks for _github_sync.enc on Drive. If found, prompts for admin password
+   * to decrypt the PAT. This allows "configure once on desktop, auto-connect on each device."
+   */
+  let _autoConfigAttempted = false;
+  async function _tryAutoConfigureGitHub() {
+    if (_autoConfigAttempted) return;
+    _autoConfigAttempted = true;
+    try {
+      const file = await Drive.findFilePublic('_github_sync.enc');
+      if (!file) return; // No published PAT — manual setup required
+
+      // PAT file exists — prompt for admin password to decrypt
+      // Create a one-time modal specifically for sync setup
+      const overlay = document.getElementById('modal-password');
+      const input   = document.getElementById('password-input');
+      const error   = document.getElementById('password-error');
+      const title   = overlay.querySelector('h2');
+      const desc    = overlay.querySelector('p.muted');
+
+      // Customize the modal text for sync setup
+      const origTitle = title.textContent;
+      const origDesc  = desc.textContent;
+      title.textContent = 'Sync Setup';
+      desc.textContent  = 'GitHub sync is available. Enter admin password to connect this device.';
+      input.value = '';
+      error.classList.add('hidden');
+      overlay.classList.remove('hidden');
+      setTimeout(() => input.focus(), 50);
+
+      const handleConfirm = async () => {
+        const password = input.value;
+        if (!password) return;
+        try {
+          const pat = await GitHub.loadPublishedPat(password);
+          if (pat) {
+            overlay.classList.add('hidden');
+            cleanup();
+            GitHub.saveConfig({ pat, owner: '', repo: '' }); // owner/repo use defaults
+            showToast('GitHub connected! Syncing data…');
+            _syncAllFromDrive(true);
+          } else {
+            error.textContent = 'Wrong password or sync config unavailable.';
+            error.classList.remove('hidden');
+            input.value = '';
+            input.focus();
+          }
+        } catch (e) {
+          error.textContent = 'Decryption failed. Check password.';
+          error.classList.remove('hidden');
+          input.value = '';
+          input.focus();
+        }
+      };
+
+      const handleCancel = () => {
+        overlay.classList.add('hidden');
+        cleanup();
+        showToast('You can set up GitHub sync in Admin Dashboard anytime.');
+      };
+
+      const handleKeydown = (e) => { if (e.key === 'Enter') handleConfirm(); };
+
+      const confirmBtn = document.getElementById('btn-password-confirm');
+      const cancelBtn  = document.getElementById('btn-password-cancel');
+      confirmBtn.addEventListener('click', handleConfirm);
+      cancelBtn.addEventListener('click', handleCancel);
+      input.addEventListener('keydown', handleKeydown);
+
+      function cleanup() {
+        confirmBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+        input.removeEventListener('keydown', handleKeydown);
+        // Restore original modal text
+        title.textContent = origTitle;
+        desc.textContent  = origDesc;
+      }
+    } catch (e) {
+      console.warn('GitHub auto-detect check failed:', e);
+    }
+  }
 
   async function _syncAllFromDrive(force) {
     // GitHub is the primary metadata backend when configured — no migration flag needed.
@@ -1917,6 +2000,8 @@ const App = (() => {
           await GitHub.migrateData({ songs: _songs, setlists: _setlists, practice: _practice });
           localStorage.setItem('bb_migrated_to_github', '1');
           localStorage.removeItem('_migration_backup'); // Cleanup
+          // Publish encrypted PAT to Drive so other devices can auto-configure
+          GitHub.publishPat().catch(e => console.warn('Could not publish PAT to Drive', e));
           showToast('Migration complete! Data is now syncing via GitHub.');
           renderDashboard();
         } catch (e) {
@@ -3312,6 +3397,12 @@ const App = (() => {
     _migratePracticeData();
     renderList();
     Admin.restoreEditMode();
+
+    // Auto-detect GitHub PAT from Drive if not configured locally
+    if (!GitHub.isConfigured() && Drive.isConfigured()) {
+      _tryAutoConfigureGitHub();
+    }
+
     _syncAllFromDrive();
   }
 

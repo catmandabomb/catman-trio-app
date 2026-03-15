@@ -347,6 +347,39 @@ const Drive = (() => {
     }
   }
 
+  /**
+   * Save a raw string to a named file on Drive (for non-JSON payloads like encrypted configs).
+   */
+  async function saveRawFile(filename, rawContent) {
+    const { folderId } = getConfig();
+    const existing = await findFile(filename);
+    const blob = new Blob([rawContent], { type: 'application/octet-stream' });
+
+    if (existing) {
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
+      form.append('file', blob);
+      await driveRequest(
+        `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
+        { method: 'PATCH', body: form }
+      );
+      await _ensurePublic(existing.id);
+    } else {
+      const form = new FormData();
+      const meta = { name: filename, parents: [folderId], mimeType: 'application/octet-stream' };
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', blob);
+      const resp = await driveRequest(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        { method: 'POST', body: form }
+      );
+      const created = await resp.json();
+      if (created && created.id) {
+        await _ensurePublic(created.id);
+      }
+    }
+  }
+
   // ─── File upload ───────────────────────────────────────────
 
   /**
@@ -429,6 +462,8 @@ const Drive = (() => {
     loadPractice,
     savePractice,
     loadAllData,
+    saveRawFile,
+    findFilePublic,
     uploadFile,
     deleteFile,
     fetchFileAsBlob,

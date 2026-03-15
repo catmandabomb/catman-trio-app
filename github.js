@@ -60,11 +60,16 @@ const GitHub = (() => {
 
   // ─── Config ───────────────────────────────────────────────
 
+  // Defaults — like Drive defaults, so every device knows owner/repo without setup.
+  // Only the PAT needs to be entered (or auto-propagated from Drive).
+  const DEFAULT_OWNER = 'catmandabomb';
+  const DEFAULT_REPO  = 'catmantrio';
+
   function getConfig() {
     return {
       pat:   '***', // Never expose PAT publicly
-      owner: localStorage.getItem('bb_github_owner') || '',
-      repo:  localStorage.getItem('bb_github_repo')  || '',
+      owner: localStorage.getItem('bb_github_owner') || DEFAULT_OWNER,
+      repo:  localStorage.getItem('bb_github_repo')  || DEFAULT_REPO,
     };
   }
 
@@ -74,8 +79,8 @@ const GitHub = (() => {
 
   function saveConfig({ pat, owner, repo }) {
     localStorage.setItem('bb_github_pat',   pat.trim());
-    localStorage.setItem('bb_github_owner', owner.trim());
-    localStorage.setItem('bb_github_repo',  repo.trim());
+    localStorage.setItem('bb_github_owner', (owner || DEFAULT_OWNER).trim());
+    localStorage.setItem('bb_github_repo',  (repo || DEFAULT_REPO).trim());
     _cryptoKey = null; // Force re-derive on next use
     _shaCache = { songs: null, setlists: null, practice: null };
   }
@@ -89,7 +94,85 @@ const GitHub = (() => {
   }
 
   function isConfigured() {
-    return !!(_getPat() && (localStorage.getItem('bb_github_owner') || '') && (localStorage.getItem('bb_github_repo') || ''));
+    return !!_getPat(); // Owner/repo have defaults — only PAT needed
+  }
+
+  // ─── PAT Auto-Propagation via Drive ─────────────────────
+  //
+  // When GitHub is first configured on any device, the PAT is encrypted
+  // with the admin password hash and saved to Drive as _github_sync.enc.
+  // Other devices load this file and prompt for the admin password to decrypt.
+  // This means: configure once on desktop, enter admin password on each device.
+
+  const SYNC_CONFIG_FILENAME = '_github_sync.enc';
+
+  /**
+   * Encrypt the PAT with admin password hash and save to Drive.
+   * Called automatically when GitHub is configured + Drive write is available.
+   */
+  async function publishPat() {
+    const pat = _getPat();
+    if (!pat || typeof Drive === 'undefined' || !Drive.isWriteConfigured()) return;
+    try {
+      const pwHash = localStorage.getItem('bb_pw_hash');
+      if (!pwHash) return; // No admin password set, can't encrypt
+      const key = await crypto.subtle.importKey(
+        'raw',
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwHash)),
+        { name: 'AES-GCM' }, false, ['encrypt']
+      );
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(pat);
+      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+      const payload = JSON.stringify({
+        iv:   _toBase64(iv),
+        data: _toBase64(new Uint8Array(ciphertext)),
+      });
+      // Save to Drive using internal Drive methods
+      await Drive.saveRawFile(SYNC_CONFIG_FILENAME, payload);
+      console.info('GitHub: PAT published to Drive for other devices');
+    } catch (e) {
+      console.warn('GitHub: could not publish PAT to Drive', e);
+    }
+  }
+
+  /**
+   * Try to load encrypted PAT from Drive and decrypt with admin password.
+   * Returns the PAT string on success, null on failure.
+   */
+  async function loadPublishedPat(adminPassword) {
+    if (typeof Drive === 'undefined' || !Drive.isConfigured()) return null;
+    try {
+      const file = await Drive.findFilePublic(SYNC_CONFIG_FILENAME);
+      if (!file) return null;
+      const { apiKey } = Drive.getConfig();
+      const resp = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
+      );
+      if (!resp.ok) return null;
+      const encryptedJson = await resp.text();
+      const { iv, data } = JSON.parse(encryptedJson);
+      // Derive key from admin password hash (same as publishPat uses)
+      const pwHash = await _sha256ForPw(adminPassword);
+      const key = await crypto.subtle.importKey(
+        'raw',
+        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwHash)),
+        { name: 'AES-GCM' }, false, ['decrypt']
+      );
+      const ivBytes   = _fromBase64(iv);
+      const dataBytes = _fromBase64(data);
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, dataBytes);
+      return new TextDecoder().decode(plaintext);
+    } catch (e) {
+      console.warn('GitHub: could not load published PAT', e);
+      return null;
+    }
+  }
+
+  // SHA-256 helper for admin password (same algorithm as Admin._sha256)
+  async function _sha256ForPw(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   // ─── Encryption ───────────────────────────────────────────
@@ -175,8 +258,8 @@ const GitHub = (() => {
     return DEBOUNCE_BASE_MS;
   }
 
-  function _owner() { return localStorage.getItem('bb_github_owner') || ''; }
-  function _repo()  { return localStorage.getItem('bb_github_repo')  || ''; }
+  function _owner() { return localStorage.getItem('bb_github_owner') || DEFAULT_OWNER; }
+  function _repo()  { return localStorage.getItem('bb_github_repo')  || DEFAULT_REPO; }
 
   async function _ghRequest(path, options = {}) {
     const pat = _getPat();
@@ -701,6 +784,10 @@ const GitHub = (() => {
     // Migration
     createDataBranch,
     migrateData,
+
+    // PAT auto-propagation
+    publishPat,
+    loadPublishedPat,
 
     // Status
     getRateLimitStatus,

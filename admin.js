@@ -248,8 +248,10 @@ const Admin = (() => {
     const origRepo  = localStorage.getItem('bb_github_repo')  || '';
 
     patInput.value   = origPat;
-    ownerInput.value = origOwner;
-    repoInput.value  = origRepo;
+    // Pre-fill owner/repo with defaults from GitHub module (user only needs PAT)
+    const ghConfig = GitHub.getConfig();
+    ownerInput.value = origOwner || ghConfig.owner;
+    repoInput.value  = origRepo || ghConfig.repo;
     resultEl.className = 'github-test-result hidden';
     resultEl.textContent = '';
     overlay.classList.remove('hidden');
@@ -262,9 +264,9 @@ const Admin = (() => {
       const pat   = patInput.value.trim();
       const owner = ownerInput.value.trim();
       const repo  = repoInput.value.trim();
-      if (!pat || !owner || !repo) {
+      if (!pat) {
         resultEl.className = 'github-test-result error';
-        resultEl.textContent = 'All three fields are required.';
+        resultEl.textContent = 'Personal Access Token is required.';
         return;
       }
       _testing = true;
@@ -299,12 +301,14 @@ const Admin = (() => {
       const pat   = patInput.value.trim();
       const owner = ownerInput.value.trim();
       const repo  = repoInput.value.trim();
-      if (!pat || !owner || !repo) {
+      if (!pat) {
         resultEl.className = 'github-test-result error';
-        resultEl.textContent = 'All three fields are required.';
+        resultEl.textContent = 'Personal Access Token is required.';
         return;
       }
       GitHub.saveConfig({ pat, owner, repo });
+      // Publish encrypted PAT to Drive for other devices to auto-detect
+      GitHub.publishPat().catch(e => console.warn('Could not publish PAT', e));
       overlay.classList.add('hidden');
       cleanup();
       if (onSave) onSave();
