@@ -1940,6 +1940,7 @@ textarea.form-input {
   font-variant-numeric: tabular-nums;
   min-width: 36px;
   text-align: center;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -3681,6 +3682,7 @@ body.live-mode-active { background: #000; }
   inset: 0;
   z-index: 9999;
   background: rgba(0,0,0,0.85);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
