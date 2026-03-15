@@ -1877,12 +1877,17 @@ textarea.form-input {
 }
 .drive-field input::placeholder { color: var(--text-3); }
 
-/* PDF Modal */
+/* PDF Modal — full-screen on mobile, centered card on desktop */
+#modal-pdf.modal-overlay {
+  padding: 0; /* override default modal-overlay padding for full-bleed on mobile */
+}
 .modal-pdf {
   max-width: 100%;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   max-height: 100vh;
+  max-height: 100dvh;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -1895,6 +1900,7 @@ textarea.form-input {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -2749,12 +2755,18 @@ textarea.form-input {
   .list-subheader {
     padding-left: 30px;
   }
+  #modal-pdf.modal-overlay {
+    padding: 20px; /* restore overlay padding on desktop */
+  }
   .modal-pdf {
     height: 92vh;
     max-height: 92vh;
     width: 90vw;
     max-width: 1200px;
     border-radius: 12px;
+  }
+  .pdf-toolbar {
+    padding-top: 8px; /* no safe-area needed on desktop */
   }
 }
 
