@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.52';
+  const APP_VERSION = 'v17.53';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1775,15 +1775,14 @@ const App = (() => {
       </div>
     `;
 
-    // GitHub sync status (when configured)
+    // GitHub sync status — always visible
+    html += `<div class="dash-section"><div class="dash-section-title">GitHub Sync</div>`;
     if (GitHub.isConfigured()) {
       const rl = GitHub.getRateLimitStatus();
       const wq = GitHub.getWriteQueueStatus();
       const migrated = localStorage.getItem('bb_migrated_to_github') === '1';
       const fillClass = rl.warnLevel === 'critical' ? 'critical' : rl.warnLevel === 'warning' ? 'warning' : '';
       html += `
-        <div class="dash-section">
-          <div class="dash-section-title">GitHub Sync Status</div>
           <div class="dash-alert info">
             <div class="dash-alert-title">${_codeTag(4601)} GitHub Connection</div>
             <div class="dash-github-status">
@@ -1801,9 +1800,18 @@ const App = (() => {
               <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:6px 14px;">GitHub Setup</button>
               ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:6px 14px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
             </div>
-          </div>
-        </div>`;
+          </div>`;
+    } else {
+      html += `
+          <div class="dash-alert warn-orange">
+            <div class="dash-alert-title">${_codeTag(2501)} GitHub not configured</div>
+            <div class="dash-alert-detail">Connect GitHub for encrypted metadata sync across all devices (including mobile).</div>
+            <div style="margin-top:8px;">
+              <button id="dash-github-setup" class="btn-primary" style="font-size:11px;padding:6px 14px;">Configure GitHub</button>
+            </div>
+          </div>`;
     }
+    html += `</div>`;
 
     // Drive sync diagnostic — runs async after initial render
     html += `
