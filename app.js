@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.55';
+  const APP_VERSION = 'v17.56';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1619,8 +1619,9 @@ const App = (() => {
       });
     }
 
-    // 2002: Drive not connected
-    if (!Drive.isConfigured()) {
+    // 2002: Drive not connected (suppress post-migration — Drive is only for PDFs/audio)
+    const _migrated = localStorage.getItem('bb_migrated_to_github') === '1';
+    if (!Drive.isConfigured() && !_migrated) {
       warnOrange.push({
         code: 2401, // Orange-Drive-NotConnected
         title: 'Drive not connected',
@@ -1628,8 +1629,8 @@ const App = (() => {
       });
     }
 
-    // 2003: Drive is read-only
-    if (Drive.isConfigured() && !Drive.isWriteConfigured()) {
+    // 2003: Drive is read-only (suppress post-migration — metadata syncs via GitHub now)
+    if (Drive.isConfigured() && !Drive.isWriteConfigured() && !_migrated) {
       warnOrange.push({
         code: 2402, // Orange-Drive-ReadOnly
         title: 'Drive is read-only — changes won\'t sync',
@@ -1889,15 +1890,37 @@ const App = (() => {
       });
     }
 
-    // Async Drive check — uses cached sync data if available, else fetches fresh
+    // Async Drive check
     (async () => {
       const el = document.getElementById('dash-drive-sync');
       if (!el) return;
+      const _isMigrated = localStorage.getItem('bb_migrated_to_github') === '1';
+
       if (!Drive.isConfigured()) {
-        el.style.borderLeftColor = '#f59e0b';
-        el.innerHTML = `<div class="dash-alert-title">${_codeTag(2401)} Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>`;
+        el.style.borderLeftColor = _isMigrated ? 'var(--accent-dim)' : '#f59e0b';
+        el.innerHTML = _isMigrated
+          ? `<div class="dash-alert-title">${_codeTag(4401)} Drive not connected</div>` +
+            `<div class="dash-alert-detail">Drive is optional post-migration. Connect it only if you need to manage PDFs and audio files.</div>`
+          : `<div class="dash-alert-title">${_codeTag(2401)} Drive not connected</div>` +
+            `<div class="dash-alert-detail">No API key or folder ID configured.</div>`;
         return;
       }
+
+      // Post-migration: simplified Drive status (PDFs/audio only, no sync comparison)
+      if (_isMigrated) {
+        const cfg = Drive.getConfig();
+        el.style.borderLeftColor = 'var(--accent-dim)';
+        el.innerHTML =
+          `<div class="dash-alert-title">${_codeTag(4402)} Drive Connected</div>` +
+          `<div class="dash-alert-detail" style="font-size:11px;color:var(--text-3);">` +
+          `Used for PDFs and audio files only. Metadata syncs via GitHub.<br><br>` +
+          `API Key: ${cfg.apiKey ? '✓ set' : '✗ missing'} · ` +
+          `Client ID: ${cfg.clientId ? '✓ set' : '✗ missing'} · ` +
+          `Folder ID: ${cfg.folderId ? '✓ set' : '✗ missing'}</div>`;
+        return;
+      }
+
+      // Pre-migration: full Drive sync comparison with action buttons
       try {
         if (!_lastDriveSnapshot) {
           el.innerHTML = `<div class="dash-alert-title">${_codeTag(4401)} No sync data yet</div>` +
@@ -1970,7 +1993,6 @@ const App = (() => {
             }
           });
         }
-        // "Fix Sharing" — re-saves all files to trigger _ensurePublic
         const fixEl = document.getElementById('dash-fix-sharing');
         if (fixEl) {
           fixEl.addEventListener('click', async () => {
