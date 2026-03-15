@@ -5154,7 +5154,7 @@ const App = (() => {
 
     // Register SW early so the install prompt can work
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js', { scope: './' })
+      navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' })
         .then(reg => {
           console.info('SW registered:', reg.scope);
           // Notify user when a new version is available
@@ -5163,9 +5163,18 @@ const App = (() => {
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                showToast('New version available — pull down to refresh', 8000);
+                // Tell the waiting SW to activate immediately
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                showToast('Updating to new version…', 3000);
               }
             });
+          });
+          // Reload page once the new SW takes control
+          let _refreshing = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (_refreshing) return;
+            _refreshing = true;
+            location.reload();
           });
         })
         .catch(e => console.warn('SW registration failed:', e));
