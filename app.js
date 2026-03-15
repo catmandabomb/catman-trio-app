@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.49';
+  const APP_VERSION = 'v17.50';
 
   let _songs      = [];
   let _setlists   = [];
@@ -213,7 +213,8 @@ const App = (() => {
       return;
     }
     if (_syncing) return; // already syncing, ignore
-    if (!force && !_shouldSync()) {
+    // Always sync on first load (no snapshot yet), respect cooldown otherwise
+    if (!force && _lastDriveSnapshot && !_shouldSync()) {
       _syncDone();
       return;
     }
@@ -1739,7 +1740,7 @@ const App = (() => {
     html += `
       <div class="dash-section">
         <div class="dash-section-title">Data Breakdown</div>
-        <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
+        <div class="dash-alert info">
           <div class="dash-alert-title">${_codeTag(4101)} File Attachment Summary</div>
           <div class="dash-alert-detail">
             ${_songs.filter(s => (s.assets?.charts || []).length).length} songs have charts ·
@@ -1747,7 +1748,7 @@ const App = (() => {
             ${_songs.filter(s => (s.assets?.links || []).length).length} songs have links
           </div>
         </div>
-        <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
+        <div class="dash-alert info">
           <div class="dash-alert-title">${_codeTag(4501)} Storage</div>
           <div class="dash-alert-detail">
             Songs JSON: ~${(JSON.stringify(_songs).length / 1024).toFixed(1)} KB ·
@@ -1762,7 +1763,7 @@ const App = (() => {
     html += `
       <div class="dash-section">
         <div class="dash-section-title">Drive Sync Status</div>
-        <div id="dash-drive-sync" class="dash-alert info" style="border-left-color:var(--accent-dim)">
+        <div id="dash-drive-sync" class="dash-alert info">
           <div class="dash-alert-detail">Checking Drive…</div>
         </div>
       </div>
@@ -1814,6 +1815,9 @@ const App = (() => {
         const pushBtn = !allMatch
           ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
           : '';
+        const fixShareBtn = Drive.isWriteConfigured()
+          ? `<button id="dash-fix-sharing" class="btn-secondary" style="margin-top:6px;font-size:11px;padding:6px 14px;">Fix Sharing (make files public)</button>`
+          : '';
         el.innerHTML =
           `<div class="dash-alert-title">${allMatch ? `${_codeTag(4402)} In Sync` : `${_codeTag(2403)} Out of Sync`}</div>` +
           `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
@@ -1827,7 +1831,7 @@ const App = (() => {
           `API Key: ${Drive.getConfig().apiKey ? '✓ set' : '✗ missing'} · ` +
           `Client ID: ${Drive.getConfig().clientId ? '✓ set' : '✗ missing'} · ` +
           `Folder ID: ${Drive.getConfig().folderId ? '✓ set' : '✗ missing'}</div>` +
-          pushBtn;
+          pushBtn + fixShareBtn;
         const pushEl = document.getElementById('dash-push-drive');
         if (pushEl) {
           pushEl.addEventListener('click', async () => {
@@ -1839,13 +1843,34 @@ const App = (() => {
                 Drive.saveSetlists(_setlists),
                 Drive.savePractice(_practice),
               ]);
-              showToast('All data pushed to Drive.');
-              renderDashboard(); // refresh to re-check sync
+              showToast('All data pushed to Drive. File sharing permissions updated.');
+              renderDashboard();
             } catch (e) {
               console.error('Push to Drive failed', e);
               showToast('Push failed: ' + (e.message || 'unknown error'));
               pushEl.disabled = false;
               pushEl.textContent = 'Push All to Drive';
+            }
+          });
+        }
+        // "Fix Sharing" — re-saves all files to trigger _ensurePublic
+        const fixEl = document.getElementById('dash-fix-sharing');
+        if (fixEl) {
+          fixEl.addEventListener('click', async () => {
+            fixEl.disabled = true;
+            fixEl.textContent = 'Fixing…';
+            try {
+              await Promise.all([
+                Drive.saveSongs(_songs),
+                Drive.saveSetlists(_setlists),
+                Drive.savePractice(_practice),
+              ]);
+              showToast('All Drive files re-shared as public. Other devices should now sync.');
+              renderDashboard();
+            } catch (e) {
+              showToast('Fix sharing failed: ' + (e.message || 'unknown error'));
+              fixEl.disabled = false;
+              fixEl.textContent = 'Fix Sharing';
             }
           });
         }
