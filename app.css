@@ -4031,8 +4031,9 @@ body.live-mode-active { background: #000; }
   padding: 4px; display: flex; border-radius: 50%;
 }
 .search-clear-btn:hover { color: var(--text); background: var(--bg-4); }
-.clear-chip {
-  background: var(--red-bg) !important; color: var(--red) !important;
-  border-color: rgba(255,107,107,0.2) !important;
+.search-clear-filters-btn {
+  color: var(--red);
+  opacity: 0.7;
+  transition: opacity 0.15s, color 0.15s;
 }
-.clear-chip:hover { background: var(--red) !important; color: var(--bg) !important; }
+.search-clear-filters-btn:hover { opacity: 1; color: var(--red); }

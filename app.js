@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.89';
+  const APP_VERSION = 'v17.90';
 
   let _songs      = [];
   let _setlists   = [];
@@ -919,20 +919,16 @@ const App = (() => {
     const pinned = _activeTags.filter(t => allTags.includes(t));
     const unpinned = allTags.filter(t => !_activeTags.includes(t));
     const orderedTags = [...pinned, ...unpinned];
-    const hasActiveFilters = _activeTags.length > 0 || _activeKeys.length > 0;
-    const clearChipHtml = hasActiveFilters ? '<button class="tag-filter-chip clear-chip" id="tag-clear-all-chip">Clear</button>' : '';
-    tagBar.innerHTML = clearChipHtml + orderedTags.map(t =>
+    const hasActiveFilters = _searchText || _activeTags.length > 0 || _activeKeys.length > 0;
+    tagBar.innerHTML = orderedTags.map(t =>
       `<button class="tag-filter-chip ${_activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`
     ).join('');
-    document.getElementById('tag-clear-all-chip')?.addEventListener('click', () => {
-      _activeTags = []; _activeKeys = [];
-      _searchText = '';
-      const si = document.getElementById('search-input');
-      if (si) si.value = '';
-      const sc = document.getElementById('search-clear');
-      if (sc) sc.classList.add('hidden');
-      renderList();
-    });
+
+    // Show/hide clear-all-filters button in search bar
+    const clearFiltersBtn = document.getElementById('btn-clear-filters');
+    if (clearFiltersBtn) {
+      clearFiltersBtn.classList.toggle('hidden', !hasActiveFilters);
+    }
     tagBar.querySelectorAll('.tag-filter-chip:not(.clear-chip)').forEach(btn => {
       btn.addEventListener('click', () => {
         const tag = btn.dataset.tag;
@@ -5311,6 +5307,16 @@ const App = (() => {
         if (Array.isArray(parsed)) _refreshTimes = parsed.filter(t => typeof t === 'number' && isFinite(t));
       }
     } catch (_) { /* corrupted or unavailable — start fresh */ }
+    document.getElementById('btn-clear-filters').addEventListener('click', () => {
+      _activeTags = []; _activeKeys = [];
+      _searchText = '';
+      const si = document.getElementById('search-input');
+      if (si) si.value = '';
+      const sc = document.getElementById('search-clear');
+      if (sc) sc.classList.add('hidden');
+      renderList();
+    });
+
     document.getElementById('btn-refresh').addEventListener('click', async () => {
       const now = Date.now();
       _refreshTimes = _refreshTimes.filter(t => now - t < REFRESH_WINDOW);
