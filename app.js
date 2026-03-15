@@ -822,7 +822,10 @@ const App = (() => {
   function _setTopbar(title, showBack, isHtml, isHome) {
     const el = document.getElementById('topbar-title');
     if (el) {
-      if (isHtml) el.innerHTML = title; else el.textContent = title;
+      // Skip redundant title update to prevent flash on refresh
+      if (!(isHome && el.classList.contains('title-home'))) {
+        if (isHtml) el.innerHTML = title; else el.textContent = title;
+      }
       el.classList.toggle('title-home', !!isHome);
     }
     document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
