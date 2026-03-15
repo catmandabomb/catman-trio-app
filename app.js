@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.63';
+  const APP_VERSION = 'v17.64';
 
   let _songs      = [];
   let _setlists   = [];
@@ -3759,43 +3759,34 @@ const App = (() => {
 
     const SEC6 = 'Remote Data Integrity';
 
+    // Use peekAllData (read-only) so diagnostics don't corrupt the SHA cache
+    // and cause 409 conflicts with in-flight writes
     let remoteSongs = null, remoteSetlists = null, remotePractice = null;
 
-    await _test(SEC6, 'Load songs.enc from GitHub', async () => {
+    await _test(SEC6, 'Load + decrypt all data from GitHub', async () => {
       if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
-      const t = _timer('Load + decrypt songs');
+      const t = _timer('Peek all data');
       try {
-        remoteSongs = await GitHub.loadSongs();
-        if (remoteSongs === null) return { status: 'warn', detail: 'File not found (404) — data may not be migrated yet' };
-        if (!Array.isArray(remoteSongs)) return { status: 'fail', detail: `Expected array, got ${typeof remoteSongs}` };
-        return { status: 'pass', detail: t() + ` — ${remoteSongs.length} songs decrypted` };
-      } catch (e) {
-        return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
-      }
-    });
-
-    await _test(SEC6, 'Load setlists.enc from GitHub', async () => {
-      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
-      const t = _timer('Load + decrypt setlists');
-      try {
-        remoteSetlists = await GitHub.loadSetlists();
-        if (remoteSetlists === null) return { status: 'warn', detail: 'File not found (404)' };
-        if (!Array.isArray(remoteSetlists)) return { status: 'fail', detail: `Expected array, got ${typeof remoteSetlists}` };
-        return { status: 'pass', detail: t() + ` — ${remoteSetlists.length} setlists decrypted` };
-      } catch (e) {
-        return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
-      }
-    });
-
-    await _test(SEC6, 'Load practice.enc from GitHub', async () => {
-      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
-      const t = _timer('Load + decrypt practice');
-      try {
-        remotePractice = await GitHub.loadPractice();
-        if (remotePractice === null) return { status: 'warn', detail: 'File not found (404)' };
-        if (!Array.isArray(remotePractice)) return { status: 'fail', detail: `Expected array, got ${typeof remotePractice}` };
-        const totalLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
-        return { status: 'pass', detail: t() + ` — ${remotePractice.length} personas, ${totalLists} lists decrypted` };
+        const peek = await GitHub.peekAllData();
+        remoteSongs = peek.songs;
+        remoteSetlists = peek.setlists;
+        remotePractice = peek.practice;
+        const parts = [];
+        if (remoteSongs !== null) {
+          if (!Array.isArray(remoteSongs)) return { status: 'fail', detail: 'songs.enc decrypted but is not an array' };
+          parts.push(`${remoteSongs.length} songs`);
+        } else { parts.push('songs: not found'); }
+        if (remoteSetlists !== null) {
+          if (!Array.isArray(remoteSetlists)) return { status: 'fail', detail: 'setlists.enc decrypted but is not an array' };
+          parts.push(`${remoteSetlists.length} setlists`);
+        } else { parts.push('setlists: not found'); }
+        if (remotePractice !== null) {
+          if (!Array.isArray(remotePractice)) return { status: 'fail', detail: 'practice.enc decrypted but is not an array' };
+          const totalLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
+          parts.push(`${remotePractice.length} personas (${totalLists} lists)`);
+        } else { parts.push('practice: not found'); }
+        const anyNull = remoteSongs === null || remoteSetlists === null || remotePractice === null;
+        return { status: anyNull ? 'warn' : 'pass', detail: t() + ' — ' + parts.join(' · ') };
       } catch (e) {
         return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
       }

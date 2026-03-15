@@ -393,6 +393,25 @@ const GitHub = (() => {
     return { songs, setlists, practice };
   }
 
+  /**
+   * Read-only peek — loads + decrypts data WITHOUT updating the SHA cache.
+   * Safe to call from diagnostics, dashboards, etc. while writes are in-flight.
+   */
+  async function _peekType(type) {
+    const file = await _getFile(FILES[type]);
+    if (!file) return null;
+    return _decrypt(file.content);
+  }
+
+  async function peekAllData() {
+    const [songs, setlists, practice] = await Promise.all([
+      _peekType('songs').catch(() => null),
+      _peekType('setlists').catch(() => null),
+      _peekType('practice').catch(() => null),
+    ]);
+    return { songs, setlists, practice };
+  }
+
   // ─── Save data (queued + debounced) ───────────────────────
 
   function saveSongs(data)    { _queueWrite('songs', data); }
@@ -765,6 +784,7 @@ const GitHub = (() => {
     loadSetlists,
     loadPractice,
     loadAllData,
+    peekAllData,
 
     // Save (queued + debounced)
     saveSongs,
