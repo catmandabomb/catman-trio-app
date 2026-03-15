@@ -229,18 +229,12 @@ const PDFViewer = (() => {
       return;
     }
 
-    // Create the offscreen canvas — Phase 2: use OffscreenCanvas when available
-    let offCanvas;
-    let ctx;
-    if (_hasOffscreen) {
-      offCanvas = new OffscreenCanvas(scaled.width, scaled.height);
-      ctx = offCanvas.getContext('2d');
-    } else {
-      offCanvas = document.createElement('canvas');
-      offCanvas.width = scaled.width;
-      offCanvas.height = scaled.height;
-      ctx = offCanvas.getContext('2d');
-    }
+    // Create an off-screen canvas for caching (always use DOM canvas —
+    // OffscreenCanvas 2D + pdf.js produces blank output on iOS Safari)
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = scaled.width;
+    offCanvas.height = scaled.height;
+    const ctx = offCanvas.getContext('2d');
 
     // Render the page
     try {
@@ -371,14 +365,9 @@ const PDFViewer = (() => {
           _renderCache.delete(oldestKey);
         }
         // Pre-render to cache via worker as well (create offscreen copy)
-        let cacheCanvas;
-        if (_hasOffscreen) {
-          cacheCanvas = new OffscreenCanvas(canvas.width, canvas.height);
-        } else {
-          cacheCanvas = document.createElement('canvas');
-          cacheCanvas.width = canvas.width;
-          cacheCanvas.height = canvas.height;
-        }
+        const cacheCanvas = document.createElement('canvas');
+        cacheCanvas.width = canvas.width;
+        cacheCanvas.height = canvas.height;
         cacheCanvas.getContext('2d').drawImage(canvas, 0, 0);
         _renderCache.delete(cacheKey);
         _renderCache.set(cacheKey, { canvas: cacheCanvas, displayW, displayH });
@@ -440,16 +429,11 @@ const PDFViewer = (() => {
       const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
       const hiVP = hiPage.getViewport({ scale: hiScale });
 
-      let hiCanvas, hiCtx;
-      if (_hasOffscreen) {
-        hiCanvas = new OffscreenCanvas(hiVP.width, hiVP.height);
-        hiCtx = hiCanvas.getContext('2d');
-      } else {
-        hiCanvas = document.createElement('canvas');
-        hiCanvas.width = hiVP.width;
-        hiCanvas.height = hiVP.height;
-        hiCtx = hiCanvas.getContext('2d');
-      }
+      // Always use DOM canvas (OffscreenCanvas 2D + pdf.js = blank on iOS Safari)
+      const hiCanvas = document.createElement('canvas');
+      hiCanvas.width = hiVP.width;
+      hiCanvas.height = hiVP.height;
+      const hiCtx = hiCanvas.getContext('2d');
 
       try {
         await hiPage.render({ canvasContext: hiCtx, viewport: hiVP }).promise;
