@@ -224,10 +224,18 @@ const Drive = (() => {
     const setlistsFile = (files || []).find(f => f.name === SETLISTS_FILENAME);
     const practiceFile = (files || []).find(f => f.name === PRACTICE_FILENAME);
 
-    const _fetch = (file) => file
-      ? fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`)
-          .then(r => r.ok ? r.json() : Promise.reject(new Error(`Drive API ${r.status}`)))
-      : Promise.resolve([]);
+    // Fetch each file independently — one failure should not block others
+    const _fetch = async (file) => {
+      if (!file) return [];
+      try {
+        const r = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`);
+        if (!r.ok) { console.warn(`Drive fetch ${file.name}: HTTP ${r.status}`); return null; }
+        return await r.json();
+      } catch (e) {
+        console.warn(`Drive fetch ${file.name} failed:`, e.message || e);
+        return null; // null = fetch failed, [] = file doesn't exist
+      }
+    };
 
     const [songs, setlists, practice] = await Promise.all([
       _fetch(songsFile), _fetch(setlistsFile), _fetch(practiceFile),

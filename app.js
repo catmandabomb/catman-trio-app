@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.46';
+  const APP_VERSION = 'v17.47';
 
   let _songs      = [];
   let _setlists   = [];
@@ -242,19 +242,13 @@ const App = (() => {
         if (changed && _view === 'list') renderList();
       }
       if (setlists !== null) {
-        if (setlists.length > 0 || _setlists.length === 0) {
-          _setlists = setlists;
-          _saveSetlistsLocal(setlists);
-        }
+        _setlists = setlists;
+        _saveSetlistsLocal(setlists);
       }
       if (practice !== null) {
-        // Only overwrite local with Drive data if Drive actually has data,
-        // OR if local is also empty. Never wipe local data with an empty Drive response.
-        if (practice.length > 0 || _practice.length === 0) {
-          _practice = practice;
-          _migratePracticeData();
-          _savePracticeLocal(_practice);
-        }
+        _practice = practice;
+        _migratePracticeData();
+        _savePracticeLocal(_practice);
       }
       _markSynced();
     } catch (e) {
@@ -1752,18 +1746,12 @@ const App = (() => {
         return;
       }
       try {
-        let driveData = _lastDriveSnapshot;
-        if (!driveData) {
-          try { driveData = await Drive.loadAllData(); }
-          catch (fetchErr) {
-            el.style.borderLeftColor = '#e87c6a';
-            el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
-              `<div class="dash-alert-detail" style="font-size:12px;">Could not reach Google Drive: ${esc(String(fetchErr.message || fetchErr))}<br><br>` +
-              `Songs and practice data may still load from local cache. Try refreshing or check your connection.</div>`;
-            return;
-          }
+        if (!_lastDriveSnapshot) {
+          el.innerHTML = `<div class="dash-alert-title">No sync data yet</div>` +
+            `<div class="dash-alert-detail">Drive data will appear after the next sync. Use the refresh button on the main page to trigger a sync.</div>`;
+          return;
         }
-        const { songs, setlists, practice } = driveData;
+        const { songs, setlists, practice } = _lastDriveSnapshot;
         const driveSongs = Array.isArray(songs) ? songs.length : 0;
         const driveSetlists = Array.isArray(setlists) ? setlists.length : 0;
         const drivePersonas = Array.isArray(practice) ? practice.length : 0;
@@ -1923,6 +1911,7 @@ const App = (() => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           await Drive.savePractice(_practice);
+          _markSynced();
           showToast(toastMsg || 'Saved.');
           return;
         } catch (e) {
@@ -2004,15 +1993,27 @@ const App = (() => {
     container.querySelectorAll('.persona-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (_saving) return;
         const p = _practice.find(x => x.id === btn.dataset.deletePersona);
-        if (p) {
-          Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and all their practice lists?`, async () => {
+        if (!p) return;
+        Admin.showConfirm('Delete Persona', `Permanently delete "${esc(p.name || 'this persona')}" and all their practice lists?`, async () => {
+          if (_saving) return;
+          _saving = true;
+          const backup = [..._practice];
+          try {
             _practice = _practice.filter(x => x.id !== p.id);
             await savePractice('Persona deleted.');
             _activePersona = null;
             renderPractice(true);
-          });
-        }
+          } catch (err) {
+            console.error('Delete persona failed', err);
+            _practice = backup;
+            showToast('Delete failed.');
+            renderPractice(true);
+          } finally {
+            _saving = false;
+          }
+        });
       });
     });
 
@@ -2239,13 +2240,6 @@ const App = (() => {
       </button>`;
     }
 
-    // Delete practice list button (all users)
-    html += `<div class="delete-zone" style="margin-top:24px;">
-      <button class="btn-danger" id="btn-delete-practice-list" style="font-size:12px;">
-        <i data-lucide="trash-2" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px;"></i>Delete Practice List
-      </button>
-    </div>`;
-
     if (songs.length === 0) {
       html += `<div class="empty-state" style="padding:40px 20px">
         <p>No songs yet.</p>
@@ -2272,6 +2266,13 @@ const App = (() => {
       });
       html += `</div>`;
     }
+
+    // Delete practice list button at bottom (all users)
+    html += `<div class="delete-zone" style="margin-top:32px;">
+      <button class="btn-danger" id="btn-delete-practice-list" style="font-size:12px;">
+        <i data-lucide="trash-2" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px;"></i>Delete Practice List
+      </button>
+    </div>`;
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -2304,14 +2305,29 @@ const App = (() => {
 
     // Wire delete practice list (all users)
     document.getElementById('btn-delete-practice-list')?.addEventListener('click', () => {
-      Admin.showConfirm('Delete Practice List', `Permanently delete "${practiceList.name || 'this practice list'}"?`, async () => {
-        const pIdx = _practice.findIndex(p => p.id === persona.id);
-        if (pIdx > -1) {
-          _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== practiceList.id);
+      if (_saving) return;
+      Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
+        if (_saving) return;
+        _saving = true;
+        try {
+          const pIdx = _practice.findIndex(p => p.id === persona.id);
+          if (pIdx > -1) {
+            _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== practiceList.id);
+          }
+          await savePractice('Practice list deleted.');
+          _activePracticeList = null;
+          const updated = _practice.find(p => p.id === persona.id);
+          if (updated) {
+            renderPracticeDetail(updated, true);
+          } else {
+            _navigateBack();
+          }
+        } catch (err) {
+          console.error('Delete practice list failed', err);
+          showToast('Delete failed.');
+        } finally {
+          _saving = false;
         }
-        await savePractice('Practice list deleted.');
-        _activePracticeList = null;
-        renderPracticeDetail(_practice.find(p => p.id === persona.id) || persona);
       });
     });
   }
