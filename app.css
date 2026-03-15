@@ -2525,3 +2525,73 @@ textarea.form-input {
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 2px; }
+
+/* ═══════════════════════════════════════════
+   SYNC DIAGNOSTICS
+═══════════════════════════════════════════ */
+.diag-panel {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.diag-test {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+.diag-test:last-child { border-bottom: none; }
+.diag-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.diag-pass .diag-icon { color: var(--green); }
+.diag-fail .diag-icon { color: #e87c6a; }
+.diag-warn .diag-icon { color: #f0cc80; }
+.diag-skip .diag-icon { color: var(--text-3); }
+.diag-running .diag-icon { color: var(--accent); animation: diag-pulse 0.8s infinite; }
+@keyframes diag-pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+.diag-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  min-width: 0;
+}
+.diag-detail {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-top: 2px;
+  word-break: break-word;
+}
+.diag-fail .diag-detail { color: #e87c6a; }
+.diag-summary {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: center;
+}
+.diag-summary.all-pass { background: rgba(76,175,80,0.15); color: var(--green); border: 1px solid rgba(76,175,80,0.3); }
+.diag-summary.has-fail { background: rgba(232,124,106,0.15); color: #e87c6a; border: 1px solid rgba(232,124,106,0.3); }
+.diag-summary.has-warn { background: rgba(240,204,128,0.12); color: #f0cc80; border: 1px solid rgba(240,204,128,0.25); }
+.diag-header {
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  padding: 10px 0 4px;
+  border-bottom: 1px solid var(--border);
+  margin-top: 4px;
+}

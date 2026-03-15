@@ -1,7 +1,11 @@
 # Personal folders
 zz*/
-BRAINSTORM_*.md
 font-swatch.html
+
+# Documentation / non-functional
+BRAINSTORM_*.md
+SETUP.md
+*.example.json
 
 # Claude session files
 .claude/

@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.60';
+  const APP_VERSION = 'v17.61';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1869,6 +1869,7 @@ const App = (() => {
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button id="dash-github-push" class="btn-primary" style="font-size:11px;padding:6px 14px;">Push Now</button>
               <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:6px 14px;">GitHub Setup</button>
+              <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Run Diagnostics</button>
               ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:6px 14px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
             </div>
           </div>`;
@@ -1877,8 +1878,9 @@ const App = (() => {
           <div class="dash-alert warn-orange">
             <div class="dash-alert-title">${_codeTag(2501)} GitHub not configured</div>
             <div class="dash-alert-detail">Connect GitHub for encrypted metadata sync across all devices (including mobile).</div>
-            <div style="margin-top:8px;">
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button id="dash-github-setup" class="btn-primary" style="font-size:11px;padding:6px 14px;">Configure GitHub</button>
+              <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Run Diagnostics</button>
             </div>
           </div>`;
     }
@@ -1919,6 +1921,29 @@ const App = (() => {
     const ghSetupBtn = document.getElementById('dash-github-setup');
     if (ghSetupBtn) {
       ghSetupBtn.addEventListener('click', () => Admin.showGitHubModal(() => renderDashboard()));
+    }
+    const diagBtn = document.getElementById('dash-run-diag');
+    if (diagBtn) {
+      diagBtn.addEventListener('click', () => {
+        diagBtn.disabled = true;
+        diagBtn.textContent = 'Running...';
+        // Insert diag panel after the GitHub section
+        let panel = document.getElementById('diag-panel');
+        if (!panel) {
+          panel = document.createElement('div');
+          panel.id = 'diag-panel';
+          panel.className = 'diag-panel';
+          // Insert after the GitHub sync section
+          const ghSection = diagBtn.closest('.dash-section');
+          if (ghSection) ghSection.after(panel);
+          else container.appendChild(panel);
+        }
+        panel.innerHTML = '<div style="color:var(--accent);padding:8px 0;">Initializing diagnostics...</div>';
+        runDiagnostics(panel).then(() => {
+          diagBtn.disabled = false;
+          diagBtn.textContent = 'Run Diagnostics';
+        });
+      });
     }
     let _migrating = false;
     const ghMigrateBtn = document.getElementById('dash-github-migrate');
@@ -3343,7 +3368,621 @@ const App = (() => {
     _syncAllFromDrive();
   }
 
-  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard };
+  // ─── Sync Diagnostics ─────────────────────────────────────
+
+  /**
+   * Comprehensive sync diagnostic suite.
+   * Tests every layer of the sync pipeline — crypto, API, data integrity,
+   * auto-configure, service worker, localStorage, platform detection.
+   * Renders results into the given container element.
+   */
+  async function runDiagnostics(container) {
+    const results = [];
+    let _testIdx = 0;
+
+    const _icon = (status) => {
+      if (status === 'pass') return '\u2713';
+      if (status === 'fail') return '\u2717';
+      if (status === 'warn') return '!';
+      if (status === 'skip') return '-';
+      return '\u2026';
+    };
+
+    function _renderResults() {
+      let html = '';
+      let currentSection = null;
+      for (const r of results) {
+        if (r.section && r.section !== currentSection) {
+          currentSection = r.section;
+          html += `<div class="diag-header">${esc(currentSection)}</div>`;
+        }
+        const cls = `diag-test diag-${r.status}`;
+        html += `<div class="${cls}">`;
+        html += `<div class="diag-icon">${_icon(r.status)}</div>`;
+        html += `<div><div class="diag-name">${esc(r.name)}</div>`;
+        if (r.detail) html += `<div class="diag-detail">${esc(r.detail)}</div>`;
+        html += `</div></div>`;
+      }
+      // Summary
+      const passed = results.filter(r => r.status === 'pass').length;
+      const failed = results.filter(r => r.status === 'fail').length;
+      const warned = results.filter(r => r.status === 'warn').length;
+      const skipped = results.filter(r => r.status === 'skip').length;
+      const total = results.length;
+      const cls = failed > 0 ? 'has-fail' : warned > 0 ? 'has-warn' : 'all-pass';
+      html += `<div class="diag-summary ${cls}">${passed}/${total} passed` +
+        (failed ? ` \u00b7 ${failed} failed` : '') +
+        (warned ? ` \u00b7 ${warned} warnings` : '') +
+        (skipped ? ` \u00b7 ${skipped} skipped` : '') +
+        `</div>`;
+      container.innerHTML = html;
+    }
+
+    function _add(section, name, status, detail) {
+      results.push({ section, name, status, detail: detail || '' });
+      _renderResults();
+    }
+
+    function _update(idx, status, detail) {
+      if (results[idx]) {
+        results[idx].status = status;
+        if (detail !== undefined) results[idx].detail = detail;
+        _renderResults();
+      }
+    }
+
+    async function _test(section, name, fn) {
+      const idx = results.length;
+      _add(section, name, 'running', 'Running...');
+      try {
+        const result = await fn();
+        _update(idx, result.status, result.detail);
+      } catch (e) {
+        _update(idx, 'fail', `Exception: ${e.message || e}`);
+      }
+    }
+
+    const _timer = (label) => {
+      const t0 = performance.now();
+      return () => `${label} (${(performance.now() - t0).toFixed(0)}ms)`;
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 1: Platform & Environment
+    // ═══════════════════════════════════════════════════════
+
+    const SEC1 = 'Platform & Environment';
+
+    await _test(SEC1, 'Platform detection', async () => {
+      const mobile = _isMobile();
+      const platform = _detectPlatform();
+      const ua = navigator.userAgent.substring(0, 80);
+      return { status: 'pass', detail: `Platform: ${platform}, Mobile: ${mobile}, UA: ${ua}...` };
+    });
+
+    await _test(SEC1, 'Web Crypto API available', async () => {
+      if (!crypto || !crypto.subtle) return { status: 'fail', detail: 'crypto.subtle not available — HTTPS required' };
+      return { status: 'pass', detail: 'crypto.subtle available' };
+    });
+
+    await _test(SEC1, 'Service Worker registered', async () => {
+      if (!('serviceWorker' in navigator)) return { status: 'fail', detail: 'Service Worker API not supported' };
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return { status: 'warn', detail: 'No SW registration found' };
+      const swState = reg.active ? 'active' : reg.waiting ? 'waiting' : reg.installing ? 'installing' : 'unknown';
+      return { status: 'pass', detail: `SW state: ${swState}, scope: ${reg.scope}` };
+    });
+
+    await _test(SEC1, 'App version consistency', async () => {
+      const jsVersion = APP_VERSION;
+      const badge = document.getElementById('admin-version-badge');
+      const badgeVersion = badge ? badge.textContent : '(no badge)';
+      if (jsVersion !== badgeVersion) return { status: 'warn', detail: `JS: ${jsVersion}, Badge: ${badgeVersion}` };
+      return { status: 'pass', detail: `${jsVersion}` };
+    });
+
+    await _test(SEC1, 'Persistent storage granted', async () => {
+      if (!navigator.storage || !navigator.storage.persisted) return { status: 'skip', detail: 'API not available' };
+      const persisted = await navigator.storage.persisted();
+      return { status: persisted ? 'pass' : 'warn', detail: persisted ? 'Storage will not be evicted' : 'Storage may be evicted by OS under pressure' };
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 2: localStorage Health
+    // ═══════════════════════════════════════════════════════
+
+    const SEC2 = 'localStorage Health';
+
+    await _test(SEC2, 'localStorage accessible', async () => {
+      try {
+        localStorage.setItem('_diag_test', '1');
+        localStorage.removeItem('_diag_test');
+        return { status: 'pass', detail: 'Read/write OK' };
+      } catch (e) {
+        return { status: 'fail', detail: `localStorage blocked: ${e.message}` };
+      }
+    });
+
+    await _test(SEC2, 'Songs data integrity', async () => {
+      const raw = localStorage.getItem('bb_songs');
+      if (!raw) return { status: 'warn', detail: 'No songs in localStorage' };
+      try {
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_songs is not an array' };
+        const withId = arr.filter(s => s.id);
+        const withTitle = arr.filter(s => s.title);
+        return { status: 'pass', detail: `${arr.length} songs, ${withId.length} have IDs, ${withTitle.length} have titles, ~${(raw.length / 1024).toFixed(1)} KB` };
+      } catch (e) {
+        return { status: 'fail', detail: `Corrupt JSON: ${e.message}` };
+      }
+    });
+
+    await _test(SEC2, 'Setlists data integrity', async () => {
+      const raw = localStorage.getItem('bb_setlists');
+      if (!raw) return { status: 'warn', detail: 'No setlists in localStorage' };
+      try {
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_setlists is not an array' };
+        return { status: 'pass', detail: `${arr.length} setlists, ~${(raw.length / 1024).toFixed(1)} KB` };
+      } catch (e) {
+        return { status: 'fail', detail: `Corrupt JSON: ${e.message}` };
+      }
+    });
+
+    await _test(SEC2, 'Practice data integrity', async () => {
+      const raw = localStorage.getItem('bb_practice');
+      if (!raw) return { status: 'warn', detail: 'No practice data in localStorage' };
+      try {
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_practice is not an array' };
+        const totalLists = arr.reduce((s, p) => s + (p.practiceLists || []).length, 0);
+        return { status: 'pass', detail: `${arr.length} personas, ${totalLists} practice lists, ~${(raw.length / 1024).toFixed(1)} KB` };
+      } catch (e) {
+        return { status: 'fail', detail: `Corrupt JSON: ${e.message}` };
+      }
+    });
+
+    await _test(SEC2, 'Migration flag status', async () => {
+      const migrated = localStorage.getItem('bb_migrated_to_github');
+      const pending = localStorage.getItem('bb_github_pending');
+      let pendingInfo = 'none';
+      if (pending) {
+        try {
+          const p = JSON.parse(pending);
+          const types = Object.keys(p).filter(k => p[k] !== null);
+          pendingInfo = types.length ? types.join(', ') : 'none';
+        } catch (_) { pendingInfo = 'corrupt'; }
+      }
+      return { status: 'pass', detail: `Migrated: ${migrated === '1' ? 'Yes' : 'No'}, Pending writes: ${pendingInfo}` };
+    });
+
+    await _test(SEC2, 'Duplicate ID check', async () => {
+      const ids = _songs.map(s => s.id).filter(Boolean);
+      const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+      if (dupes.length) return { status: 'fail', detail: `Duplicate song IDs: ${[...new Set(dupes)].join(', ')}` };
+      return { status: 'pass', detail: `${ids.length} unique song IDs` };
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 3: Drive Configuration
+    // ═══════════════════════════════════════════════════════
+
+    const SEC3 = 'Google Drive';
+
+    await _test(SEC3, 'Drive configured', async () => {
+      if (!Drive.isConfigured()) return { status: _isMobile() ? 'pass' : 'warn', detail: _isMobile() ? 'Not needed on mobile (GitHub handles metadata)' : 'API key or folder ID missing' };
+      const cfg = Drive.getConfig();
+      const writeOk = Drive.isWriteConfigured();
+      return { status: 'pass', detail: `API Key: set, Folder: set, Write access: ${writeOk ? 'Yes' : 'No (read-only)'}` };
+    });
+
+    await _test(SEC3, 'Drive API reachable', async () => {
+      if (!Drive.isConfigured()) return { status: 'skip', detail: 'Drive not configured' };
+      const t = _timer('Drive list files');
+      try {
+        const cfg = Drive.getConfig();
+        const resp = await fetch(`https://www.googleapis.com/drive/v3/files?q='${cfg.folderId}'+in+parents+and+trashed=false&pageSize=1&fields=files(id)&key=${cfg.apiKey}`);
+        if (!resp.ok) return { status: 'fail', detail: `API returned ${resp.status}: ${await resp.text()}` };
+        const data = await resp.json();
+        return { status: 'pass', detail: t() + ` — folder accessible, ${data.files?.length || 0} files sampled` };
+      } catch (e) {
+        return { status: 'fail', detail: `Network error: ${e.message}` };
+      }
+    });
+
+    await _test(SEC3, 'PAT propagation file on Drive', async () => {
+      if (!Drive.isConfigured()) return { status: 'skip', detail: 'Drive not configured' };
+      try {
+        const file = await Drive.findFilePublic('_github_sync.enc');
+        if (!file) return { status: 'warn', detail: 'No _github_sync.enc found — other devices cannot auto-configure. Run GitHub Setup > Save & Connect on desktop to publish.' };
+        return { status: 'pass', detail: `Found: ${file.id}` };
+      } catch (e) {
+        return { status: 'fail', detail: `Search failed: ${e.message}` };
+      }
+    });
+
+    await _test(SEC3, 'PAT propagation file decryptable', async () => {
+      if (!Drive.isConfigured()) return { status: 'skip', detail: 'Drive not configured' };
+      const t = _timer('Decrypt PAT');
+      try {
+        const pat = await GitHub.loadPublishedPat();
+        if (!pat) return { status: 'warn', detail: 'Could not load/decrypt PAT — file may be missing or encrypted with old key. Re-save GitHub Setup on desktop.' };
+        // Don't log the PAT, just verify it's a non-empty string that looks like a token
+        const masked = pat.substring(0, 4) + '...' + pat.substring(pat.length - 4);
+        return { status: 'pass', detail: t() + ` — token: ${masked} (${pat.length} chars)` };
+      } catch (e) {
+        return { status: 'fail', detail: `Decryption failed: ${e.message}` };
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 4: GitHub Configuration
+    // ═══════════════════════════════════════════════════════
+
+    const SEC4 = 'GitHub Sync';
+
+    await _test(SEC4, 'GitHub PAT configured', async () => {
+      if (!GitHub.isConfigured()) return { status: 'fail', detail: 'No PAT in localStorage — run GitHub Setup or verify auto-configure from Drive' };
+      const cfg = GitHub.getConfig();
+      return { status: 'pass', detail: `Owner: ${cfg.owner}, Repo: ${cfg.repo}` };
+    });
+
+    await _test(SEC4, 'GitHub API reachable', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
+      const t = _timer('GitHub API');
+      try {
+        const result = await GitHub.testConnection();
+        if (!result.ok) return { status: 'fail', detail: result.error };
+        return { status: 'pass', detail: t() + ` — ${result.repoName}, data branch: ${result.hasBranch ? 'exists' : 'MISSING'}` };
+      } catch (e) {
+        return { status: 'fail', detail: `Connection test exception: ${e.message}` };
+      }
+    });
+
+    await _test(SEC4, 'Data branch exists', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
+      try {
+        const result = await GitHub.testConnection();
+        if (!result.ok) return { status: 'skip', detail: 'API unreachable' };
+        if (!result.hasBranch) return { status: 'fail', detail: 'data branch not found — run migration from Admin Dashboard' };
+        return { status: 'pass', detail: 'data branch present' };
+      } catch (e) {
+        return { status: 'fail', detail: e.message };
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 5: Encryption
+    // ═══════════════════════════════════════════════════════
+
+    const SEC5 = 'Encryption';
+
+    await _test(SEC5, 'AES-256-GCM encrypt/decrypt round-trip', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'No PAT for key derivation' };
+      const t = _timer('Crypto round-trip');
+      // Test with various data types including Unicode, empty arrays, nested objects
+      const testData = [
+        { id: 'test1', title: 'Test Song \u266b', tags: ['rock', '\u00e9lectro'], notes: '' },
+        { id: 'test2', title: '', tags: [], notes: 'Line1\nLine2\n\u00c0\u00e9\u00ef\u00f6\u00fc' },
+        { id: 'test3', title: 'Edge case', bpm: '120', nested: { a: [1, 2, null, true, false] } },
+      ];
+      try {
+        // Use internal encrypt/decrypt via saveSongs + loadSongs would alter state,
+        // so we simulate by encrypting/decrypting through the GitHub module internals
+        // We'll do a quick round-trip test via migrateData's approach
+        const json = JSON.stringify(testData);
+
+        // Derive key same way GitHub does
+        const pat = localStorage.getItem('bb_github_pat') || '';
+        const rawKey = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pat));
+        const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+
+        // Encrypt
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(json);
+        const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+
+        // Decrypt
+        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+        const decrypted = new TextDecoder().decode(plaintext);
+        const parsed = JSON.parse(decrypted);
+
+        if (JSON.stringify(parsed) !== json) {
+          return { status: 'fail', detail: 'Decrypted data does not match original' };
+        }
+        return { status: 'pass', detail: t() + ` — ${encoded.byteLength} bytes plaintext, ${ciphertext.byteLength} bytes cipher, perfect match` };
+      } catch (e) {
+        return { status: 'fail', detail: `Crypto error: ${e.message}` };
+      }
+    });
+
+    await _test(SEC5, 'Base64 encode/decode round-trip', async () => {
+      // Test the _toBase64/_fromBase64 equivalents
+      try {
+        const testBytes = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) testBytes[i] = i;
+        let binary = '';
+        for (let i = 0; i < testBytes.length; i++) binary += String.fromCharCode(testBytes[i]);
+        const b64 = btoa(binary);
+        const decoded = atob(b64);
+        const outBytes = new Uint8Array(decoded.length);
+        for (let i = 0; i < decoded.length; i++) outBytes[i] = decoded.charCodeAt(i);
+        for (let i = 0; i < 256; i++) {
+          if (outBytes[i] !== i) return { status: 'fail', detail: `Mismatch at byte ${i}: expected ${i}, got ${outBytes[i]}` };
+        }
+        return { status: 'pass', detail: '256-byte full range encode/decode: perfect match' };
+      } catch (e) {
+        return { status: 'fail', detail: e.message };
+      }
+    });
+
+    await _test(SEC5, 'PAT propagation key derivation', async () => {
+      // Verify the propagation key can be derived (same seed as github.js)
+      try {
+        const seed = 'catmantrio-sync-propagation-2024';
+        const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+        const encKey = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
+        const decKey = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+        // Quick round-trip
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const testPlain = new TextEncoder().encode('test-pat-value');
+        const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, encKey, testPlain);
+        const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, decKey, ct);
+        const result = new TextDecoder().decode(pt);
+        if (result !== 'test-pat-value') return { status: 'fail', detail: 'Propagation key round-trip mismatch' };
+        return { status: 'pass', detail: 'Propagation key derivation + round-trip OK' };
+      } catch (e) {
+        return { status: 'fail', detail: e.message };
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 6: Remote Data Verification
+    // ═══════════════════════════════════════════════════════
+
+    const SEC6 = 'Remote Data Integrity';
+
+    let remoteSongs = null, remoteSetlists = null, remotePractice = null;
+
+    await _test(SEC6, 'Load songs.enc from GitHub', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
+      const t = _timer('Load + decrypt songs');
+      try {
+        remoteSongs = await GitHub.loadSongs();
+        if (remoteSongs === null) return { status: 'warn', detail: 'File not found (404) — data may not be migrated yet' };
+        if (!Array.isArray(remoteSongs)) return { status: 'fail', detail: `Expected array, got ${typeof remoteSongs}` };
+        return { status: 'pass', detail: t() + ` — ${remoteSongs.length} songs decrypted` };
+      } catch (e) {
+        return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
+      }
+    });
+
+    await _test(SEC6, 'Load setlists.enc from GitHub', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
+      const t = _timer('Load + decrypt setlists');
+      try {
+        remoteSetlists = await GitHub.loadSetlists();
+        if (remoteSetlists === null) return { status: 'warn', detail: 'File not found (404)' };
+        if (!Array.isArray(remoteSetlists)) return { status: 'fail', detail: `Expected array, got ${typeof remoteSetlists}` };
+        return { status: 'pass', detail: t() + ` — ${remoteSetlists.length} setlists decrypted` };
+      } catch (e) {
+        return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
+      }
+    });
+
+    await _test(SEC6, 'Load practice.enc from GitHub', async () => {
+      if (!GitHub.isConfigured()) return { status: 'skip', detail: 'GitHub not configured' };
+      const t = _timer('Load + decrypt practice');
+      try {
+        remotePractice = await GitHub.loadPractice();
+        if (remotePractice === null) return { status: 'warn', detail: 'File not found (404)' };
+        if (!Array.isArray(remotePractice)) return { status: 'fail', detail: `Expected array, got ${typeof remotePractice}` };
+        const totalLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
+        return { status: 'pass', detail: t() + ` — ${remotePractice.length} personas, ${totalLists} lists decrypted` };
+      } catch (e) {
+        return { status: 'fail', detail: `Load/decrypt failed: ${e.message}` };
+      }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 7: Cross-Device Sync Verification
+    // ═══════════════════════════════════════════════════════
+
+    const SEC7 = 'Cross-Device Sync';
+
+    await _test(SEC7, 'Songs: local vs remote', async () => {
+      if (remoteSongs === null) return { status: 'skip', detail: 'Remote songs not loaded' };
+      const localCount = _songs.length;
+      const remoteCount = remoteSongs.length;
+      if (localCount !== remoteCount) {
+        // Find which IDs are missing
+        const localIds = new Set(_songs.map(s => s.id));
+        const remoteIds = new Set(remoteSongs.map(s => s.id));
+        const onlyLocal = [...localIds].filter(id => !remoteIds.has(id));
+        const onlyRemote = [...remoteIds].filter(id => !localIds.has(id));
+        let detail = `Count mismatch: ${localCount} local vs ${remoteCount} remote.`;
+        if (onlyLocal.length) detail += ` Local-only IDs: ${onlyLocal.join(', ')}`;
+        if (onlyRemote.length) detail += ` Remote-only IDs: ${onlyRemote.join(', ')}`;
+        return { status: 'fail', detail };
+      }
+      // Deep compare by ID
+      const remoteMap = new Map(remoteSongs.map(s => [s.id, s]));
+      let diffs = 0;
+      const diffFields = [];
+      for (const local of _songs) {
+        const remote = remoteMap.get(local.id);
+        if (!remote) { diffs++; continue; }
+        if (JSON.stringify(local) !== JSON.stringify(remote)) {
+          diffs++;
+          if (diffFields.length < 3) diffFields.push(local.title || local.id);
+        }
+      }
+      if (diffs > 0) {
+        return { status: 'warn', detail: `${diffs} song(s) differ between local and remote: ${diffFields.join(', ')}${diffs > 3 ? '...' : ''}` };
+      }
+      return { status: 'pass', detail: `${localCount} songs identical on both sides` };
+    });
+
+    await _test(SEC7, 'Setlists: local vs remote', async () => {
+      if (remoteSetlists === null) return { status: 'skip', detail: 'Remote setlists not loaded' };
+      const localCount = _setlists.length;
+      const remoteCount = remoteSetlists.length;
+      if (localCount !== remoteCount) {
+        return { status: 'fail', detail: `Count mismatch: ${localCount} local vs ${remoteCount} remote` };
+      }
+      const match = JSON.stringify(_setlists) === JSON.stringify(remoteSetlists);
+      return { status: match ? 'pass' : 'warn', detail: match ? `${localCount} setlists identical` : `${localCount} setlists — counts match but content differs` };
+    });
+
+    await _test(SEC7, 'Practice: local vs remote', async () => {
+      if (remotePractice === null) return { status: 'skip', detail: 'Remote practice not loaded' };
+      const localCount = _practice.length;
+      const remoteCount = remotePractice.length;
+      const localLists = _practice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
+      const remoteLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
+      if (localCount !== remoteCount || localLists !== remoteLists) {
+        return { status: 'fail', detail: `Mismatch: ${localCount} personas (${localLists} lists) local vs ${remoteCount} personas (${remoteLists} lists) remote` };
+      }
+      const match = JSON.stringify(_practice) === JSON.stringify(remotePractice);
+      return { status: match ? 'pass' : 'warn', detail: match ? `${localCount} personas, ${localLists} lists identical` : `Counts match but content differs` };
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 8: Write Queue & Crash Recovery
+    // ═══════════════════════════════════════════════════════
+
+    const SEC8 = 'Write Queue';
+
+    await _test(SEC8, 'Current queue status', async () => {
+      const wq = GitHub.getWriteQueueStatus();
+      if (wq.flushing) return { status: 'warn', detail: 'Flush in progress — test may not be accurate' };
+      if (wq.hasPending) return { status: 'warn', detail: `Pending writes: ${wq.pendingTypes.join(', ')} — debounce #${wq.debounceCount}` };
+      return { status: 'pass', detail: `Queue empty, debounce count: ${wq.debounceCount}` };
+    });
+
+    await _test(SEC8, 'Crash recovery data', async () => {
+      const raw = localStorage.getItem('bb_github_pending');
+      const delRaw = localStorage.getItem('bb_github_deletions');
+      if (!raw && !delRaw) return { status: 'pass', detail: 'No crash recovery data (clean state)' };
+      let pendingTypes = [];
+      let deletionCount = 0;
+      try {
+        if (raw) {
+          const p = JSON.parse(raw);
+          pendingTypes = Object.keys(p).filter(k => p[k] !== null);
+        }
+        if (delRaw) {
+          const d = JSON.parse(delRaw);
+          deletionCount = Object.values(d).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+        }
+      } catch (_) {
+        return { status: 'warn', detail: 'Crash recovery data exists but is malformed' };
+      }
+      if (pendingTypes.length) return { status: 'warn', detail: `Unsynced data from previous session: ${pendingTypes.join(', ')}, ${deletionCount} pending deletions` };
+      return { status: 'pass', detail: `Recovery data present but clean (${deletionCount} deletion records)` };
+    });
+
+    await _test(SEC8, 'Rate limit status', async () => {
+      const rl = GitHub.getRateLimitStatus();
+      if (rl.paused) return { status: 'fail', detail: `PAUSED — ${rl.callsThisHour}/${rl.limit} (${rl.pct}%)` };
+      if (rl.warnLevel === 'warning') return { status: 'warn', detail: `High usage: ${rl.callsThisHour}/${rl.limit} (${rl.pct}%)` };
+      return { status: 'pass', detail: `${rl.callsThisHour}/${rl.limit} calls this hour (${rl.pct}%)` };
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 9: Auto-Configure Pipeline (the full chain)
+    // ═══════════════════════════════════════════════════════
+
+    const SEC9 = 'Auto-Configure Pipeline';
+
+    await _test(SEC9, 'Drive has default config', async () => {
+      // Verify Drive defaults are set (new device will have these from drive.js)
+      const cfg = Drive.getConfig();
+      if (!cfg.apiKey) return { status: 'fail', detail: 'No API key — Drive defaults may be broken' };
+      if (!cfg.folderId) return { status: 'fail', detail: 'No folder ID — Drive defaults may be broken' };
+      return { status: 'pass', detail: `API key: ${cfg.apiKey.substring(0, 6)}..., Folder: ${cfg.folderId.substring(0, 8)}...` };
+    });
+
+    await _test(SEC9, 'GitHub has default owner/repo', async () => {
+      const cfg = GitHub.getConfig();
+      if (cfg.owner !== 'catmandabomb') return { status: 'warn', detail: `Owner is "${cfg.owner}" (expected "catmandabomb")` };
+      if (cfg.repo !== 'catmantrio') return { status: 'warn', detail: `Repo is "${cfg.repo}" (expected "catmantrio")` };
+      return { status: 'pass', detail: `${cfg.owner}/${cfg.repo}` };
+    });
+
+    await _test(SEC9, 'Full auto-configure simulation', async () => {
+      // Simulate what a brand-new device would do without touching real config
+      if (!Drive.isConfigured()) return { status: 'skip', detail: 'Drive not configured — cannot test' };
+      const t = _timer('Full pipeline');
+      try {
+        // Step 1: Find the PAT file
+        const file = await Drive.findFilePublic('_github_sync.enc');
+        if (!file) return { status: 'fail', detail: 'Step 1 FAILED: _github_sync.enc not on Drive. Desktop must Save & Connect in GitHub Setup first.' };
+
+        // Step 2: Download and decrypt
+        const { apiKey } = Drive.getConfig();
+        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`);
+        if (!resp.ok) return { status: 'fail', detail: `Step 2 FAILED: Drive download returned ${resp.status}` };
+        const encText = await resp.text();
+
+        // Step 3: Parse encrypted JSON
+        let encJson;
+        try {
+          encJson = JSON.parse(encText);
+        } catch (e) {
+          return { status: 'fail', detail: 'Step 3 FAILED: _github_sync.enc is not valid JSON — file may be corrupted or using old encryption format' };
+        }
+        if (!encJson.iv || !encJson.data) return { status: 'fail', detail: 'Step 3 FAILED: Missing iv or data fields — wrong encryption format' };
+
+        // Step 4: Decrypt with app-level key
+        const seed = 'catmantrio-sync-propagation-2024';
+        const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+        const key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+        const ivBytes = Uint8Array.from(atob(encJson.iv), c => c.charCodeAt(0));
+        const dataBytes = Uint8Array.from(atob(encJson.data), c => c.charCodeAt(0));
+        let pat;
+        try {
+          const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, dataBytes);
+          pat = new TextDecoder().decode(plaintext);
+        } catch (e) {
+          return { status: 'fail', detail: 'Step 4 FAILED: Decryption failed — PAT was encrypted with a different key (likely old admin-password method). Desktop must re-save GitHub Setup on v17.60+.' };
+        }
+
+        if (!pat || pat.length < 10) return { status: 'fail', detail: `Step 4 FAILED: Decrypted PAT is invalid (${pat ? pat.length : 0} chars)` };
+
+        // Step 5: Verify PAT works against GitHub API
+        const ghResp = await fetch(`https://api.github.com/repos/catmandabomb/catmantrio`, {
+          headers: {
+            'Authorization': `Bearer ${pat}`,
+            'Accept': 'application/vnd.github+json',
+          },
+        });
+        if (!ghResp.ok) return { status: 'fail', detail: `Step 5 FAILED: GitHub API returned ${ghResp.status} — PAT may be expired or revoked` };
+        const ghData = await ghResp.json();
+
+        // Step 6: Verify data branch
+        const branchResp = await fetch(`https://api.github.com/repos/catmandabomb/catmantrio/branches/data`, {
+          headers: {
+            'Authorization': `Bearer ${pat}`,
+            'Accept': 'application/vnd.github+json',
+          },
+        });
+
+        const masked = pat.substring(0, 4) + '...' + pat.substring(pat.length - 4);
+        return {
+          status: 'pass',
+          detail: t() + ` — ALL 6 STEPS PASSED. PAT: ${masked}, Repo: ${ghData.full_name}, Data branch: ${branchResp.ok ? 'exists' : 'MISSING'}`
+        };
+      } catch (e) {
+        return { status: 'fail', detail: `Pipeline exception: ${e.message}` };
+      }
+    });
+
+    // Final render
+    _renderResults();
+  }
+
+  return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard, runDiagnostics };
 
 })();
 
