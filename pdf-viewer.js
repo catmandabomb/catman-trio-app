@@ -68,6 +68,20 @@ const PDFViewer = (() => {
       _renderWorker = new Worker('pdf-render-worker.js');
       _renderWorker.onmessage = (e) => {
         const { id, bitmap, displayW, displayH, error } = e.data;
+
+        // Worker capability-check failure (id === null) — disable immediately
+        if (id === null && error) {
+          console.warn('PDFViewer: render worker not supported:', error);
+          for (const [cbId, cb] of _renderCallbacks) {
+            clearTimeout(cb.timer);
+            cb.reject(new Error(error));
+          }
+          _renderCallbacks.clear();
+          _renderWorker.terminate();
+          _renderWorker = null;
+          return;
+        }
+
         const cb = _renderCallbacks.get(id);
         if (!cb) {
           // Timeout already fired — clean up leaked bitmap
@@ -775,6 +789,7 @@ const PDFViewer = (() => {
   }
 
   function close() {
+    ++_openGen; // Invalidate any in-flight open() that resolves after close
     modal().classList.add('hidden');
     if (_focusTrap) { _focusTrap.release(); _focusTrap = null; }
     // Evict from worker cache BEFORE revoking blob URL (worker may still reference it)
