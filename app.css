@@ -1047,8 +1047,9 @@ a { color: inherit; text-decoration: none; }
   transition: color 0.15s;
   flex-shrink: 0;
 }
-.primary-chart-star:hover { color: var(--accent); }
+.primary-chart-star:not(.readonly):hover { color: var(--accent); }
 .primary-chart-star.active { color: var(--accent); }
+.primary-chart-star.readonly { cursor: default; pointer-events: none; }
 
 .file-item-row {
   width: calc((100% - 16px) / 3);
@@ -1643,12 +1644,15 @@ textarea.form-input {
   height: 0;
   overflow: hidden;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, height 0.25s ease-out;
   color: var(--text-2);
   font-size: 13px;
   font-weight: 500;
 }
 .ptr-indicator.ptr-pulling {
+  opacity: 1;
+}
+.ptr-indicator.ptr-refreshing {
   opacity: 1;
 }
 .ptr-indicator.ptr-ready .ptr-text {
@@ -1670,15 +1674,6 @@ textarea.form-input {
   border-radius: 50%;
   animation: spin 1s linear infinite;
   flex-shrink: 0;
-}
-.ptr-arrow {
-  display: inline-block;
-  transition: transform 0.2s;
-  font-size: 16px;
-  line-height: 1;
-}
-.ptr-indicator.ptr-ready .ptr-arrow {
-  transform: rotate(180deg);
 }
 
 .sync-indicator {
@@ -2784,9 +2779,6 @@ textarea.form-input {
   border-bottom: 1px solid var(--border);
   margin-top: 4px;
 }
-
-/* PDF viewer: touch handled by JS zoom/pan — override body manipulation */
-#modal-pdf { touch-action: none; }
 
 /* ═══════════════════════════════════════════
    OFFLINE QUEUE INDICATOR

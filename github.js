@@ -256,7 +256,8 @@ const GitHub = (() => {
   function _owner() { return localStorage.getItem('bb_github_owner') || DEFAULT_OWNER; }
   function _repo()  { return localStorage.getItem('bb_github_repo')  || DEFAULT_REPO; }
 
-  async function _ghRequest(path, options = {}) {
+  async function _ghRequest(path, options = {}, _retryCount = 0) {
+    const MAX_RETRIES = 5;
     const pat = _getPat();
     if (!pat) throw new Error('GitHub PAT not configured');
     _trackApiCall();
@@ -283,12 +284,16 @@ const GitHub = (() => {
 
       // Handle rate limiting with Retry-After header
       if (resp.status === 429 || (resp.status === 403 && resp.headers.get('retry-after'))) {
+        if (_retryCount >= MAX_RETRIES) {
+          throw new Error('GitHub rate limit: too many retries');
+        }
         const retryAfter = parseInt(resp.headers.get('retry-after') || '60', 10);
-        console.warn(`GitHub rate limited, retry after ${retryAfter}s`);
-        if (_onRateLimitWarning) _onRateLimitWarning(`Rate limited — waiting ${retryAfter}s`);
+        const waitMs = Math.max(1000, Math.min(retryAfter * 1000, 120000));
+        console.warn(`GitHub rate limited, retry ${_retryCount + 1}/${MAX_RETRIES} after ${Math.round(waitMs / 1000)}s`);
+        if (_onRateLimitWarning) _onRateLimitWarning(`Rate limited — waiting ${Math.round(waitMs / 1000)}s`);
         clearTimeout(timeout);
-        await new Promise(r => setTimeout(r, Math.min(retryAfter * 1000, 120000)));
-        return _ghRequest(path, options);
+        await new Promise(r => setTimeout(r, waitMs));
+        return _ghRequest(path, options, _retryCount + 1);
       }
 
       return resp;

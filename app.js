@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.81';
+  const APP_VERSION = 'v17.82';
 
   let _songs      = [];
   let _setlists   = [];
@@ -968,7 +968,7 @@ const App = (() => {
             return `
             <div class="file-item-row">
               <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
-                <span class="primary-chart-star${isPrimary ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode">
+                <span class="primary-chart-star${isPrimary ? ' active' : ''}${Admin.isEditMode() ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set as primary chart" title="Primary chart for live mode">
                   <i data-lucide="star" style="width:16px;height:16px;${isPrimary ? 'fill:var(--accent);' : ''}"></i>
                 </span>
                 <div class="file-item-icon pdf">
@@ -1924,46 +1924,66 @@ const App = (() => {
     // ── Zoom/Pan for chart canvas ──
     _zpHandle = PDFViewer.attachZoomPan(chartCanvas, canvasArea);
 
-    // ── Progressive PDF loading ──
+    // ── Progressive PDF loading (serialized mutations to prevent race conditions) ──
+    let _spliceLock = Promise.resolve();
+
     async function _loadChartPDF(songIdx, chartDriveId) {
       try {
         const blobUrl = await _getBlobUrl(chartDriveId);
+        if (!_liveModeActive) return; // exited during load
         const pdfDoc = await pdfjsLib.getDocument(blobUrl).promise;
+        if (!_liveModeActive) { pdfDoc.destroy(); return; } // exited during load
         const numPages = pdfDoc.numPages;
 
-        // Find the loading placeholder and expand it into chart pages
-        const placeholderIdx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
-        if (placeholderIdx === -1) return; // already replaced or live mode exited
-
-        const song = _pages[placeholderIdx].song;
-        const chartPages = [];
-        for (let p = 1; p <= numPages; p++) {
-          chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, totalSongPages: numPages });
+        // Zero-page PDFs — fall back to metadata
+        if (numPages === 0) {
+          pdfDoc.destroy();
+          _spliceLock = _spliceLock.then(() => {
+            const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+            if (idx !== -1) {
+              _pages[idx] = { type: 'metadata', songIdx, song: _pages[idx].song };
+              if (idx === currentPageIdx) _renderCurrentPage();
+            }
+          });
+          return;
         }
 
-        // Adjust currentPageIdx if pages were inserted before current position
-        const wasBeforeCurrent = placeholderIdx < currentPageIdx;
-        const wasAtCurrent = placeholderIdx === currentPageIdx;
+        // Serialize mutation to prevent concurrent splice races
+        _spliceLock = _spliceLock.then(() => {
+          if (!_liveModeActive) { pdfDoc.destroy(); return; }
 
-        _pages.splice(placeholderIdx, 1, ...chartPages);
+          const placeholderIdx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+          if (placeholderIdx === -1) { pdfDoc.destroy(); return; }
 
-        if (wasBeforeCurrent) {
-          currentPageIdx += (chartPages.length - 1);
-        }
+          const song = _pages[placeholderIdx].song;
+          const chartPages = [];
+          for (let p = 1; p <= numPages; p++) {
+            chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, totalSongPages: numPages });
+          }
 
-        // If we were on the loading page for this song, render the first chart page
-        if (wasAtCurrent) {
-          _renderCurrentPage();
-        }
+          const wasBeforeCurrent = placeholderIdx < currentPageIdx;
+          const wasAtCurrent = placeholderIdx === currentPageIdx;
+
+          _pages.splice(placeholderIdx, 1, ...chartPages);
+
+          if (wasBeforeCurrent) {
+            currentPageIdx += (chartPages.length - 1);
+          }
+
+          if (wasAtCurrent) {
+            _renderCurrentPage();
+          }
+        });
       } catch (err) {
         console.error('Failed to load chart for song', songIdx, err);
-        // Convert loading placeholder to metadata fallback
-        const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
-        if (idx !== -1) {
-          const song = _pages[idx].song;
-          _pages[idx] = { type: 'metadata', songIdx, song };
-          if (idx === currentPageIdx) _renderCurrentPage();
-        }
+        _spliceLock = _spliceLock.then(() => {
+          const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading');
+          if (idx !== -1) {
+            const song = _pages[idx].song;
+            _pages[idx] = { type: 'metadata', songIdx, song };
+            if (idx === currentPageIdx) _renderCurrentPage();
+          }
+        });
       }
     }
 
@@ -1981,10 +2001,20 @@ const App = (() => {
       if (!_liveModeActive) return;
       _liveModeActive = false;
       _exitLiveModeRef = null;
+      _isAnimating = false;
       try { sessionStorage.removeItem('bb_live_state'); } catch (_) {}
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       if (_overlayTimer) { clearTimeout(_overlayTimer); _overlayTimer = null; }
       if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
+      // Destroy all loaded PDF documents to free memory
+      const seenDocs = new Set();
+      for (const pg of _pages) {
+        if (pg.pdfDoc && !seenDocs.has(pg.pdfDoc)) {
+          seenDocs.add(pg.pdfDoc);
+          try { pg.pdfDoc.destroy(); } catch (_) {}
+        }
+      }
+      _pages = [];
       document.body.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
       pageWrapper.removeEventListener('touchstart', _onDragStart);
@@ -2031,6 +2061,7 @@ const App = (() => {
     function _onDragMove(e) {
       if (!_dragging || _isAnimating) return;
       if (_zpHandle && _zpHandle.getZoom() > 1.05) { _dragging = false; return; }
+      if (e.touches.length > 1) { _dragging = false; pageWrapper.style.transform = ''; return; } // multi-touch — abort
       const t = e.touches[0];
       const dx = t.clientX - _dragX0;
       const dy = t.clientY - _dragY0;
@@ -2046,6 +2077,9 @@ const App = (() => {
         }
         _dragLocked = true;
       }
+
+      // Prevent native scroll while carousel-dragging horizontally
+      e.preventDefault();
 
       // Rubber-band effect at edges
       let tx = dx;
@@ -2094,7 +2128,7 @@ const App = (() => {
           }
           pageWrapper.addEventListener('transitionend', _afterOut, { once: true });
           setTimeout(() => {
-            if (_isAnimating && !pageWrapper.style.transform.includes('0')) _afterOut();
+            if (_isAnimating && pageWrapper.style.transform.includes(slideOut)) _afterOut();
           }, 400);
           return;
         }
@@ -2106,26 +2140,26 @@ const App = (() => {
     }
 
     pageWrapper.addEventListener('touchstart', _onDragStart, { passive: true });
-    pageWrapper.addEventListener('touchmove', _onDragMove, { passive: true });
+    pageWrapper.addEventListener('touchmove', _onDragMove, { passive: false });
     pageWrapper.addEventListener('touchend', _onDragEnd, { passive: true });
 
     // ── Initial render ──
     _renderCurrentPage();
 
     // ── Clock + timer ──
+    const clockEl = container.querySelector('.lm-clock');
+    const timerEl = container.querySelector('.lm-timer');
     function _updateClock() {
       const now = new Date();
       let h = now.getHours();
       const ampm = h >= 12 ? 'PM' : 'AM';
       h = h % 12 || 12;
       const m = String(now.getMinutes()).padStart(2, '0');
-      const clockEl = container.querySelector('.lm-clock');
       if (clockEl) clockEl.textContent = h + ':' + m + ' ' + ampm;
 
       const elapsed = Math.floor((Date.now() - _startTime) / 1000);
       const mins = Math.floor(elapsed / 60);
       const secs = String(elapsed % 60).padStart(2, '0');
-      const timerEl = container.querySelector('.lm-timer');
       if (timerEl) timerEl.textContent = mins + ':' + secs;
     }
     _updateClock();
@@ -3665,30 +3699,48 @@ const App = (() => {
       p.name = document.getElementById('pf-name').value.trim();
       if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
       _savingPractice = true;
-      p._ts = Date.now();
-      p.color = p.color || _hslFromName(p.name);
-      const isNew = _editPersonaIsNew;
-      if (isNew) {
-        _practice.push(p);
-      } else {
-        const idx = _practice.findIndex(x => x.id === p.id);
-        if (idx > -1) _practice[idx] = p;
+      try {
+        p._ts = Date.now();
+        p.color = p.color || _hslFromName(p.name);
+        const isNew = _editPersonaIsNew;
+        if (isNew) {
+          _practice.push(p);
+        } else {
+          const idx = _practice.findIndex(x => x.id === p.id);
+          if (idx > -1) _practice[idx] = p;
+        }
+        await savePractice(isNew ? 'Persona created.' : 'Persona saved.');
+        _activePersona = null;
+        renderPractice();
+      } catch (err) {
+        console.error('Save persona failed', err);
+        showToast('Save failed.');
+      } finally {
+        _savingPractice = false;
       }
-      await savePractice(isNew ? 'Persona created.' : 'Persona saved.');
-      _savingPractice = false;
-      _activePersona = null;
-      renderPractice();
     });
 
     document.getElementById('pf-cancel').addEventListener('click', () => _navigateBack());
 
     document.getElementById('pf-delete')?.addEventListener('click', () => {
+      if (_savingPractice) return;
       Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and all their practice lists?`, async () => {
-        if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
-        _practice = _practice.filter(x => x.id !== p.id);
-        await savePractice();
-        _activePersona = null;
-        renderPractice();
+        if (_savingPractice) return;
+        _savingPractice = true;
+        const backup = [..._practice];
+        try {
+          if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
+          _practice = _practice.filter(x => x.id !== p.id);
+          await savePractice();
+          _activePersona = null;
+          renderPractice();
+        } catch (err) {
+          console.error('Delete persona failed', err);
+          _practice = backup;
+          showToast('Delete failed.');
+        } finally {
+          _savingPractice = false;
+        }
       });
     });
   }
@@ -3801,33 +3853,49 @@ const App = (() => {
       pl.name = document.getElementById('pl-name').value.trim();
       if (!pl.name) { showToast('Name is required.'); document.getElementById('pl-name').focus(); return; }
       _savingPractice = true;
-      // Update the practice list inside the persona
-      const pIdx = _practice.findIndex(p => p.id === persona.id);
-      if (pIdx > -1) {
-        const plIdx = (_practice[pIdx].practiceLists || []).findIndex(l => l.id === pl.id);
-        if (plIdx > -1) {
-          _practice[pIdx].practiceLists[plIdx] = pl;
+      try {
+        // Update the practice list inside the persona
+        const pIdx = _practice.findIndex(p => p.id === persona.id);
+        if (pIdx > -1) {
+          const plIdx = (_practice[pIdx].practiceLists || []).findIndex(l => l.id === pl.id);
+          if (plIdx > -1) {
+            _practice[pIdx].practiceLists[plIdx] = pl;
+          }
         }
+        await savePractice();
+        // Navigate back to the updated list detail
+        const updatedPersona = _practice.find(p => p.id === persona.id) || persona;
+        const updatedPL = (updatedPersona.practiceLists || []).find(l => l.id === pl.id) || pl;
+        renderPracticeListDetail(updatedPersona, updatedPL, true);
+      } catch (err) {
+        console.error('Save practice list failed', err);
+        showToast('Save failed.');
+      } finally {
+        _savingPractice = false;
       }
-      await savePractice();
-      _savingPractice = false;
-      // Navigate back to the updated list detail
-      const updatedPersona = _practice.find(p => p.id === persona.id) || persona;
-      const updatedPL = (updatedPersona.practiceLists || []).find(l => l.id === pl.id) || pl;
-      renderPracticeListDetail(updatedPersona, updatedPL, true);
     });
 
     document.getElementById('pl-cancel').addEventListener('click', () => _navigateBack());
 
     document.getElementById('pl-delete')?.addEventListener('click', () => {
+      if (_savingPractice) return;
       Admin.showConfirm('Delete Practice List', `Permanently delete "${pl.name || 'this practice list'}"?`, async () => {
-        const pIdx = _practice.findIndex(p => p.id === persona.id);
-        if (pIdx > -1) {
-          _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== pl.id);
+        if (_savingPractice) return;
+        _savingPractice = true;
+        try {
+          const pIdx = _practice.findIndex(p => p.id === persona.id);
+          if (pIdx > -1) {
+            _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== pl.id);
+          }
+          await savePractice();
+          _activePracticeList = null;
+          renderPracticeDetail(_practice.find(p => p.id === persona.id) || persona);
+        } catch (err) {
+          console.error('Delete practice list failed', err);
+          showToast('Delete failed.');
+        } finally {
+          _savingPractice = false;
         }
-        await savePractice();
-        _activePracticeList = null;
-        renderPracticeDetail(_practice.find(p => p.id === persona.id) || persona);
       });
     });
   }
@@ -4219,7 +4287,8 @@ const App = (() => {
       _refreshTimes.push(now);
       try { sessionStorage.setItem('bb_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
 
-      showToast('Refreshing app…');
+      if (!_ptrTriggered) showToast('Refreshing app…');
+      _ptrTriggered = false;
       try {
         // Wipe all service worker caches so fresh files are fetched on reload
         const keys = await caches.keys();
@@ -4238,13 +4307,14 @@ const App = (() => {
     });
 
     // Pull-to-refresh with visual indicator
+    let _ptrTriggered = false; // suppress toast when refresh comes from PTR
     {
       const appEl = document.getElementById('app');
       const ptrEl = document.getElementById('ptr-indicator');
       const ptrText = ptrEl?.querySelector('.ptr-text');
       let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
-      const PTR_THRESHOLD = 140;
-      const PTR_MAX = 200;
+      const PTR_THRESHOLD = 190;
+      const PTR_MAX = 240;
 
       function _getScrollTop() {
         const activeView = appEl.querySelector('.view.active');
@@ -4296,8 +4366,15 @@ const App = (() => {
           ptrEl.classList.add('ptr-refreshing');
           if (ptrText) ptrText.textContent = 'Refreshing…';
           ptrEl.style.height = '40px';
-          // Trigger the actual refresh
+          // Trigger the actual refresh (suppress toast — PTR indicator is visible)
+          _ptrTriggered = true;
           document.getElementById('btn-refresh').click();
+          // Safety reset: if page doesn't reload within 5s (e.g. rate-limited), clear indicator
+          setTimeout(() => {
+            ptrEl.style.height = '0';
+            ptrEl.classList.remove('ptr-pulling', 'ptr-ready', 'ptr-refreshing');
+            if (ptrText) ptrText.textContent = 'Pull down to refresh';
+          }, 5000);
         } else {
           // Snap back
           ptrEl.style.height = '0';

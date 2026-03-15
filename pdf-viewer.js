@@ -34,6 +34,7 @@ const PDFViewer = (() => {
   let _blobUrl     = null;
   let _ownsBlobUrl = false;
   let _zpHandle    = null;  // zoom/pan handle for modal
+  let _openGen     = 0;     // generation counter for rapid open/close race
 
   const modal     = () => document.getElementById('modal-pdf');
   const canvasEl  = () => document.getElementById('pdf-canvas');
@@ -62,6 +63,8 @@ const PDFViewer = (() => {
    * @returns {Promise<void>}
    */
   async function renderToCanvas(pdfDoc, pageNum, canvas, containerEl) {
+    if (!pdfDoc || typeof pdfDoc.getPage !== 'function') return; // null/destroyed guard
+    if (!Number.isFinite(pageNum) || pageNum < 1 || pageNum > pdfDoc.numPages) return; // page validation
     const page = await pdfDoc.getPage(pageNum);
     const containerWidth = containerEl.clientWidth;
     if (containerWidth <= 0) return; // container not laid out yet
@@ -251,7 +254,10 @@ const PDFViewer = (() => {
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('blur', onBlur);
 
+    let _destroyed = false;
+
     function destroy() {
+      _destroyed = true;
       containerEl.removeEventListener('touchstart', onTouchStart);
       containerEl.removeEventListener('touchmove', onTouchMove);
       containerEl.removeEventListener('touchend', onTouchEnd);
@@ -262,10 +268,10 @@ const PDFViewer = (() => {
       window.removeEventListener('blur', onBlur);
     }
 
-    function zoomInFn()  { setZoom(zoom * 1.25); }
-    function zoomOutFn() { setZoom(zoom / 1.25); }
+    function zoomInFn()  { if (!_destroyed) setZoom(zoom * 1.25); }
+    function zoomOutFn() { if (!_destroyed) setZoom(zoom / 1.25); }
 
-    return { destroy, resetZoom, getZoom: () => zoom, zoomIn: zoomInFn, zoomOut: zoomOutFn };
+    return { destroy, resetZoom: () => { if (!_destroyed) resetZoom(); }, getZoom: () => zoom, zoomIn: zoomInFn, zoomOut: zoomOutFn };
   }
 
   // ─── Modal-specific render (uses renderToCanvas + pending page) ──
@@ -276,6 +282,7 @@ const PDFViewer = (() => {
     _rendering = true;
     try {
       await renderToCanvas(_pdfDoc, num, canvasEl(), container());
+      if (!_pdfDoc) return; // closed while rendering
       if (_zpHandle) _zpHandle.resetZoom();
       const lbl = zoomLabel();
       if (lbl) lbl.textContent = '100%';
@@ -298,6 +305,7 @@ const PDFViewer = (() => {
     _pendingPage = null;
     _blobUrl     = url;
     _ownsBlobUrl = opts?.ownsBlobUrl || false;
+    const gen = ++_openGen; // track this open generation
 
     fileLabel().textContent = name || 'Chart';
     modal().classList.remove('hidden');
@@ -312,10 +320,13 @@ const PDFViewer = (() => {
     });
 
     try {
-      _pdfDoc = await pdfjsLib.getDocument(url).promise;
+      const doc = await pdfjsLib.getDocument(url).promise;
+      if (gen !== _openGen) { doc.destroy(); return; } // stale — user already opened another or closed
+      _pdfDoc = doc;
       _updateNav();
       await _renderPage(1);
     } catch (e) {
+      if (gen !== _openGen) return; // stale
       console.error('PDF load error', e);
       App.showToast('Failed to load PDF.');
       close();
