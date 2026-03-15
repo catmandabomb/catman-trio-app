@@ -29,11 +29,12 @@ const SHELL_ASSETS = [
   '/manifest.json',
 ];
 
-// Install: cache shell (skipWaiting only on explicit SKIP_WAITING message, not unconditionally)
+// Install: cache shell + skipWaiting so new SW activates immediately
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_ASSETS))
   );
+  self.skipWaiting();
 });
 
 // Activate: remove old caches (keep SONGS_CACHE and PDF_CACHE)
