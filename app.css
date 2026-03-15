@@ -1774,21 +1774,23 @@ textarea.form-input {
 .modal-pdf {
   max-width: 100%;
   width: 100%;
-  height: 90vh;
-  max-height: 90vh;
+  height: 100vh;
+  max-height: 100vh;
   padding: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 0;
 }
 
 .pdf-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .pdf-title {
@@ -1798,6 +1800,34 @@ textarea.form-input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 60px;
+}
+
+.pdf-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.pdf-zoom-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-zoom-btn svg { width: 14px; height: 14px; }
+
+.pdf-zoom-label {
+  font-size: 11px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
 }
 
 .pdf-nav {
@@ -1817,17 +1847,22 @@ textarea.form-input {
 
 #pdf-canvas-container {
   flex: 1;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 12px;
+  overflow: hidden;
+  position: relative;
   background: #111;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
+#pdf-canvas-container.zoomed { cursor: grab; }
+#pdf-canvas-container.zoomed:active { cursor: grabbing; }
+
 #pdf-canvas {
-  max-width: 100%;
+  display: block;
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  transform-origin: 0 0;
 }
 
 /* ═══════════════════════════════════════════
@@ -2604,6 +2639,13 @@ textarea.form-input {
   .list-subheader {
     padding-left: 30px;
   }
+  .modal-pdf {
+    height: 92vh;
+    max-height: 92vh;
+    width: 90vw;
+    max-width: 1200px;
+    border-radius: 12px;
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -2683,9 +2725,8 @@ textarea.form-input {
   margin-top: 4px;
 }
 
-/* Zoom: allow pinch-zoom in PDF viewer */
-#pdf-canvas-container,
-#modal-pdf { touch-action: pinch-zoom; }
+/* PDF viewer: touch handled by JS zoom/pan — override body manipulation */
+#modal-pdf { touch-action: none; }
 
 /* ═══════════════════════════════════════════
    OFFLINE QUEUE INDICATOR

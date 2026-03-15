@@ -267,7 +267,6 @@ const GitHub = (() => {
     try {
       const owner = encodeURIComponent(_owner());
       const repo  = encodeURIComponent(_repo());
-      // Replace raw owner/repo in path with encoded versions
       const safePath = path
         .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
 
@@ -281,6 +280,17 @@ const GitHub = (() => {
           ...(options.headers || {}),
         },
       });
+
+      // Handle rate limiting with Retry-After header
+      if (resp.status === 429 || (resp.status === 403 && resp.headers.get('retry-after'))) {
+        const retryAfter = parseInt(resp.headers.get('retry-after') || '60', 10);
+        console.warn(`GitHub rate limited, retry after ${retryAfter}s`);
+        if (_onRateLimitWarning) _onRateLimitWarning(`Rate limited — waiting ${retryAfter}s`);
+        clearTimeout(timeout);
+        await new Promise(r => setTimeout(r, Math.min(retryAfter * 1000, 120000)));
+        return _ghRequest(path, options);
+      }
+
       return resp;
     } catch (e) {
       if (e.name === 'AbortError') {
@@ -557,10 +567,26 @@ const GitHub = (() => {
       if (id !== undefined && id !== null) map.set(id, r);
     });
 
-    // Overlay local (local wins)
-    (localArr || []).forEach(r => {
-      const id = r.id;
-      if (id !== undefined && id !== null) map.set(id, r);
+    // Overlay local — field-level merge when both have the same record
+    (localArr || []).forEach(local => {
+      const id = local.id;
+      if (id === undefined || id === null) return;
+      const remote = map.get(id);
+      if (!remote) {
+        map.set(id, local); // new local record
+      } else {
+        // Field-level merge: use _ts to decide winner per-record,
+        // then merge fields from the newer into the older
+        const localTs  = local._ts || 0;
+        const remoteTs = remote._ts || 0;
+        if (localTs >= remoteTs) {
+          // Local is newer — start with remote, overlay local fields
+          map.set(id, { ...remote, ...local });
+        } else {
+          // Remote is newer — start with local, overlay remote fields
+          map.set(id, { ...local, ...remote });
+        }
+      }
     });
 
     // Apply deletions

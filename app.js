@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.78';
+  const APP_VERSION = 'v17.80';
 
   let _songs      = [];
   let _setlists   = [];
@@ -59,6 +59,38 @@ const App = (() => {
 
   // ─── Duplicate detection helpers ──────────────────────────
 
+  let _levWorker = null;
+  try { _levWorker = new Worker('levenshtein-worker.js'); } catch (_) {}
+
+  function _findSimilarSongsAsync(title, excludeId) {
+    if (!title) return Promise.resolve([]);
+    if (!_levWorker) return Promise.resolve(_findSimilarSongsSync(title, excludeId));
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(_findSimilarSongsSync(title, excludeId)), 2000);
+      _levWorker.onmessage = (e) => { clearTimeout(timeout); resolve(e.data.similar); };
+      _levWorker.postMessage({
+        title,
+        excludeId,
+        songs: _songs.map(s => ({ id: s.id, title: s.title })),
+      });
+    });
+  }
+
+  function _findSimilarSongsSync(title, excludeId) {
+    if (!title) return [];
+    const norm = title.trim().toLowerCase();
+    return _songs.filter(s => {
+      if (s.id === excludeId) return false;
+      const other = (s.title || '').trim().toLowerCase();
+      if (!other) return false;
+      if (norm === other) return true;
+      if (norm.length >= 4 && other.length >= 4 && Math.abs(norm.length - other.length) <= 3) {
+        return _levenshtein(norm, other) <= 2;
+      }
+      return false;
+    });
+  }
+
   function _levenshtein(a, b) {
     const la = a.length, lb = b.length;
     if (la === 0) return lb;
@@ -74,23 +106,6 @@ const App = (() => {
       }
     }
     return dp[la];
-  }
-
-  function _findSimilarSongs(title, excludeId) {
-    if (!title) return [];
-    const norm = title.trim().toLowerCase();
-    return _songs.filter(s => {
-      if (s.id === excludeId) return false;
-      const other = (s.title || '').trim().toLowerCase();
-      if (!other) return false;
-      // Exact case-insensitive match
-      if (norm === other) return true;
-      // Levenshtein distance ≤ 2 (only for titles of similar length to avoid false positives on short titles)
-      if (norm.length >= 4 && other.length >= 4) {
-        return _levenshtein(norm, other) <= 2;
-      }
-      return false;
-    });
   }
 
   // ─── Toast ─────────────────────────────────────────────────
@@ -191,8 +206,19 @@ const App = (() => {
 
   // ─── Data ──────────────────────────────────────────────────
 
+  const DATA_SCHEMA_VERSION = 1;
+
+  function _migrateSchema(data, type) {
+    const ver = parseInt(localStorage.getItem(`bb_schema_${type}`) || '0', 10);
+    if (ver >= DATA_SCHEMA_VERSION) return data;
+    // Future migrations go here as switch cases:
+    // if (ver < 2) { data.forEach(item => { ... }); }
+    try { localStorage.setItem(`bb_schema_${type}`, String(DATA_SCHEMA_VERSION)); } catch (_) {}
+    return data;
+  }
+
   function _loadLocal() {
-    try { return JSON.parse(localStorage.getItem('bb_songs') || '[]'); }
+    try { return _migrateSchema(JSON.parse(localStorage.getItem('bb_songs') || '[]'), 'songs'); }
     catch { return []; }
   }
 
@@ -439,7 +465,7 @@ const App = (() => {
   // ─── Setlists data ─────────────────────────────────────
 
   function _loadSetlistsLocal() {
-    try { return JSON.parse(localStorage.getItem('bb_setlists') || '[]'); }
+    try { return _migrateSchema(JSON.parse(localStorage.getItem('bb_setlists') || '[]'), 'setlists'); }
     catch { return []; }
   }
 
@@ -749,6 +775,12 @@ const App = (() => {
     // Quick-add to setlist
     container.querySelector('.btn-add-to-setlist')?.addEventListener('click', () => {
       _showSetlistPicker(song);
+    });
+
+    // Pre-fetch all chart PDFs eagerly (small files, prevents Drive contention with audio)
+    const chartDriveIds = (song.assets?.charts || []).map(c => c.driveId).filter(Boolean);
+    chartDriveIds.forEach(id => {
+      if (!_blobCache[id]) _getBlobUrl(id).catch(() => {});
     });
 
     // Chart buttons
@@ -1241,6 +1273,7 @@ const App = (() => {
 
       async function _doSaveSong() {
         _savingSongs = true;
+        song._ts = Date.now();
         try {
           if (_editIsNew) {
             _songs.push(song);
@@ -1256,8 +1289,8 @@ const App = (() => {
         }
       }
 
-      // Duplicate check
-      const similar = _findSimilarSongs(song.title, _editIsNew ? null : song.id);
+      // Duplicate check (async — offloaded to Web Worker)
+      const similar = await _findSimilarSongsAsync(song.title, _editIsNew ? null : song.id);
       if (similar.length > 0) {
         const names = similar.map(s => s.title).join(', ');
         Admin.showConfirm(
@@ -1589,9 +1622,20 @@ const App = (() => {
     _liveModeActive = true;
     _revokeBlobCache();
     Player.stopAll();
+    // Restore slide position if resuming same setlist
     let currentIdx = 0;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('bb_live_state') || 'null');
+      if (saved && saved.setlistId === setlist.id && saved.idx >= 0 && saved.idx < songs.length) {
+        currentIdx = saved.idx;
+      }
+    } catch (_) {}
     const _startTime = Date.now();
     let _clockInterval = null;
+
+    function _persistSlide() {
+      try { sessionStorage.setItem('bb_live_state', JSON.stringify({ setlistId: setlist.id, idx: currentIdx })); } catch (_) {}
+    }
 
     _showView('setlist-live');
     document.body.classList.add('live-mode-active');
@@ -1607,6 +1651,7 @@ const App = (() => {
     const container = document.getElementById('setlist-live-content');
 
     function _renderSlide() {
+      _persistSlide();
       const song = songs[currentIdx];
       container.innerHTML = `
         <div class="lm-header">
@@ -1654,6 +1699,7 @@ const App = (() => {
       if (!_liveModeActive) return; // prevent double-exit
       _liveModeActive = false;
       _exitLiveModeRef = null;
+      try { sessionStorage.removeItem('bb_live_state'); } catch (_) {}
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       document.body.classList.remove('live-mode-active');
       document.removeEventListener('fullscreenchange', _onFullscreenChange);
@@ -1911,6 +1957,7 @@ const App = (() => {
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
       _savingSetlists = true;
+      sl._ts = Date.now();
       try {
         sl.gigDate = document.getElementById('slf-gig-date').value || '';
         if (typeof sl.archived === 'undefined') sl.archived = false;
@@ -2634,7 +2681,7 @@ const App = (() => {
   }
 
   function _loadPracticeLocal() {
-    try { return JSON.parse(localStorage.getItem('bb_practice') || '[]'); }
+    try { return _migrateSchema(JSON.parse(localStorage.getItem('bb_practice') || '[]'), 'practice'); }
     catch { return []; }
   }
 
@@ -3260,6 +3307,7 @@ const App = (() => {
       p.name = document.getElementById('pf-name').value.trim();
       if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
       _savingPractice = true;
+      p._ts = Date.now();
       p.color = p.color || _hslFromName(p.name);
       const isNew = _editPersonaIsNew;
       if (isNew) {
@@ -3499,6 +3547,15 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Pre-fetch all chart PDFs eagerly (prevents Drive contention with audio)
+    songs.forEach(entry => {
+      const song = _songs.find(s => s.id === entry.songId);
+      if (!song) return;
+      (song.assets?.charts || []).forEach(c => {
+        if (c.driveId && !_blobCache[c.driveId]) _getBlobUrl(c.driveId).catch(() => {});
+      });
+    });
 
     // Auto-load all audio/charts since all items are expanded
     function _loadAccordionAssets(body) {

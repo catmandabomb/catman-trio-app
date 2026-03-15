@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="stylesheet" href="app.css?v=17.78" />
+  <link rel="stylesheet" href="app.css?v=17.80" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -162,6 +162,18 @@
     <div class="modal modal-pdf">
       <div class="pdf-toolbar">
         <span id="pdf-filename" class="pdf-title"></span>
+        <div class="pdf-zoom-controls">
+          <button id="pdf-zoom-out" class="icon-btn pdf-zoom-btn" aria-label="Zoom out">
+            <i data-lucide="minus"></i>
+          </button>
+          <span id="pdf-zoom-level" class="pdf-zoom-label">100%</span>
+          <button id="pdf-zoom-in" class="icon-btn pdf-zoom-btn" aria-label="Zoom in">
+            <i data-lucide="plus"></i>
+          </button>
+          <button id="pdf-zoom-reset" class="icon-btn pdf-zoom-btn" aria-label="Reset zoom" title="Reset zoom">
+            <i data-lucide="maximize-2"></i>
+          </button>
+        </div>
         <div class="pdf-nav">
           <button id="pdf-prev" class="icon-btn" aria-label="Prev page">
             <i data-lucide="chevron-left"></i>

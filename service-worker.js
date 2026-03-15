@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.78';
+const CACHE_NAME = 'catmantrio-v17.80';
 const SONGS_CACHE = 'catmantrio-songs';
 
 const SHELL_ASSETS = [
@@ -20,6 +20,7 @@ const SHELL_ASSETS = [
   '/player.js',
   '/admin.js',
   '/lucide.min.js',
+  '/levenshtein-worker.js',
   '/manifest.json',
 ];
 
