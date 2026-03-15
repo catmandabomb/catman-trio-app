@@ -137,16 +137,23 @@ const Admin = (() => {
 
     setTimeout(() => input.focus(), 50);
 
+    let _confirming = false;
     const confirm = async () => {
-      const ok = await checkPassword(input.value);
-      if (ok) {
-        overlay.classList.add('hidden');
-        cleanup();
-        onSuccess();
-      } else {
-        error.classList.remove('hidden');
-        input.value = '';
-        input.focus();
+      if (_confirming) return;
+      _confirming = true;
+      try {
+        const ok = await checkPassword(input.value);
+        if (ok) {
+          overlay.classList.add('hidden');
+          cleanup();
+          onSuccess();
+        } else {
+          error.classList.remove('hidden');
+          input.value = '';
+          input.focus();
+        }
+      } finally {
+        _confirming = false;
       }
     };
 

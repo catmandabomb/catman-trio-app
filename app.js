@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.77';
+  const APP_VERSION = 'v17.78';
 
   let _songs      = [];
   let _setlists   = [];
@@ -21,7 +21,9 @@ const App = (() => {
   let _activeSetlist = null;
   let _editSetlist   = null;
   let _editSetlistIsNew = false;
-  let _saving = false; // Double-click save guard
+  let _savingSongs = false;
+  let _savingSetlists = false;
+  let _savingPractice = false;
 
   // ─── Utility ──────────────────────────────────────────────
 
@@ -195,8 +197,8 @@ const App = (() => {
   }
 
   function _saveLocal(songs) {
-    localStorage.setItem('bb_songs', JSON.stringify(songs));
-    // Also push to service worker cache (separate, more resilient on iOS)
+    try { localStorage.setItem('bb_songs', JSON.stringify(songs)); }
+    catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'CACHE_SONGS', songs,
@@ -329,6 +331,11 @@ const App = (() => {
         if (JSON.stringify(songs) !== JSON.stringify(_songs)) dataChanged = true;
         _songs = songs;
         _saveLocal(songs);
+        // Prune stale key filters that no longer exist in data
+        if (_activeKeys.length) {
+          const validKeys = new Set(_songs.map(s => (s.key || '').trim()).filter(Boolean));
+          _activeKeys = _activeKeys.filter(k => validKeys.has(k));
+        }
       }
       if (setlists !== null) {
         if (JSON.stringify(setlists) !== JSON.stringify(_setlists)) dataChanged = true;
@@ -437,7 +444,8 @@ const App = (() => {
   }
 
   function _saveSetlistsLocal(setlists) {
-    localStorage.setItem('bb_setlists', JSON.stringify(setlists));
+    try { localStorage.setItem('bb_setlists', JSON.stringify(setlists)); }
+    catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'CACHE_SETLISTS', setlists,
@@ -539,6 +547,9 @@ const App = (() => {
 
   function _navigateBack() {
     Player.stopAll();
+    // Clean up live mode if active
+    if (_liveModeActive && _exitLiveModeRef) { _exitLiveModeRef(); return; }
+    document.body.classList.remove('live-mode-active');
     // Always clear practice mode body class when navigating away
     document.body.classList.remove('practice-mode-active');
     if (_navStack.length > 0) {
@@ -849,7 +860,7 @@ const App = (() => {
         if (!setlist.songs) setlist.songs = [];
         setlist.songs.push({ id: song.id, comment: '' });
         _saveSetlistsLocal(_setlists);
-        saveSetlists('Added to setlist');
+        saveSetlists();
         showToast('Added to ' + setlist.name);
         overlay.remove();
       });
@@ -1215,7 +1226,7 @@ const App = (() => {
 
     // Save
     document.getElementById('ef-save').addEventListener('click', async () => {
-      if (_saving) return;
+      if (_savingSongs) return;
       song.title    = document.getElementById('ef-title').value.trim();
       song.subtitle = document.getElementById('ef-subtitle').value.trim();
       song.key      = document.getElementById('ef-key').value.trim();
@@ -1229,17 +1240,20 @@ const App = (() => {
       if (!song.title) { showToast('Title is required.'); document.getElementById('ef-title').focus(); return; }
 
       async function _doSaveSong() {
-        _saving = true;
-        if (_editIsNew) {
-          _songs.push(song);
-        } else {
-          const idx = _songs.findIndex(s => s.id === song.id);
-          if (idx > -1) _songs[idx] = song;
+        _savingSongs = true;
+        try {
+          if (_editIsNew) {
+            _songs.push(song);
+          } else {
+            const idx = _songs.findIndex(s => s.id === song.id);
+            if (idx > -1) _songs[idx] = song;
+          }
+          await saveSongs();
+          _activeSong = null;
+          renderList();
+        } finally {
+          _savingSongs = false;
         }
-        await saveSongs();
-        _saving = false;
-        _activeSong = null;
-        renderList();
       }
 
       // Duplicate check
@@ -1560,7 +1574,11 @@ const App = (() => {
 
   // ─── SETLIST LIVE MODE ──────────────────────────────────
 
+  let _liveModeActive = false;
+  let _exitLiveModeRef = null; // stored so navigateBack can call it
+
   function _renderLiveMode(setlist) {
+    if (_liveModeActive) return; // double-entry guard
     const songs = (setlist.songs || []).map(entry => {
       const song = _songs.find(s => s.id === entry.id);
       return song ? { ...song, comment: entry.comment || '' } : null;
@@ -1568,6 +1586,7 @@ const App = (() => {
 
     if (songs.length === 0) return;
 
+    _liveModeActive = true;
     _revokeBlobCache();
     Player.stopAll();
     let currentIdx = 0;
@@ -1632,8 +1651,13 @@ const App = (() => {
     }
 
     function _exitLiveMode() {
+      if (!_liveModeActive) return; // prevent double-exit
+      _liveModeActive = false;
+      _exitLiveModeRef = null;
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       document.body.classList.remove('live-mode-active');
+      document.removeEventListener('fullscreenchange', _onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', _onFullscreenChange);
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitFullscreenElement) {
@@ -1644,6 +1668,16 @@ const App = (() => {
       container.removeEventListener('touchend', _onTouchEnd);
       renderSetlistDetail(setlist, true);
     }
+    _exitLiveModeRef = _exitLiveMode;
+
+    // Exit live mode when user leaves fullscreen via browser controls
+    function _onFullscreenChange() {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && _liveModeActive) {
+        _exitLiveMode();
+      }
+    }
+    document.addEventListener('fullscreenchange', _onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', _onFullscreenChange);
 
     // Keyboard navigation
     function _onKey(e) {
@@ -1873,23 +1907,26 @@ const App = (() => {
 
     // Save
     document.getElementById('slf-save').addEventListener('click', async () => {
-      if (_saving) return;
+      if (_savingSetlists) return;
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
-      _saving = true;
-      sl.gigDate = document.getElementById('slf-gig-date').value || '';
-      if (typeof sl.archived === 'undefined') sl.archived = false;
-      sl.updatedAt = new Date().toISOString();
-      if (_editSetlistIsNew) {
-        _setlists.push(sl);
-      } else {
-        const idx = _setlists.findIndex(s => s.id === sl.id);
-        if (idx > -1) _setlists[idx] = sl;
+      _savingSetlists = true;
+      try {
+        sl.gigDate = document.getElementById('slf-gig-date').value || '';
+        if (typeof sl.archived === 'undefined') sl.archived = false;
+        sl.updatedAt = new Date().toISOString();
+        if (_editSetlistIsNew) {
+          _setlists.push(sl);
+        } else {
+          const idx = _setlists.findIndex(s => s.id === sl.id);
+          if (idx > -1) _setlists[idx] = sl;
+        }
+        await saveSetlists();
+        _activeSetlist = null;
+        renderSetlists();
+      } finally {
+        _savingSetlists = false;
       }
-      await saveSetlists();
-      _saving = false;
-      _activeSetlist = null;
-      renderSetlists();
     });
 
     // Cancel
@@ -2602,7 +2639,8 @@ const App = (() => {
   }
 
   function _savePracticeLocal(data) {
-    localStorage.setItem('bb_practice', JSON.stringify(data));
+    try { localStorage.setItem('bb_practice', JSON.stringify(data)); }
+    catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
     }
@@ -2757,12 +2795,12 @@ const App = (() => {
     container.querySelectorAll('.persona-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (_saving) return;
+        if (_savingPractice) return;
         const p = _practice.find(x => x.id === btn.dataset.deletePersona);
         if (!p) return;
         Admin.showConfirm('Delete Persona', `Permanently delete "${esc(p.name || 'this persona')}" and all their practice lists?`, async () => {
-          if (_saving) return;
-          _saving = true;
+          if (_savingPractice) return;
+          _savingPractice = true;
           if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
           const backup = [..._practice];
           try {
@@ -2776,7 +2814,7 @@ const App = (() => {
             showToast('Delete failed.');
             renderPractice(true);
           } finally {
-            _saving = false;
+            _savingPractice = false;
           }
         });
       });
@@ -3088,10 +3126,10 @@ const App = (() => {
 
     // Wire delete practice list (all users)
     document.getElementById('btn-delete-practice-list')?.addEventListener('click', () => {
-      if (_saving) return;
+      if (_savingPractice) return;
       Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
-        if (_saving) return;
-        _saving = true;
+        if (_savingPractice) return;
+        _savingPractice = true;
         try {
           const pIdx = _practice.findIndex(p => p.id === persona.id);
           if (pIdx > -1) {
@@ -3109,7 +3147,7 @@ const App = (() => {
           console.error('Delete practice list failed', err);
           showToast('Delete failed.');
         } finally {
-          _saving = false;
+          _savingPractice = false;
         }
       });
     });
@@ -3218,10 +3256,10 @@ const App = (() => {
 
     // Save
     document.getElementById('pf-save').addEventListener('click', async () => {
-      if (_saving) return;
+      if (_savingPractice) return;
       p.name = document.getElementById('pf-name').value.trim();
       if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
-      _saving = true;
+      _savingPractice = true;
       p.color = p.color || _hslFromName(p.name);
       const isNew = _editPersonaIsNew;
       if (isNew) {
@@ -3231,7 +3269,7 @@ const App = (() => {
         if (idx > -1) _practice[idx] = p;
       }
       await savePractice(isNew ? 'Persona created.' : 'Persona saved.');
-      _saving = false;
+      _savingPractice = false;
       _activePersona = null;
       renderPractice();
     });
@@ -3353,10 +3391,10 @@ const App = (() => {
 
     // Save
     document.getElementById('pl-save').addEventListener('click', async () => {
-      if (_saving) return;
+      if (_savingPractice) return;
       pl.name = document.getElementById('pl-name').value.trim();
       if (!pl.name) { showToast('Name is required.'); document.getElementById('pl-name').focus(); return; }
-      _saving = true;
+      _savingPractice = true;
       // Update the practice list inside the persona
       const pIdx = _practice.findIndex(p => p.id === persona.id);
       if (pIdx > -1) {
@@ -3366,7 +3404,7 @@ const App = (() => {
         }
       }
       await savePractice();
-      _saving = false;
+      _savingPractice = false;
       // Navigate back to the updated list detail
       const updatedPersona = _practice.find(p => p.id === persona.id) || persona;
       const updatedPL = (updatedPersona.practiceLists || []).find(l => l.id === pl.id) || pl;
@@ -3783,6 +3821,36 @@ const App = (() => {
       await new Promise(r => setTimeout(r, 800));
       location.reload();
     });
+
+    // Pull-to-refresh (swipe down when at top of list view)
+    {
+      const appEl = document.getElementById('app');
+      let _ptrStartX = 0, _ptrStartY = 0, _ptrActive = false;
+      const PTR_THRESHOLD = 80;
+
+      function _getScrollTop() {
+        // .view.active is the actual scrollable element (not #app which is overflow:hidden)
+        const activeView = appEl.querySelector('.view.active');
+        return activeView ? activeView.scrollTop : 0;
+      }
+
+      appEl.addEventListener('touchstart', (e) => {
+        if (_view !== 'list' || _getScrollTop() > 5) return;
+        _ptrStartX = e.touches[0].clientX;
+        _ptrStartY = e.touches[0].clientY;
+        _ptrActive = true;
+      }, { passive: true });
+
+      appEl.addEventListener('touchend', (e) => {
+        if (!_ptrActive) return;
+        _ptrActive = false;
+        const dx = (e.changedTouches[0]?.clientX || 0) - _ptrStartX;
+        const dy = (e.changedTouches[0]?.clientY || 0) - _ptrStartY;
+        if (dy >= PTR_THRESHOLD && Math.abs(dx) < 40 && _getScrollTop() <= 5) {
+          document.getElementById('btn-refresh').click();
+        }
+      }, { passive: true });
+    }
 
     // Setlists button
     document.getElementById('btn-setlists').addEventListener('click', () => {

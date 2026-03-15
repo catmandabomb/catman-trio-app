@@ -95,6 +95,8 @@ const Player = (() => {
     // ─── A/B Loop (practice mode only) ───────────────────
     let loopA = null, loopB = null, loopCount = 0, loopActive = false;
 
+    let _loopTimeUpdate = null, _loopEnded = null;
+
     if (loopMode) {
       const loopSection = document.createElement('div');
       loopSection.className = 'loop-section';
@@ -173,7 +175,7 @@ const Player = (() => {
       // Set A / Set B buttons
       loopSection.querySelectorAll('.loop-set-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-          if (!audio.duration) return; // audio not loaded
+          if (!audio.duration || !isFinite(audio.duration)) return; // audio not loaded
           const t = _roundT(audio.currentTime);
           if (btn.dataset.point === 'a') {
             loopA = t;
@@ -215,23 +217,24 @@ const Player = (() => {
       });
 
       // Hook into timeupdate — add loop logic
-      audio.addEventListener('timeupdate', () => {
-        if (loopActive && audio.currentTime >= loopB) {
+      _loopTimeUpdate = () => {
+        if (loopActive && !audio.seeking && audio.currentTime >= loopB) {
           audio.currentTime = loopA;
           loopCount++;
           _updateLoopUI();
         }
-      });
-
+      };
       // Hook into ended — if loop active and B is near end, loop back
-      audio.addEventListener('ended', () => {
+      _loopEnded = () => {
         if (loopActive && loopB >= audio.duration - 0.5) {
           audio.currentTime = loopA;
           loopCount++;
           _updateLoopUI();
           audio.play().catch(() => {});
         }
-      });
+      };
+      audio.addEventListener('timeupdate', _loopTimeUpdate);
+      audio.addEventListener('ended', _loopEnded);
     }
 
     const playBtn  = el.querySelector('.audio-play-btn');
@@ -269,8 +272,13 @@ const Player = (() => {
         progress.value = audio.currentTime;
       }
       current.textContent = _formatTime(audio.currentTime);
-      // Colored progress fill (skip when loop overlay is active)
-      if (!loopActive) {
+      if (loopActive && audio.duration) {
+        const aPct = (loopA / audio.duration) * 100;
+        const bPct = (loopB / audio.duration) * 100;
+        const curPct = (audio.currentTime / audio.duration) * 100;
+        const playPct = Math.min(curPct, bPct);
+        progress.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
+      } else {
         const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
         progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
       }
@@ -397,6 +405,8 @@ const Player = (() => {
       el,
       audio,
       destroy() {
+        if (_loopTimeUpdate) audio.removeEventListener('timeupdate', _loopTimeUpdate);
+        if (_loopEnded) audio.removeEventListener('ended', _loopEnded);
         const wasActive = (_active === audio);
         try {
           audio.pause();

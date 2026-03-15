@@ -161,7 +161,7 @@ a { color: inherit; text-decoration: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--accent);
-  font-size: 15px;
+  font-size: 19px;
   flex: 1;
 }
 /* Two-line title mode (main page only) */
@@ -173,12 +173,12 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
 }
 .title-catman {
-  font-size: 20px;
+  font-size: 24px;
   display: block;
   white-space: nowrap;
 }
 .title-trio {
-  font-size: 19px;
+  font-size: 23px;
   display: block;
   text-align: center;
 }
@@ -2582,9 +2582,11 @@ textarea.form-input {
    Inner 70% of screen on wide viewports
 ═══════════════════════════════════════════ */
 @media (min-width: 1024px) {
+  :root { --topbar-h: 105px; }
   #topbar {
     padding-left: 15vw;
     padding-right: 15vw;
+    padding-bottom: 4px;
   }
   .view {
     padding-left: 15vw;
@@ -2594,10 +2596,10 @@ textarea.form-input {
     margin-left: 30px;
   }
   .title-catman {
-    font-size: 23px;
+    font-size: 27px;
   }
   .title-trio {
-    font-size: 22px;
+    font-size: 26px;
   }
   .list-subheader {
     padding-left: 30px;
