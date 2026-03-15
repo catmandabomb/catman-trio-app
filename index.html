@@ -19,10 +19,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=17.85" as="style">
+  <link rel="preload" href="app.css?v=17.86" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
   <link rel="preload" href="app.js" as="script">
-  <link rel="stylesheet" href="app.css?v=17.85" />
+  <link rel="stylesheet" href="app.css?v=17.86" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
@@ -32,16 +32,16 @@
 
   <header id="topbar">
     <div class="topbar-row-top">
-      <button id="btn-back" class="icon-btn hidden" aria-label="Back">
+      <button id="btn-back" class="icon-btn hidden" aria-label="Back" title="Go back">
         <i data-lucide="chevron-left"></i>
       </button>
       <div id="topbar-title"><span class="title-catman"><span style="color:rgb(215,175,90)">C</span><span style="color:rgb(220,184,105)">a</span><span style="color:rgb(225,193,120)">t</span><span style="color:rgb(230,202,135)">m</span><span style="color:rgb(235,211,150)">a</span><span style="color:rgb(240,220,165)">n</span></span><span class="title-trio"><span style="color:rgb(220,184,105)">T</span><span style="color:rgb(225,193,120)">r</span><span style="color:rgb(230,202,135)">i</span><span style="color:rgb(235,211,150)">o</span></span></div>
       <span id="admin-version-badge" class="admin-version-badge hidden"></span>
       <div class="topbar-right">
-        <button id="btn-practice" class="btn-ghost topbar-nav-btn">
+        <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists">
           <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
         </button>
-        <button id="btn-setlists" class="btn-ghost topbar-nav-btn">
+        <button id="btn-setlists" class="btn-ghost topbar-nav-btn" title="Setlists">
           <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
         </button>
       </div>
@@ -50,7 +50,7 @@
       <div id="topbar-actions"><span id="qi-badge" class="qi-badge hidden"></span></div>
       <div id="master-volume" class="master-volume">
         <i id="volume-icon" data-lucide="volume-2" style="width:14px;height:14px;opacity:0.6;flex-shrink:0;"></i>
-        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" />
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" title="Master volume" />
       </div>
     </div>
   </header>
@@ -66,7 +66,7 @@
       <div class="list-subheader" id="admin-bar">
         <span class="subheader-text">Repository for All<br>Catman Repertoire</span>
         <span id="admin-buttons" class="admin-buttons">
-          <button id="btn-edit-mode" class="text-btn">Edit</button>
+          <button id="btn-edit-mode" class="text-btn" title="Toggle edit mode">Edit</button>
           <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
             <i data-lucide="plus"></i>
           </button>
@@ -79,6 +79,9 @@
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
           <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
+          <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear search" title="Clear search">
+            <i data-lucide="x" style="width:14px;height:14px;"></i>
+          </button>
         </div>
         <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
           <i data-lucide="refresh-cw"></i>
@@ -160,8 +163,8 @@
       <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" />
       <div id="password-error" class="error-msg hidden">Incorrect password.</div>
       <div class="modal-actions">
-        <button id="btn-password-cancel" class="btn-secondary">Cancel</button>
-        <button id="btn-password-confirm" class="btn-primary">Unlock</button>
+        <button id="btn-password-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-password-confirm" class="btn-primary" title="Submit password">Unlock</button>
       </div>
     </div>
   </div>
@@ -172,11 +175,11 @@
       <div class="pdf-toolbar">
         <span id="pdf-filename" class="pdf-title"></span>
         <div class="pdf-zoom-controls">
-          <button id="pdf-zoom-out" class="icon-btn pdf-zoom-btn" aria-label="Zoom out">
+          <button id="pdf-zoom-out" class="icon-btn pdf-zoom-btn" aria-label="Zoom out" title="Zoom out">
             <i data-lucide="minus"></i>
           </button>
           <span id="pdf-zoom-level" class="pdf-zoom-label">100%</span>
-          <button id="pdf-zoom-in" class="icon-btn pdf-zoom-btn" aria-label="Zoom in">
+          <button id="pdf-zoom-in" class="icon-btn pdf-zoom-btn" aria-label="Zoom in" title="Zoom in">
             <i data-lucide="plus"></i>
           </button>
           <button id="pdf-zoom-reset" class="icon-btn pdf-zoom-btn" aria-label="Reset zoom" title="Reset zoom">
@@ -184,15 +187,15 @@
           </button>
         </div>
         <div class="pdf-nav">
-          <button id="pdf-prev" class="icon-btn" aria-label="Prev page">
+          <button id="pdf-prev" class="icon-btn" aria-label="Prev page" title="Previous page">
             <i data-lucide="chevron-left"></i>
           </button>
           <span id="pdf-page-info">1 / 1</span>
-          <button id="pdf-next" class="icon-btn" aria-label="Next page">
+          <button id="pdf-next" class="icon-btn" aria-label="Next page" title="Next page">
             <i data-lucide="chevron-right"></i>
           </button>
         </div>
-        <button id="pdf-close" class="icon-btn" aria-label="Close PDF">
+        <button id="pdf-close" class="icon-btn" aria-label="Close PDF" title="Close PDF">
           <i data-lucide="x"></i>
         </button>
       </div>
@@ -208,8 +211,8 @@
       <h2 id="confirm-title">Confirm</h2>
       <p id="confirm-message" class="muted"></p>
       <div class="modal-actions">
-        <button id="btn-confirm-cancel" class="btn-secondary">Cancel</button>
-        <button id="btn-confirm-ok" class="btn-danger">Delete</button>
+        <button id="btn-confirm-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-confirm-ok" class="btn-danger" title="Confirm">Delete</button>
       </div>
     </div>
   </div>
@@ -232,8 +235,8 @@
         <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" />
       </div>
       <div class="modal-actions">
-        <button id="btn-drive-cancel" class="btn-secondary">Cancel</button>
-        <button id="btn-drive-save" class="btn-primary">Save & Connect</button>
+        <button id="btn-drive-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-drive-save" class="btn-primary" title="Save credentials">Save & Connect</button>
       </div>
     </div>
   </div>
@@ -257,9 +260,9 @@
       </div>
       <div id="github-test-result" class="github-test-result hidden"></div>
       <div class="modal-actions">
-        <button id="btn-github-cancel" class="btn-secondary">Cancel</button>
-        <button id="btn-github-test" class="btn-secondary">Test</button>
-        <button id="btn-github-save" class="btn-primary">Save & Connect</button>
+        <button id="btn-github-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-github-test" class="btn-secondary" title="Test connection">Test</button>
+        <button id="btn-github-save" class="btn-primary" title="Save and connect">Save & Connect</button>
       </div>
     </div>
   </div>
@@ -268,10 +271,12 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
+  <script src="idb.js"></script>
   <script src="drive.js"></script>
   <script src="github.js"></script>
   <script src="pdf-viewer.js"></script>
   <script src="player.js"></script>
+  <script src="metronome.js"></script>
   <script src="admin.js"></script>
   <script src="app.js"></script>
 </body>

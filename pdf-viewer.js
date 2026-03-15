@@ -36,7 +36,7 @@ const PDFViewer = (() => {
   // ─── Phase 1: Page Render Cache ───────────────────────────
   // Cache stores pre-rendered canvases keyed by `${pdfId}-${pageNum}`
   const _renderCache = new Map(); // key: `${pdfId}-${pageNum}` → { canvas, displayW, displayH }
-  const MAX_RENDER_CACHE = 7;
+  const MAX_RENDER_CACHE = 12;
 
   // Assign stable IDs to pdfDoc objects via WeakMap (they have no built-in ID)
   const _pdfIdMap = new WeakMap();
@@ -69,6 +69,7 @@ const PDFViewer = (() => {
   let _ownsBlobUrl = false;
   let _zpHandle    = null;  // zoom/pan handle for modal
   let _openGen     = 0;     // generation counter for rapid open/close race
+  let _focusTrap   = null;  // focus trap handle for modal
 
   const modal     = () => document.getElementById('modal-pdf');
   const canvasEl  = () => document.getElementById('pdf-canvas');
@@ -105,7 +106,8 @@ const PDFViewer = (() => {
 
     const viewport = page.getViewport({ scale: 1 });
     const fitScale = containerWidth / viewport.width;
-    const renderScale = Math.min(fitScale * 2, 4); // render at 2x fit for crisp zoom
+    const dpr = window.devicePixelRatio || 1;
+    const renderScale = Math.min(fitScale * Math.max(dpr, 2), 6);
     const scaled = page.getViewport({ scale: renderScale });
 
     canvas.width  = scaled.width;
@@ -152,7 +154,8 @@ const PDFViewer = (() => {
 
     const viewport = page.getViewport({ scale: 1 });
     const fitScale = containerWidth / viewport.width;
-    const renderScale = Math.min(fitScale * 2, 4);
+    const dpr = window.devicePixelRatio || 1;
+    const renderScale = Math.min(fitScale * Math.max(dpr, 2), 6);
     const scaled = page.getViewport({ scale: renderScale });
 
     const displayW = viewport.width * fitScale;
@@ -295,7 +298,8 @@ const PDFViewer = (() => {
     const displayH = viewport.height * fitScale;
 
     // Step 1: Fast 1x render (visible immediately)
-    const lowScale = Math.min(fitScale * 1, 4);
+    const dpr = window.devicePixelRatio || 1;
+    const lowScale = Math.min(fitScale * dpr, 4);
     const lowVP = page.getViewport({ scale: lowScale });
 
     canvas.width = lowVP.width;
@@ -333,7 +337,8 @@ const PDFViewer = (() => {
         return;
       }
 
-      const hiScale = Math.min(fitScale * 2, 4);
+      const hiDpr = window.devicePixelRatio || 1;
+      const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
       const hiVP = hiPage.getViewport({ scale: hiScale });
 
       // Create offscreen canvas for the high-res render
@@ -656,6 +661,13 @@ const PDFViewer = (() => {
 
     fileLabel().textContent = name || 'Chart';
     modal().classList.remove('hidden');
+    // Feature 4: Focus trap for PDF modal
+    if (typeof Admin !== 'undefined' && Admin._trapFocus) {
+      _focusTrap = Admin._trapFocus(modal());
+    } else {
+      // Inline minimal focus trap if Admin._trapFocus not exposed
+      _focusTrap = null;
+    }
 
     // Attach zoom/pan to modal canvas
     if (_zpHandle) _zpHandle.destroy();
@@ -682,6 +694,7 @@ const PDFViewer = (() => {
 
   function close() {
     modal().classList.add('hidden');
+    if (_focusTrap) { _focusTrap.release(); _focusTrap = null; }
     if (_blobUrl && _ownsBlobUrl) { try { URL.revokeObjectURL(_blobUrl); } catch(_){} }
     _blobUrl = null;
     _ownsBlobUrl = false;

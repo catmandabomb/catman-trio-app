@@ -135,8 +135,7 @@ const Admin = (() => {
     input.value = '';
     error.classList.add('hidden');
     overlay.classList.remove('hidden');
-
-    setTimeout(() => input.focus(), 50);
+    const _ft = _trapFocus(overlay);
 
     let _confirming = false;
     const confirm = async () => {
@@ -146,6 +145,7 @@ const Admin = (() => {
         const ok = await checkPassword(input.value);
         if (ok) {
           overlay.classList.add('hidden');
+          if (_ft) _ft.release();
           cleanup();
           onSuccess();
         } else {
@@ -160,10 +160,14 @@ const Admin = (() => {
 
     const cancel = () => {
       overlay.classList.add('hidden');
+      if (_ft) _ft.release();
       cleanup();
     };
 
-    const keydown = (e) => { if (e.key === 'Enter') confirm(); };
+    const keydown = (e) => {
+      if (e.key === 'Enter') confirm();
+      if (e.key === 'Escape') cancel();
+    };
 
     document.getElementById('btn-password-confirm').addEventListener('click', confirm);
     document.getElementById('btn-password-cancel').addEventListener('click', cancel);
@@ -190,16 +194,20 @@ const Admin = (() => {
     okBtn.textContent = okLabel || 'Delete';
     okBtn.className = okLabel ? 'btn-primary' : 'btn-danger';
     overlay.classList.remove('hidden');
+    const _ft = _trapFocus(overlay);
 
-    const ok     = () => { overlay.classList.add('hidden'); cleanup(); if (typeof App !== 'undefined') App.hapticHeavy(); onConfirm(); };
-    const cancel = () => { overlay.classList.add('hidden'); cleanup(); };
+    const ok     = () => { overlay.classList.add('hidden'); if (_ft) _ft.release(); cleanup(); if (typeof App !== 'undefined') App.hapticHeavy(); onConfirm(); };
+    const cancel = () => { overlay.classList.add('hidden'); if (_ft) _ft.release(); cleanup(); };
+    const keydown = (e) => { if (e.key === 'Escape') cancel(); };
 
     document.getElementById('btn-confirm-ok').addEventListener('click', ok);
     document.getElementById('btn-confirm-cancel').addEventListener('click', cancel);
+    document.addEventListener('keydown', keydown);
 
     function cleanup() {
       document.getElementById('btn-confirm-ok').removeEventListener('click', ok);
       document.getElementById('btn-confirm-cancel').removeEventListener('click', cancel);
+      document.removeEventListener('keydown', keydown);
       _confirmCleanup = null;
     }
     _confirmCleanup = cleanup;
@@ -216,6 +224,7 @@ const Admin = (() => {
     document.getElementById('drive-client-id').value = cfg.clientId;
     document.getElementById('drive-folder-id').value = cfg.folderId;
     overlay.classList.remove('hidden');
+    const _ft = _trapFocus(overlay);
 
     const save = () => {
       Drive.saveConfig({
@@ -224,11 +233,12 @@ const Admin = (() => {
         folderId: document.getElementById('drive-folder-id').value,
       });
       overlay.classList.add('hidden');
+      if (_ft) _ft.release();
       cleanup();
       if (onSave) onSave();
     };
 
-    const cancel = () => { overlay.classList.add('hidden'); cleanup(); };
+    const cancel = () => { overlay.classList.add('hidden'); if (_ft) _ft.release(); cleanup(); };
 
     document.getElementById('btn-drive-save').addEventListener('click', save);
     document.getElementById('btn-drive-cancel').addEventListener('click', cancel);
@@ -266,6 +276,7 @@ const Admin = (() => {
     resultEl.className = 'github-test-result hidden';
     resultEl.textContent = '';
     overlay.classList.remove('hidden');
+    const _ft = _trapFocus(overlay);
     setTimeout(() => patInput.focus(), 50);
 
     let _testing = false;
@@ -321,6 +332,7 @@ const Admin = (() => {
       // Publish encrypted PAT to Drive for other devices to auto-detect
       GitHub.publishPat().catch(e => console.warn('Could not publish PAT', e));
       overlay.classList.add('hidden');
+      if (_ft) _ft.release();
       cleanup();
       if (onSave) onSave();
     };
@@ -329,6 +341,7 @@ const Admin = (() => {
       // Restore original config (test may have temporarily changed it)
       GitHub.saveConfig({ pat: origPat, owner: origOwner, repo: origRepo });
       overlay.classList.add('hidden');
+      if (_ft) _ft.release();
       cleanup();
     };
 
@@ -357,6 +370,38 @@ const Admin = (() => {
     _ghCleanup = cleanup;
   }
 
+  // ─── Focus trap utility (Feature 4) ──────────────────────
+
+  function _trapFocus(modalEl) {
+    if (!modalEl) return null;
+    const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const previousFocus = document.activeElement;
+    const handler = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = [...modalEl.querySelectorAll(focusableSelector)].filter(el => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    modalEl.addEventListener('keydown', handler);
+    // Focus first focusable element
+    const firstFocusable = modalEl.querySelector(focusableSelector);
+    if (firstFocusable) setTimeout(() => firstFocusable.focus(), 50);
+    return {
+      release() {
+        modalEl.removeEventListener('keydown', handler);
+        if (previousFocus && previousFocus.focus) {
+          try { previousFocus.focus(); } catch (_) {}
+        }
+      }
+    };
+  }
+
   return {
     isEditMode,
     enterEditMode,
@@ -371,6 +416,7 @@ const Admin = (() => {
     showConfirm,
     showDriveModal,
     showGitHubModal,
+    _trapFocus,
   };
 
 })();

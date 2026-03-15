@@ -1,0 +1,807 @@
+================================================================================
+  CUTTING-EDGE WEB TECHNOLOGY RESEARCH — Catman Trio PWA
+  Compiled: 2026-03-15 | Version: v17.86
+  Focus: Bleeding-edge / "ahead of date" technologies across all app tech areas
+================================================================================
+
+TABLE OF CONTENTS
+─────────────────
+  I.   PDF RENDERING & VIEWING
+  II.  AUDIO PLAYBACK & PROCESSING
+  III. PWA DESIGN, FRAMEWORK & APIS
+  IV.  STORAGE, ENCRYPTION & SYNC
+  V.   UNIFIED PRIORITY MATRIX
+
+
+================================================================================
+I. PDF RENDERING & VIEWING
+================================================================================
+
+1. WebGPU-Accelerated PDF Rendering
+────────────────────────────────────
+Status: Experimental / Frontier territory
+
+WebGPU is the successor to WebGL, providing modern GPU access (Vulkan, Metal, D3D12).
+
+Browser Support:
+  - Chrome 113+ (stable since April 2023)
+  - Edge 113+ (same Chromium base)
+  - Firefox: behind flag (dom.webgpu.enabled), Nightly only
+  - Safari: partial in Technology Preview; NOT stable
+  - NO iOS support (WebKit-only on iOS)
+
+PDF Rendering Applicability:
+  - No production WebGPU PDF renderer exists yet — genuinely bleeding-edge
+  - Key opportunity: PDF vector paths (Bezier curves, fills, strokes) via compute shaders
+  - Vello (formerly piet-gpu, Linebender project) is the most relevant: GPU-first 2D
+    vector renderer in Rust using compute shaders, targets WebGPU via wgpu
+  - Theoretical pipeline: Parse PDF -> extract vector ops -> Vello/WebGPU compute -> rasterize
+
+Verdict: NOT YET. No iOS support kills it for PWA. Monitor for 2026-2027.
+
+
+2. PDF.js Alternatives & Next-Gen Viewers
+──────────────────────────────────────────
+
+PDF.js (Mozilla) — Still the King:
+  - Current: 4.x series
+  - Recent: ES modules internally, OffscreenCanvas support, improved fonts/annotations
+  - ~500KB core, ~2.5MB full viewer
+  - Best option for vanilla JS PWAs
+
+PDFium WASM (Google's C++ engine compiled to WebAssembly):
+  - Same engine as Chrome's native PDF viewer
+  - Projects: nicbarker/pdfium-wasm on GitHub
+  - Renders to pixel buffer in WASM, blits to canvas
+  - Advantages: Handles edge cases PDF.js struggles with
+  - Disadvantages: Large WASM binary (~10MB, ~3MB Brotli), no built-in UI/text layer
+  - License: Apache 2.0
+  - Works everywhere including mobile Safari
+
+MuPDF WASM (Artifex):
+  - mupdf.js — official WASM build
+  - Very high fidelity, ~8MB binary
+  - License: AGPL (toxic) or commercial — AVOID for this project
+
+Comparison Table:
+  | Engine       | Size     | Fidelity  | Text Select | License    | WASM? |
+  |-------------|----------|-----------|-------------|------------|-------|
+  | PDF.js      | ~500KB   | Good      | Yes (native)| Apache 2.0 | No    |
+  | PDFium WASM | ~10MB    | Excellent | Manual layer| Apache 2.0 | Yes   |
+  | MuPDF WASM  | ~8MB     | Excellent | Manual layer| AGPL/Comm  | Yes   |
+  | PSPDFKit    | ~15MB    | Excellent | Yes         | Commercial | Yes   |
+
+
+3. OffscreenCanvas for PDF Rendering
+─────────────────────────────────────
+Status: Baseline Widely Available (March 2023). ALL browsers including iOS Safari 16.4+.
+
+THE SINGLE MOST IMPACTFUL UPGRADE AVAILABLE TODAY.
+
+How it works:
+  1. Main thread creates <canvas>, calls canvas.transferControlToOffscreen()
+  2. Transfers OffscreenCanvas to Web Worker via postMessage
+  3. Worker runs PDF.js rendering (CPU-heavy) directly to that canvas
+  4. Result appears on screen without blocking main thread AT ALL
+
+Pattern:
+  // Main thread
+  const canvas = document.getElementById('pdf-canvas');
+  const offscreen = canvas.transferControlToOffscreen();
+  const worker = new Worker('pdf-render-worker.js');
+  worker.postMessage({ canvas: offscreen, pdfData }, [offscreen]);
+
+  // Worker
+  importScripts('pdf.min.js');
+  onmessage = async (e) => {
+    const pdf = await pdfjsLib.getDocument({ data: e.data.pdfData }).promise;
+    const page = await pdf.getPage(1);
+    const ctx = e.data.canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  };
+
+Caveat: Once transferred, main thread cannot draw to that canvas.
+
+
+4. Incremental / Streaming PDF Rendering
+─────────────────────────────────────────
+
+Linearized PDFs:
+  - Web-optimized PDF with first page at file start
+  - Page 1 renders immediately while rest streams in
+  - Create with: qpdf --linearize
+  - BIGGEST "FREE" PERFORMANCE WIN — pre-process your PDFs
+
+PDF.js Streaming:
+  - Already supports HTTP Range requests and progressive loading
+  - Can begin rendering page 1 before full download
+  - Google Drive supports range requests
+
+ReadableStream + PDF:
+  - Streams API pipe fetch response into incremental PDF parser
+  - PDF.js has basic support for this pattern
+
+
+5. Experimental Browser APIs for Document Rendering
+────────────────────────────────────────────────────
+
+View Transitions API (Chrome 111+, Safari 18+):
+  - Smooth animated transitions between PDF pages
+  - document.startViewTransition() for native-feeling page flips
+
+content-visibility: auto (Baseline 2024):
+  - Pages outside viewport skip layout/paint entirely
+  - Massive performance for multi-page scroll mode
+
+CSS contain: strict:
+  - Prevents layout thrashing when one page re-renders
+
+scheduler.postTask() (Chrome 94+):
+  - Priority-based task scheduling
+  - Visible page at user-blocking priority, pre-render at background
+
+createImageBitmap():
+  - Off-main-thread image decode/resize
+  - For WASM: render to ImageData in worker, create ImageBitmap, transfer
+
+Canvas2D Hints:
+  - { desynchronized: true } — skip compositor sync, reduce latency by 16ms
+  - { willReadFrequently: true } — keep in CPU memory, avoid GPU readback
+
+
+6. GPU-Accelerated Text Rendering
+──────────────────────────────────
+
+Current: Canvas fillText() uses CPU text shaping — bottleneck on text-heavy pages
+
+Approaches:
+  - SDF (Signed Distance Field) fonts: pre-compute distance fields, GPU fragment shader
+    Used by Mapbox GL JS. Production-proven.
+  - MSDF (Multi-channel SDF): sharper corners than SDF
+  - Glyph atlas caching: rasterize each glyph once, cache in GPU texture, composite
+  - Vello: GPU compute shaders for glyph outlines (requires WebGPU)
+
+Practical: SDF is proven but massive engineering effort for PDF. Better to use
+OffscreenCanvas to move existing rendering off main thread.
+
+
+7. Vector vs Rasterization Advances
+────────────────────────────────────
+
+Current (PDF.js): Canvas2D rasterization. Re-renders on zoom.
+
+Vello/GPU-Compute Future:
+  - GPU processes all paths in parallel
+  - 10,000-path page: 50ms CPU -> 2ms GPU
+  - "Render at any zoom in real-time" becomes feasible
+  - Status: works in native Rust, WebGPU port not production-ready
+
+Pathfinder (Mozilla Research):
+  - GPU vector rendering via WebGL (not just WebGPU)
+  - More mature than Vello for web, but development slowed
+
+SVG Rendering: PDF.js REMOVED this backend. Too slow for complex pages. Avoid.
+
+
+PDF TIER SUMMARY
+────────────────
+Tier 1 — Do Now:
+  1. OffscreenCanvas + Web Worker rendering (biggest win, universal support)
+  2. content-visibility: auto (free perf for multi-page)
+  3. Linearized PDFs (pre-process for instant first-page)
+  4. createImageBitmap() for efficient WASM output transfer
+
+Tier 2 — Near-Term (6-12 months):
+  5. PDFium WASM (replace PDF.js engine, keep text layer overlay)
+  6. scheduler.postTask() (priority rendering)
+  7. View Transitions API (smooth page-flip animations)
+
+Tier 3 — Future (12-24 months):
+  8. WebGPU compute-shader rendering (when Safari ships stable WebGPU)
+  9. WASM Threads (multi-threaded PDFium, requires COOP/COEP headers)
+
+Avoid:
+  - MuPDF WASM (AGPL license)
+  - SVG rendering path (too slow)
+  - WebGPU today (no iOS)
+
+
+================================================================================
+II. AUDIO PLAYBACK & PROCESSING
+================================================================================
+
+1. AudioWorklet — The Foundation
+────────────────────────────────
+Status: Baseline Widely Available (April 2021). All browsers including iOS Safari 14.5+.
+
+What's cutting-edge now:
+  - WASM inside AudioWorklet: C/C++/Rust DSP at near-native speed on audio thread
+  - SharedArrayBuffer ring buffer: lock-free data exchange between threads
+    (requires Cross-Origin-Isolation headers — breaks Google Drive/Fonts)
+  - AudioWorkletProcessor.port for non-realtime comms
+
+For Catman Trio: AudioWorklet is THE correct metronome implementation.
+Sample-accurate, immune to main-thread jank.
+
+
+2. WebCodecs API — AudioDecoder/AudioEncoder
+─────────────────────────────────────────────
+Status: Limited. Chrome 94+, Edge 94+, Safari 16.4+ (partial). NO FIREFOX.
+
+Enables streaming decode without loading entire file into memory.
+Supported codecs: MP3, AAC, Opus, FLAC, Vorbis, PCM (varies by browser).
+
+Verdict: Not viable as primary path (Firefox gap). Good progressive enhancement.
+
+
+3. Web Audio API v2 / Next-Gen
+──────────────────────────────
+No formal "v2" spec. Ongoing incremental updates:
+  - setSinkId() on AudioContext (Chrome 110+): route to specific output device
+  - AudioSinkInfo: query output devices
+  - Render quantum size control: under discussion (not shipped)
+  - audioWorklet renderCapacity: proposed
+
+For Catman Trio: setSinkId() useful for routing metronome to headphones.
+
+
+4. Web MIDI API
+───────────────
+Status: Limited. Chrome/Edge only. NO Firefox, NO Safari.
+
+Could enable: MIDI controller input, foot pedals for page turns, MIDI clock sync.
+Verdict: Not viable cross-platform. Progressive enhancement only.
+
+
+5. Codec Support Update
+────────────────────────
+  | Codec     | Chrome | Firefox | Safari | Notes                          |
+  |-----------|--------|---------|--------|--------------------------------|
+  | MP3       | Yes    | Yes     | Yes    | Universal baseline             |
+  | AAC/M4A   | Yes    | Yes     | Yes    | Universal, best for iOS        |
+  | Opus      | Yes    | Yes     | Yes*   | *Safari 17+ — NOW UNIVERSAL    |
+  | FLAC      | Yes    | Yes     | Yes    | Lossless, large files          |
+  | Vorbis    | Yes    | Yes     | No     | Safari gap                     |
+  | WAV/PCM   | Yes    | Yes     | Yes    | Universal, huge files          |
+
+KEY SHIFT: Opus is now universal (Safari 17+).
+Opus at 96-128kbps rivals MP3 320kbps at 1/3 the file size.
+Optimal format for new recordings: Opus in WebM container.
+
+
+6. Metronome Precision — Full Spectrum
+──────────────────────────────────────
+
+Level 1 — Classic lookahead (current implementation):
+  setTimeout on main thread, schedule OscillatorNode.start(time) ahead.
+  Works but vulnerable to main-thread jank.
+
+Level 2 — AudioWorklet tick generator (RECOMMENDED):
+  process() called every 128 samples (~2.9ms at 44.1kHz).
+  Maintain sample counter, generate click at beat boundary.
+  IMMUNE to main thread jank. Post message for UI flash.
+
+Level 3 — AudioWorklet + pre-rendered click buffer:
+  Transfer custom click AudioBuffer to worklet, copy samples on beat.
+  Custom sounds with sample-perfect timing.
+
+Level 4 — WASM DSP in AudioWorklet:
+  Rust/C++ metronome compiled to WASM. Overkill for metronome alone.
+
+Level 5 — scheduler.postTask() (Chrome):
+  Priority scheduling for Level 1 pattern. Not a replacement for AudioWorklet.
+
+BEST PRACTICE 2025: Level 2 or 3 in AudioWorklet.
+Pattern:
+  1. AudioWorkletProcessor counts samples, generates/copies click at beat boundaries
+  2. Posts { type: 'beat', beat: n } to main thread via port.postMessage
+  3. Main thread flashes UI indicator
+  4. Audio perfectly timed; UI flash ~5-10ms variance (perceptually fine)
+
+
+7. Audio Streaming / MediaSource Extensions
+────────────────────────────────────────────
+Limited availability. Safari uses ManagedMediaSource (17+).
+Recent: MediaSource in Workers, FLAC in MSE, low-latency MSE.
+
+Verdict: Overkill for song-length files (3-7 min). Only relevant for very long
+recordings or live streaming.
+
+
+AUDIO TIER SUMMARY
+──────────────────
+High value, implement now:
+  1. AudioWorklet metronome (sample-accurate, universal since 2021)
+  2. Opus audio format (smaller files, better quality, now universal)
+  3. setSinkId() (route metronome to headphones — Chrome/Edge progressive)
+
+Medium value, progressive enhancement:
+  4. WebCodecs AudioDecoder (streaming decode — no Firefox)
+  5. OffscreenCanvas for visualizations (if main thread stressed)
+  6. scheduler.postTask() (Chrome only)
+
+Not worth it yet:
+  - SharedArrayBuffer (COEP/COOP breaks Google Drive + Fonts)
+  - Web MIDI (no Safari/Firefox)
+  - MSE for audio (overkill for songs)
+  - WASM in AudioWorklet (overkill for metronome)
+
+
+================================================================================
+III. PWA DESIGN, FRAMEWORK & APIS
+================================================================================
+
+1. View Transitions API Level 2 (Cross-Document)
+─────────────────────────────────────────────────
+Level 2 in active draft (Dec 2025). SPA transitions: Chrome 111+, Firefox 128+, Safari 18+.
+
+Level 2 adds:
+  - Cross-document (MPA) transitions via @view-transition CSS at-rule
+  - pageswap/pagereveal events
+  - view-transition-class for grouped styling
+  - ::view-transition-group/image-pair/old/new pseudo-elements
+
+SPA usage (your use case):
+  document.startViewTransition(() => {
+    updateTheDOM();
+  });
+
+  ::view-transition-old(root) { animation: fade-out 0.3s; }
+  ::view-transition-new(root) { animation: fade-in 0.3s; }
+
+Named transitions via view-transition-name enable shared-element morph animations.
+
+EXTREMELY PRACTICAL for list-to-detail and detail-to-edit view switching.
+
+
+2. Navigation API
+─────────────────
+Status: Baseline January 2026 — all major browsers.
+
+GAME-CHANGER for SPA routing. Replaces window.history:
+
+  navigation.addEventListener("navigate", (event) => {
+    const url = new URL(event.destination.url);
+    event.intercept({
+      async handler() {
+        const content = await loadContent(url.pathname);
+        renderView(content);
+      }
+    });
+  });
+
+  navigation.navigate("/songs/123", { state: { tab: "lyrics" } });
+  navigation.back();
+  navigation.entries(); // full history stack
+
+Key advantages:
+  - Single event catches ALL navigation (links, back/forward, programmatic)
+  - Returns { committed, finished } promises
+  - Structured clone state (not just JSON)
+
+REPLACES your manual click handlers + history.pushState with one event handler.
+
+
+3. Popover API
+──────────────
+Status: Baseline January 2025 — all browsers.
+
+  <button popovertarget="menu">Menu</button>
+  <div id="menu" popover="auto">...</div>
+
+Features: Top-layer rendering (no z-index battles), ::backdrop, toggle events,
+:popover-open pseudo-class. Three types: auto (light dismiss), manual, hint.
+
+ELIMINATES custom modal/dropdown JS. Your action menus, confirmations, toasts.
+
+
+4. CSS Anchor Positioning
+─────────────────────────
+Status: Baseline January 2026 — all browsers.
+
+  .trigger { anchor-name: --my-btn; }
+  .tooltip {
+    position: fixed;
+    position-anchor: --my-btn;
+    left: anchor(right);
+    top: anchor(top);
+  }
+
+REPLACES JS-based tooltip/menu positioning with pure CSS.
+
+
+5. CSS @starting-style + transition-behavior
+─────────────────────────────────────────────
+Status: Baseline August 2024 — all browsers.
+
+SOLVES animating elements from display: none:
+
+  [popover] {
+    opacity: 0; transform: translateY(-10px);
+    transition: opacity 0.3s, transform 0.3s,
+                display 0.3s allow-discrete, overlay 0.3s allow-discrete;
+  }
+  [popover]:popover-open { opacity: 1; transform: translateY(0); }
+  @starting-style {
+    [popover]:popover-open { opacity: 0; transform: translateY(-10px); }
+  }
+
+No more JS requestAnimationFrame hacks for enter animations.
+
+
+6. CSS Scroll-Driven Animations
+────────────────────────────────
+Status: Chrome 115+, Edge 115+, Firefox landed, Safari in progress.
+
+  .song-card {
+    animation: reveal linear;
+    animation-timeline: view();
+    animation-range: entry 0% entry 100%;
+  }
+
+Reveal-on-scroll, parallax, scroll progress — all pure CSS, no JS.
+
+
+7. Screen Wake Lock API
+───────────────────────
+Status: Baseline March 2025 — all browsers.
+
+  let wakeLock = await navigator.wakeLock.request("screen");
+
+IMMEDIATELY USEFUL: keep screen on during practice sessions / reading charts.
+
+
+8. Badging API
+──────────────
+Status: Limited (Chrome/Edge stable, partial Firefox).
+
+  navigator.setAppBadge(3);
+  navigator.clearAppBadge();
+
+
+9. Background Sync (One-Off)
+─────────────────────────────
+Status: Chrome/Edge only.
+
+  const reg = await navigator.serviceWorker.ready;
+  await reg.sync.register("sync-songs");
+  // SW handles: self.addEventListener("sync", ...)
+
+IDEAL for write queue — sync when connectivity returns. But Chrome-only.
+
+
+10. File Handling API + Launch Handler
+──────────────────────────────────────
+Status: Experimental, Chromium only.
+
+In manifest.json:
+  "file_handlers": [{ "action": "/", "accept": { "application/pdf": [".pdf"] } }]
+  "launch_handler": { "client_mode": "focus-existing" }
+
+Open PDFs/MP3s directly into app from file manager. Progressive enhancement.
+
+
+11. PWA Install Improvements
+─────────────────────────────
+Manifest screenshots enable app-store-like install experience:
+
+  "screenshots": [{
+    "src": "screenshots/mobile.webp",
+    "sizes": "750x1334",
+    "form_factor": "narrow",
+    "label": "Song list view"
+  }]
+
+Chrome shows scrollable screenshot gallery in install dialog.
+Also: display_override, scope_extensions, handle_links.
+
+
+12. Emerging Vanilla JS Patterns
+─────────────────────────────────
+
+TC39 Signals Proposal (Stage 1):
+  const count = new Signal.State(0);
+  const doubled = new Signal.Computed(() => count.get() * 2);
+  Not in browsers yet. Watch.
+
+Navigation API as Router:
+  One event handler replaces entire router library.
+
+Import Maps (Baseline):
+  <script type="importmap">
+  { "imports": { "lucide": "./lucide.min.js" } }
+  </script>
+  Native module resolution without bundlers.
+
+Custom Elements:
+  class SongCard extends HTMLElement { ... }
+  customElements.define("song-card", SongCard);
+
+Temporal API (Stage 3):
+  Will replace date libraries. Not in browsers yet, polyfillable.
+
+Baseline 2024-2026 Summary:
+  - 2024: @starting-style, Declarative Shadow DOM
+  - Jan 2025: Popover API, Set methods
+  - Mar 2025: Screen Wake Lock, Promise.withResolvers()
+  - Jan 2026: Navigation API, CSS Anchor Positioning
+
+
+PWA TIER SUMMARY
+────────────────
+Immediate wins (Baseline, all browsers):
+  1. View Transitions API — animate view switches
+  2. @starting-style + transition-behavior — animate modals/toasts
+  3. Popover API — replace custom dropdown/modal JS
+  4. Screen Wake Lock — keep screen on during practice
+  5. CSS Anchor Positioning — position tooltips without JS
+  6. Navigation API — modern SPA routing (Baseline Jan 2026)
+
+Progressive enhancement (Chromium):
+  7. Background Sync — sync write queue on reconnect
+  8. File Handling API — open PDFs from file manager
+  9. Badging API — counts on app icon
+  10. Scroll-driven Animations — reveal effects
+
+Manifest quick wins:
+  11. Screenshots — richer install dialog
+  12. launch_handler — focus existing window
+
+Watch list:
+  - TC39 Signals, Temporal API, Speculation Rules
+
+
+================================================================================
+IV. STORAGE, ENCRYPTION & SYNC
+================================================================================
+
+1. Origin Private File System (OPFS)
+─────────────────────────────────────
+Status: Baseline March 2023 — all browsers.
+
+Private, origin-scoped virtual file system. No permission prompts. Sync access
+in Web Workers via createSyncAccessHandle().
+
+  const root = await navigator.storage.getDirectory();
+  const fh = await root.getFileHandle('data.bin', { create: true });
+
+  // Main thread: async
+  const w = await fh.createWritable(); await w.write(data); await w.close();
+
+  // Worker: sync (MUCH faster)
+  const sh = await fh.createSyncAccessHandle();
+  sh.write(buffer, { at: offset }); sh.flush(); sh.close();
+
+Use cases: SQLite-WASM on OPFS, crash-resilient write buffer, large blob cache.
+No 5MB limit (subject to overall quota).
+
+
+2. Storage Buckets API
+──────────────────────
+Status: Chrome 122+ only. No Firefox/Safari.
+
+Named buckets with independent eviction policies:
+  const bucket = await navigator.storageBuckets.open('critical-data', {
+    persisted: true, durability: 'strict', quota: 50 * 1024 * 1024
+  });
+
+Verdict: Chrome-only. Design with concept in mind, use navigator.storage.persist().
+
+
+3. Web Locks API
+────────────────
+Status: Baseline March 2022 — all browsers.
+
+Named async locks for cross-tab coordination:
+
+  // Leader election (only one tab syncs)
+  await navigator.locks.request('sync-leader', { ifAvailable: true }, async lock => {
+    if (!lock) return; // another tab is leader
+    await runSyncLoop();
+  });
+
+  // Exclusive write lock
+  await navigator.locks.request('write-queue', async lock => {
+    await flushWriteQueue();
+  });
+
+VERY HIGH value. Eliminates race conditions between tabs for write queue.
+Use for: leader election, exclusive write locks, shared read locks.
+
+
+4. Compression Streams API
+───────────────────────────
+Status: Baseline May 2023 — all browsers.
+
+Native gzip compression/decompression. Zero dependencies:
+
+  // Compress before encryption
+  const compressed = new Blob([data]).stream()
+    .pipeThrough(new CompressionStream('gzip'));
+
+  // Chain: data -> compress -> encrypt -> push to GitHub
+  async function compressThenEncrypt(jsonString, aesKey, iv) {
+    const compressed = await new Response(
+      new Blob([jsonString]).stream().pipeThrough(new CompressionStream('gzip'))
+    ).arrayBuffer();
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, compressed);
+  }
+
+QUICK WIN: JSON compresses 60-80%. Reduces GitHub data branch size dramatically.
+
+
+5. WebCrypto Advances — X25519 / Ed25519
+──────────────────────────────────────────
+Status: Chrome 113, Firefox 130, Safari 17.
+
+Modern elliptic curve crypto. Ed25519 for signatures, X25519 for key agreement.
+
+X25519 enables end-to-end encrypted key exchange between devices WITHOUT a server:
+
+  // User A generates keypair
+  const { publicKey, privateKey } = await crypto.subtle.generateKey(
+    { name: 'X25519' }, true, ['deriveKey']
+  );
+  // User B derives shared AES key using A's public key
+  const sharedKey = await crypto.subtle.deriveKey(
+    { name: 'X25519', public: userAPublicKey },
+    userBPrivateKey,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+
+PERFECT for future per-user auth: serverless encrypted key exchange.
+
+
+6. CRDTs for Conflict-Free Offline Sync
+────────────────────────────────────────
+
+Yjs (recommended):
+  - Most popular CRDT framework for JS
+  - ~15KB gzipped, UMD/ESM builds (no build tools needed)
+  - Shared types: Y.Map, Y.Array, Y.Text
+  - y-indexeddb for local persistence
+  - Used by Notion, Jupyter, BlockSuite
+
+Automerge:
+  - Rust core -> WASM (~120KB)
+  - JSON-like CRDT, built-in sync protocol
+  - Requires WASM loading
+
+Pattern for GitHub-backed CRDT sync:
+  Device writes -> CRDT state (IndexedDB/OPFS)
+                -> encode binary diff
+                -> encrypt with AES-GCM
+                -> push to GitHub data branch
+  Other device  -> pull encrypted diffs
+                -> decrypt -> merge (automatic conflict resolution)
+
+ELIMINATES manual field-level merge conflict resolution entirely.
+Two users editing same practice list merge cleanly without custom logic.
+
+
+7. Service Worker Advances
+──────────────────────────
+
+Static Routing API (Chrome 123+):
+  Declare routing rules at install time, bypass SW boot for matching requests.
+  Eliminates ~50-200ms SW boot latency for cache-first assets.
+  Degrades gracefully. Progressive enhancement.
+
+Navigation Preload (Baseline 2023):
+  Browser starts network request while SW boots. Eliminates serial waterfall.
+
+
+8. Background Fetch API
+───────────────────────
+Status: Chrome/Edge only. No Safari.
+
+Downloads that survive tab closure and connectivity loss:
+  const bgFetch = await sw.backgroundFetch.fetch('audio-files', urls, {
+    title: 'Downloading setlist audio', downloadTotal: 60 * 1024 * 1024
+  });
+
+Verdict: Chrome-only kills it for iOS. Watch for Safari adoption.
+
+
+9. Content-Addressable Storage (CAS) Patterns
+──────────────────────────────────────────────
+Architectural pattern (no API needed):
+
+  Store data keyed by hash of content (like Git internally).
+  Benefits: deduplication, immutable = cacheable forever, integrity verification,
+  Merkle trees for efficient sync.
+
+  async function store(data, key) {
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+    const hash = bufToHex(await crypto.subtle.digest('SHA-256', encrypted));
+    await opfs.write(hash, encrypted);
+    return hash; // content address
+  }
+
+Combined with CRDTs: only changed data pushed, both sides verify integrity.
+
+
+10. Emerging Sync Architecture Patterns
+─────────────────────────────────────────
+
+Pattern A — Git-as-Database with CRDTs:
+  OPFS (local) -> Yjs CRDT -> Compress -> Encrypt -> GitHub data branch
+
+Pattern B — X25519 Key Exchange for Multi-User:
+  Users publish X25519 public keys to GitHub (unencrypted)
+  Each derives shared AES key via X25519 + own private key
+  No server ever sees plaintext or private keys
+
+Pattern C — OPFS + SQLite-WASM:
+  wa-sqlite on OPFS sync access handle
+  Full SQL queries offline, CRDT sync layer for deltas
+
+
+STORAGE TIER SUMMARY
+────────────────────
+Immediate high-value:
+  1. Web Locks API — tab coordination + leader election (Baseline 2022)
+  2. Compression Streams — reduce GitHub data size 60-80% (Baseline 2023)
+  3. OPFS — crash-resilient write buffer (Baseline 2023)
+
+Medium-term architecture:
+  4. Yjs CRDTs — replace manual merge logic (mature library)
+  5. X25519 key exchange — serverless E2E encryption (for per-user auth)
+  6. OPFS + SQLite-WASM — local persistence layer
+
+Progressive enhancement:
+  7. SW Static Routing — faster cache hits (Chrome-only, graceful fallback)
+  8. Background Sync — sync on reconnect (Chrome-only)
+  9. CAS patterns — incremental adoption with hash-based cache keys
+
+
+================================================================================
+V. UNIFIED PRIORITY MATRIX — ALL TECH AREAS
+================================================================================
+
+TIER 1: IMPLEMENT NOW (Baseline, all browsers, high impact)
+────────────────────────────────────────────────────────────
+ #  | Technology                  | Area     | Effort | Impact
+ 1  | OffscreenCanvas PDF render  | PDF      | Medium | Very High
+ 2  | AudioWorklet metronome      | Audio    | Medium | Very High
+ 3  | Web Locks API               | Storage  | Low    | High
+ 4  | Compression Streams         | Storage  | Low    | Medium
+ 5  | View Transitions API        | PWA      | Low    | High
+ 6  | @starting-style CSS         | PWA      | Low    | Medium
+ 7  | Popover API                 | PWA      | Medium | High
+ 8  | Screen Wake Lock            | PWA      | Low    | Medium
+ 9  | Navigation API              | PWA      | Medium | High
+ 10 | Opus audio format           | Audio    | Low    | Medium
+ 11 | OPFS write buffer           | Storage  | Medium | High
+
+TIER 2: NEAR-TERM UPGRADE (6-12 months)
+────────────────────────────────────────
+ 12 | PDFium WASM                 | PDF      | High   | High
+ 13 | Yjs CRDTs                   | Storage  | High   | Very High
+ 14 | CSS Anchor Positioning      | PWA      | Low    | Medium
+ 15 | Scroll-driven Animations    | PWA      | Low    | Low
+ 16 | scheduler.postTask()        | PDF/Audio| Low    | Medium
+ 17 | setSinkId() audio routing   | Audio    | Low    | Medium
+ 18 | X25519 key exchange         | Storage  | Medium | High
+ 19 | Manifest screenshots        | PWA      | Low    | Low
+
+TIER 3: FUTURE / EXPERIMENTAL (12-24 months)
+─────────────────────────────────────────────
+ 20 | WebGPU PDF rendering        | PDF      | Very High | Very High
+ 21 | WASM Threads (PDFium)       | PDF      | High   | High
+ 22 | OPFS + SQLite-WASM          | Storage  | High   | High
+ 23 | TC39 Signals                | PWA      | -      | High
+ 24 | Temporal API                | PWA      | -      | Low
+
+DO NOT ADOPT
+─────────────
+  - MuPDF WASM (AGPL license)
+  - SharedArrayBuffer (COEP/COOP breaks Google Drive + Fonts)
+  - WebTransport (requires HTTP/3 server, no Safari)
+  - Shared Storage API (ad-tech, deprecated)
+  - Web MIDI (no Safari/Firefox)
+  - Speculation Rules (MPA only, not relevant for SPA)
+
+================================================================================
+END OF REPORT
+================================================================================

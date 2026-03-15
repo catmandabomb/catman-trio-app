@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.85';
+  const APP_VERSION = 'v17.86';
 
   let _songs      = [];
   let _setlists   = [];
@@ -358,6 +358,9 @@ const App = (() => {
   function _saveLocal(songs) {
     try { localStorage.setItem('bb_songs', JSON.stringify(songs)); }
     catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      IDB.saveSongs(songs).catch(e => console.warn('IDB save songs failed', e));
+    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'CACHE_SONGS', songs,
@@ -391,16 +394,31 @@ const App = (() => {
    * Load songs instantly: try localStorage first, then SW cache fallback.
    */
   async function loadSongsInstant() {
+    // Try IDB first (primary storage)
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try {
+        const idbSongs = await IDB.loadSongs();
+        if (idbSongs && idbSongs.length > 0) {
+          _songs = _migrateSchema(idbSongs, 'songs');
+          return;
+        }
+      } catch (e) { console.warn('IDB load songs failed', e); }
+    }
+    // Fall back to localStorage
     const local = _loadLocal();
     if (local.length > 0) {
       _songs = local;
+      // Backfill IDB from localStorage
+      if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+        IDB.saveSongs(local).catch(() => {});
+      }
       return;
     }
-    // localStorage empty — try service worker cache
+    // Last resort: service worker cache
     const swSongs = await _loadFromSWCache();
     if (swSongs && swSongs.length > 0) {
       _songs = swSongs;
-      _saveLocal(swSongs); // repopulate localStorage
+      _saveLocal(swSongs);
     }
   }
 
@@ -605,6 +623,9 @@ const App = (() => {
   function _saveSetlistsLocal(setlists) {
     try { localStorage.setItem('bb_setlists', JSON.stringify(setlists)); }
     catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      IDB.saveSetlists(setlists).catch(e => console.warn('IDB save setlists failed', e));
+    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'CACHE_SETLISTS', setlists,
@@ -631,11 +652,27 @@ const App = (() => {
   }
 
   async function loadSetlistsInstant() {
+    // Try IDB first (primary storage)
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try {
+        const idbSetlists = await IDB.loadSetlists();
+        if (idbSetlists && idbSetlists.length > 0) {
+          _setlists = _migrateSchema(idbSetlists, 'setlists');
+          return;
+        }
+      } catch (e) { console.warn('IDB load setlists failed', e); }
+    }
+    // Fall back to localStorage
     const local = _loadSetlistsLocal();
     if (local.length > 0) {
       _setlists = local;
+      // Backfill IDB from localStorage
+      if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+        IDB.saveSetlists(local).catch(() => {});
+      }
       return;
     }
+    // Last resort: service worker cache
     const swSetlists = await _loadSetlistsFromSWCache();
     if (swSetlists && swSetlists.length > 0) {
       _setlists = swSetlists;
@@ -676,11 +713,17 @@ const App = (() => {
     const swap = () => {
       document.querySelectorAll('.view').forEach(v => {
         v.classList.remove('active');
-        v.removeAttribute('aria-current');
       });
       const el = document.getElementById(`view-${name}`);
-      if (el) { el.classList.add('active'); el.scrollTop = 0; el.setAttribute('aria-current', 'page'); }
+      if (el) { el.classList.add('active'); el.scrollTop = 0; }
       _view = name;
+      // Feature 5: aria-current on active nav button
+      document.querySelectorAll('.topbar-nav-btn').forEach(btn => btn.removeAttribute('aria-current'));
+      if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
+        document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
+      } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
+        document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
+      }
     };
     if (document.startViewTransition) {
       try { document.startViewTransition(swap); } catch (_) { swap(); }
@@ -708,6 +751,7 @@ const App = (() => {
   }
 
   function _navigateBack() {
+    if (typeof Metronome !== 'undefined' && Metronome.isPlaying()) Metronome.stop();
     Player.stopAll();
     // Clean up live mode if active
     if (_liveModeActive && _exitLiveModeRef) { _exitLiveModeRef(); return; }
@@ -787,10 +831,21 @@ const App = (() => {
     const pinned = _activeTags.filter(t => allTags.includes(t));
     const unpinned = allTags.filter(t => !_activeTags.includes(t));
     const orderedTags = [...pinned, ...unpinned];
-    tagBar.innerHTML = orderedTags.map(t =>
+    const hasActiveFilters = _activeTags.length > 0 || _activeKeys.length > 0;
+    const clearChipHtml = hasActiveFilters ? '<button class="tag-filter-chip clear-chip" id="tag-clear-all-chip">Clear</button>' : '';
+    tagBar.innerHTML = clearChipHtml + orderedTags.map(t =>
       `<button class="tag-filter-chip ${_activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`
     ).join('');
-    tagBar.querySelectorAll('.tag-filter-chip').forEach(btn => {
+    document.getElementById('tag-clear-all-chip')?.addEventListener('click', () => {
+      _activeTags = []; _activeKeys = [];
+      _searchText = '';
+      const si = document.getElementById('search-input');
+      if (si) si.value = '';
+      const sc = document.getElementById('search-clear');
+      if (sc) sc.classList.add('hidden');
+      renderList();
+    });
+    tagBar.querySelectorAll('.tag-filter-chip:not(.clear-chip)').forEach(btn => {
       btn.addEventListener('click', () => {
         const tag = btn.dataset.tag;
         const idx = _activeTags.indexOf(tag);
@@ -838,8 +893,33 @@ const App = (() => {
     empty.classList.add('hidden');
     noResults.classList.add('hidden');
 
-    if (_songs.length === 0)   { empty.classList.remove('hidden');     return; }
-    if (filtered.length === 0) { noResults.classList.remove('hidden'); return; }
+    if (_songs.length === 0) {
+      // Context-aware empty state
+      if (!GitHub.isConfigured() && !Drive.isConfigured()) {
+        empty.innerHTML = '<p id="empty-title">Welcome to Catman Trio</p><p id="empty-sub" class="muted">Connect to GitHub to sync your songs and data.</p><button class="empty-action-btn" id="empty-setup-btn">Setup GitHub</button>';
+        empty.classList.remove('hidden');
+        empty.querySelector('#empty-setup-btn')?.addEventListener('click', () => Admin.showGitHubModal(() => { _syncAllFromDrive(true); }));
+      } else {
+        empty.innerHTML = '<p id="empty-title">No songs found</p><p id="empty-sub" class="muted">Try syncing to fetch your data.</p><button class="empty-action-btn" id="empty-sync-btn">Sync Now</button>';
+        empty.classList.remove('hidden');
+        empty.querySelector('#empty-sync-btn')?.addEventListener('click', () => { _syncAllFromDrive(true); });
+      }
+      return;
+    }
+    if (filtered.length === 0) {
+      noResults.innerHTML = '<p>No results.</p><p class="muted">Try a different search or filter.</p>' +
+        (_searchText || _activeTags.length || _activeKeys.length ? '<button class="empty-action-btn" id="empty-clear-btn">Clear all filters</button>' : '');
+      noResults.classList.remove('hidden');
+      noResults.querySelector('#empty-clear-btn')?.addEventListener('click', () => {
+        _searchText = ''; _activeTags = []; _activeKeys = [];
+        const si = document.getElementById('search-input');
+        if (si) si.value = '';
+        const sc = document.getElementById('search-clear');
+        if (sc) sc.classList.add('hidden');
+        renderList();
+      });
+      return;
+    }
 
     filtered.forEach((song, i) => {
       const card = document.createElement('div');
@@ -2099,18 +2179,38 @@ const App = (() => {
       <div class="lm-jump-overlay hidden">
         <div class="lm-jump-list"></div>
       </div>
-      <div class="lm-page-wrapper">
-        <div class="lm-canvas-area hidden">
-          <canvas class="lm-chart-canvas"></canvas>
-          <div class="lm-chart-overlay"></div>
+      <div class="lm-carousel">
+        <div class="lm-slide" data-slot="0">
+          <div class="lm-slide-chart hidden">
+            <canvas class="lm-slide-canvas"></canvas>
+          </div>
+          <div class="lm-slide-meta hidden"></div>
+          <div class="lm-slide-loading hidden">
+            <div class="lm-loading-spinner"></div>
+            <div class="lm-loading-text">Loading chart…</div>
+          </div>
         </div>
-        <div class="lm-metadata-slide hidden">
-          <div class="lm-body"></div>
+        <div class="lm-slide" data-slot="1">
+          <div class="lm-slide-chart hidden">
+            <canvas class="lm-slide-canvas"></canvas>
+          </div>
+          <div class="lm-slide-meta hidden"></div>
+          <div class="lm-slide-loading hidden">
+            <div class="lm-loading-spinner"></div>
+            <div class="lm-loading-text">Loading chart…</div>
+          </div>
         </div>
-        <div class="lm-loading-slide hidden">
-          <div class="lm-loading-spinner"></div>
-          <div class="lm-loading-text">Loading chart…</div>
+        <div class="lm-slide" data-slot="2">
+          <div class="lm-slide-chart hidden">
+            <canvas class="lm-slide-canvas"></canvas>
+          </div>
+          <div class="lm-slide-meta hidden"></div>
+          <div class="lm-slide-loading hidden">
+            <div class="lm-loading-spinner"></div>
+            <div class="lm-loading-text">Loading chart…</div>
+          </div>
         </div>
+        <div class="lm-chart-overlay"></div>
       </div>
       <div class="lm-nav">
         <button class="lm-nav-btn lm-prev" aria-label="Previous">
@@ -2123,16 +2223,15 @@ const App = (() => {
     `;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    const pageWrapper    = container.querySelector('.lm-page-wrapper');
-    const canvasArea     = container.querySelector('.lm-canvas-area');
-    const chartCanvas    = container.querySelector('.lm-chart-canvas');
+    const carousel       = container.querySelector('.lm-carousel');
+    const slideDoms      = Array.from(container.querySelectorAll('.lm-slide'));
+    let slots            = [slideDoms[0], slideDoms[1], slideDoms[2]]; // [prev, current, next]
     const chartOverlay   = container.querySelector('.lm-chart-overlay');
-    const metadataSlide  = container.querySelector('.lm-metadata-slide');
-    const metadataBody   = container.querySelector('.lm-metadata-slide .lm-body');
-    const loadingSlide   = container.querySelector('.lm-loading-slide');
     const progressEl     = container.querySelector('.lm-progress');
     const prevBtn        = container.querySelector('.lm-prev');
     const nextBtn        = container.querySelector('.lm-next');
+    let _currentChartArea = slots[1].querySelector('.lm-slide-chart');
+    let _currentCanvas    = slots[1].querySelector('.lm-slide-canvas');
 
     // Wire buttons
     prevBtn.addEventListener('click', () => _goPage(-1));
@@ -2180,7 +2279,9 @@ const App = (() => {
       const targetPageIdx = _pages.findIndex(p => p.songIdx === targetSongIdx);
       if (targetPageIdx >= 0 && targetPageIdx !== currentPageIdx) {
         currentPageIdx = targetPageIdx;
-        _renderCurrentPage();
+        _updateSlots();
+        _checkSongBoundary();
+        _persistPage();
       }
       _closeJumpPicker();
     });
@@ -2194,67 +2295,90 @@ const App = (() => {
     let _lastRenderedSongIdx = -1;
     let _isAnimating = false;
 
-    function _goPage(delta, animate) {
-      if (_isAnimating) return;
-      const newIdx = currentPageIdx + delta;
-      if (newIdx < 0 || newIdx >= _pages.length) return;
-      haptic.light();
-      if (animate !== false) {
-        _slideTransition(delta > 0 ? 'left' : 'right', () => {
-          currentPageIdx = newIdx;
-          _renderCurrentPage();
-        });
+    function _renderPageIntoSlide(slide, pageIdx) {
+      const page = _pages[pageIdx];
+      const chartArea = slide.querySelector('.lm-slide-chart');
+      const canvas = slide.querySelector('.lm-slide-canvas');
+      const metaArea = slide.querySelector('.lm-slide-meta');
+      const loadArea = slide.querySelector('.lm-slide-loading');
+
+      slide.dataset.pageIdx = pageIdx;
+
+      if (!page) {
+        // No page (edge) — show empty black
+        chartArea.classList.add('hidden');
+        metaArea.classList.add('hidden');
+        loadArea.classList.add('hidden');
+        return Promise.resolve();
+      }
+
+      chartArea.classList.toggle('hidden', page.type !== 'chart');
+      metaArea.classList.toggle('hidden', page.type !== 'metadata');
+      loadArea.classList.toggle('hidden', page.type !== 'loading');
+
+      if (page.type === 'chart') {
+        return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea)
+          .catch(err => {
+            console.error('Live mode chart render error', err);
+            if (_pages[pageIdx] === page) {
+              _pages[pageIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
+              _renderPageIntoSlide(slide, pageIdx);
+            }
+          });
+      } else if (page.type === 'metadata') {
+        const song = page.song;
+        metaArea.innerHTML = `
+          <div class="lm-song-num">${page.songIdx + 1}</div>
+          <div class="lm-song-title">${esc(song.title)}</div>
+          ${song.subtitle ? `<div class="lm-song-subtitle">${esc(song.subtitle)}</div>` : ''}
+          <div class="lm-song-meta">
+            ${song.key ? `<span class="lm-meta-item">${esc(song.key)}</span>` : ''}
+            ${song.bpm ? `<span class="lm-meta-item">${esc(String(song.bpm))} BPM</span>` : ''}
+            ${song.timeSig ? `<span class="lm-meta-item">${esc(song.timeSig)}</span>` : ''}
+          </div>
+          ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
+          ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
+        `;
+        return Promise.resolve();
+      }
+      return Promise.resolve();
+    }
+
+    function _updateSlots() {
+      // Carousel always shows the middle slot (index 1)
+      // Position: translateX(-100%) shows slots[1]
+      carousel.style.transition = 'none';
+      carousel.style.transform = 'translateX(-100%)';
+
+      // Render current page into center slot
+      _renderPageIntoSlide(slots[1], currentPageIdx);
+
+      // Render prev page into left slot (or empty if at start)
+      if (currentPageIdx > 0) {
+        _renderPageIntoSlide(slots[0], currentPageIdx - 1);
       } else {
-        currentPageIdx = newIdx;
-        _renderCurrentPage();
+        _renderPageIntoSlide(slots[0], -1);
       }
+
+      // Render next page into right slot (or empty if at end)
+      if (currentPageIdx < _pages.length - 1) {
+        _renderPageIntoSlide(slots[2], currentPageIdx + 1);
+      } else {
+        _renderPageIntoSlide(slots[2], -1);
+      }
+
+      // Re-attach zoom/pan to the current center slide
+      if (_zpHandle) _zpHandle.destroy();
+      _currentChartArea = slots[1].querySelector('.lm-slide-chart');
+      _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
+      _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+
+      _updateProgress();
     }
 
-    function _slideTransition(direction, onMid) {
-      _isAnimating = true;
-      const slideOut = direction === 'left' ? '-100%' : '100%';
-      const slideIn  = direction === 'left' ? '100%' : '-100%';
-
-      // Slide current page out
-      pageWrapper.style.transition = 'transform 0.2s ease-in';
-      pageWrapper.style.transform = `translateX(${slideOut})`;
-
-      function _afterSlideOut() {
-        pageWrapper.removeEventListener('transitionend', _afterSlideOut);
-        // Render new page off-screen on the opposite side
-        pageWrapper.style.transition = 'none';
-        pageWrapper.style.transform = `translateX(${slideIn})`;
-        onMid();
-        // Force reflow before animating in
-        void pageWrapper.offsetWidth;
-        pageWrapper.style.transition = 'transform 0.2s ease-out';
-        pageWrapper.style.transform = 'translateX(0)';
-
-        function _afterSlideIn() {
-          pageWrapper.removeEventListener('transitionend', _afterSlideIn);
-          pageWrapper.style.transition = '';
-          pageWrapper.style.transform = '';
-          _isAnimating = false;
-        }
-        pageWrapper.addEventListener('transitionend', _afterSlideIn, { once: true });
-        // Safety timeout in case transitionend doesn't fire
-        setTimeout(() => { if (_isAnimating) { _afterSlideIn(); } }, 500);
-      }
-      pageWrapper.addEventListener('transitionend', _afterSlideOut, { once: true });
-      // Safety timeout
-      setTimeout(() => {
-        if (_isAnimating && pageWrapper.style.transform.includes(slideOut)) {
-          _afterSlideOut();
-        }
-      }, 500);
-    }
-
-    function _renderCurrentPage() {
-      _persistPage();
+    function _updateProgress() {
       const page = _pages[currentPageIdx];
       if (!page) return;
-
-      // Update progress
       const songNum = page.songIdx + 1;
       const totalSongs = _songEntries.length;
       if (page.type === 'chart') {
@@ -2262,58 +2386,88 @@ const App = (() => {
       } else {
         progressEl.textContent = `Song ${songNum}/${totalSongs}`;
       }
-
-      // Update nav buttons
       prevBtn.disabled = currentPageIdx === 0;
       nextBtn.disabled = currentPageIdx === _pages.length - 1;
+    }
 
-      // Show appropriate panel
-      canvasArea.classList.toggle('hidden', page.type !== 'chart');
-      metadataSlide.classList.toggle('hidden', page.type !== 'metadata');
-      loadingSlide.classList.toggle('hidden', page.type !== 'loading');
+    function _goPage(delta, animate) {
+      if (_isAnimating) return;
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) _zpHandle.resetZoom();
+      const newIdx = currentPageIdx + delta;
+      if (newIdx < 0 || newIdx >= _pages.length) return;
+      haptic.light();
 
-      if (page.type === 'chart') {
-        _renderChartPage(page);
-      } else if (page.type === 'metadata') {
-        _renderMetadataPage(page);
+      if (animate === false) {
+        currentPageIdx = newIdx;
+        _updateSlots();
+        _checkSongBoundary();
+        _persistPage();
+        return;
       }
 
-      // Show overlay at song boundaries or first page
+      // Animated transition using the pre-rendered adjacent slide
+      _isAnimating = true;
+      const targetX = delta > 0 ? '-200%' : '0%'; // slide left or right
+
+      carousel.style.transition = 'transform 0.25s ease-out';
+      carousel.style.transform = `translateX(${targetX})`;
+
+      function _afterSnap() {
+        carousel.removeEventListener('transitionend', _afterSnap);
+        _isAnimating = false;
+
+        // Recycle slides: the slide that moved off-screen becomes the new opposite edge
+        if (delta > 0) {
+          // Moved left (next): [prev][current][next] → [current][next][recycled]
+          const recycled = slots.shift(); // old prev
+          slots.push(recycled); // becomes new next
+          currentPageIdx = newIdx;
+          carousel.insertBefore(recycled, chartOverlay);
+        } else {
+          // Moved right (prev): [prev][current][next] → [recycled][prev][current]
+          const recycled = slots.pop(); // old next
+          slots.unshift(recycled); // becomes new prev
+          currentPageIdx = newIdx;
+          carousel.insertBefore(recycled, slots[1]);
+        }
+
+        // Reset position to show center (no transition)
+        carousel.style.transition = 'none';
+        carousel.style.transform = 'translateX(-100%)';
+
+        // Re-attach zoom/pan to the new center slide
+        if (_zpHandle) _zpHandle.destroy();
+        _currentChartArea = slots[1].querySelector('.lm-slide-chart');
+        _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
+        _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+
+        // Pre-render the new adjacent page into the recycled slot
+        if (delta > 0 && currentPageIdx < _pages.length - 1) {
+          _renderPageIntoSlide(slots[2], currentPageIdx + 1);
+        } else if (delta > 0) {
+          _renderPageIntoSlide(slots[2], -1);
+        }
+        if (delta < 0 && currentPageIdx > 0) {
+          _renderPageIntoSlide(slots[0], currentPageIdx - 1);
+        } else if (delta < 0) {
+          _renderPageIntoSlide(slots[0], -1);
+        }
+
+        _updateProgress();
+        _checkSongBoundary();
+        _persistPage();
+      }
+
+      carousel.addEventListener('transitionend', _afterSnap, { once: true });
+      setTimeout(() => { if (_isAnimating) _afterSnap(); }, 500);
+    }
+
+    function _checkSongBoundary() {
+      const page = _pages[currentPageIdx];
+      if (!page) return;
       const isNewSong = page.songIdx !== _lastRenderedSongIdx;
       _lastRenderedSongIdx = page.songIdx;
-      if (isNewSong) {
-        _showOverlay(page.song);
-      }
-    }
-
-    function _renderChartPage(page) {
-      const capturedIdx = currentPageIdx;
-      PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, chartCanvas, canvasArea).then(() => {
-        if (capturedIdx === currentPageIdx && _zpHandle) _zpHandle.resetZoom();
-      }).catch(err => {
-        console.error('Live mode chart render error', err);
-        // Fallback: convert to metadata page — only if we're still on the same page
-        if (_pages[capturedIdx] === page) {
-          _pages[capturedIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
-          if (capturedIdx === currentPageIdx) _renderCurrentPage();
-        }
-      });
-    }
-
-    function _renderMetadataPage(page) {
-      const song = page.song;
-      metadataBody.innerHTML = `
-        <div class="lm-song-num">${page.songIdx + 1}</div>
-        <div class="lm-song-title">${esc(song.title)}</div>
-        ${song.subtitle ? `<div class="lm-song-subtitle">${esc(song.subtitle)}</div>` : ''}
-        <div class="lm-song-meta">
-          ${song.key ? `<span class="lm-meta-item">${esc(song.key)}</span>` : ''}
-          ${song.bpm ? `<span class="lm-meta-item">${esc(String(song.bpm))} BPM</span>` : ''}
-          ${song.timeSig ? `<span class="lm-meta-item">${esc(song.timeSig)}</span>` : ''}
-        </div>
-        ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
-        ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
-      `;
+      if (isNewSong) _showOverlay(page.song);
     }
 
     function _showOverlay(song) {
@@ -2328,7 +2482,7 @@ const App = (() => {
     }
 
     // ── Zoom/Pan for chart canvas ──
-    _zpHandle = PDFViewer.attachZoomPan(chartCanvas, canvasArea);
+    _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
 
     // ── Progressive PDF loading (serialized mutations to prevent race conditions) ──
     let _spliceLock = Promise.resolve();
@@ -2348,7 +2502,7 @@ const App = (() => {
             const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading' && p.chartDriveId === chartDriveId);
             if (idx !== -1) {
               _pages[idx] = { type: 'metadata', songIdx, song: _pages[idx].song };
-              if (idx === currentPageIdx) _renderCurrentPage();
+              if (idx === currentPageIdx) _updateSlots();
             }
           });
           return;
@@ -2373,7 +2527,7 @@ const App = (() => {
           _pages.splice(placeholderIdx, 1, ...chartPages);
 
           // Pre-render first chart page for this song
-          const cw = canvasArea.clientWidth;
+          const cw = _currentChartArea ? _currentChartArea.clientWidth : 0;
           if (cw > 0) {
             PDFViewer.preRenderPage(pdfDoc, 1, cw).catch(() => {});
           }
@@ -2383,7 +2537,7 @@ const App = (() => {
           }
 
           if (wasAtCurrent) {
-            _renderCurrentPage();
+            _updateSlots();
           }
         });
       } catch (err) {
@@ -2393,7 +2547,7 @@ const App = (() => {
           if (idx !== -1) {
             const song = _pages[idx].song;
             _pages[idx] = { type: 'metadata', songIdx, song };
-            if (idx === currentPageIdx) _renderCurrentPage();
+            if (idx === currentPageIdx) _updateSlots();
           }
         });
       }
@@ -2433,11 +2587,11 @@ const App = (() => {
       document.body.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
       document.removeEventListener('visibilitychange', _onVisibilityChange);
-      pageWrapper.removeEventListener('touchstart', _onDragStart);
-      pageWrapper.removeEventListener('touchmove', _onDragMove);
-      pageWrapper.removeEventListener('touchend', _onDragEnd);
-      canvasArea.removeEventListener('touchstart', _onTapStart);
-      canvasArea.removeEventListener('touchend', _onTapEnd);
+      carousel.removeEventListener('touchstart', _onDragStart);
+      carousel.removeEventListener('touchmove', _onDragMove);
+      carousel.removeEventListener('touchend', _onDragEnd);
+      carousel.removeEventListener('touchstart', _onTapStart);
+      carousel.removeEventListener('touchend', _onTapEnd);
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitFullscreenElement) {
@@ -2473,6 +2627,7 @@ const App = (() => {
 
     function _onDragStart(e) {
       if (_isAnimating) return;
+      // If zoomed, let zoom/pan handle the touch — don't start carousel drag
       if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
       const t = e.touches[0];
       _dragX0 = t.clientX;
@@ -2480,13 +2635,14 @@ const App = (() => {
       _dragging = true;
       _dragLocked = false;
       _edgeBuzzed = false;
-      pageWrapper.style.transition = 'none';
+      carousel.style.transition = 'none';
     }
 
     function _onDragMove(e) {
       if (!_dragging || _isAnimating) return;
-      if (_zpHandle && _zpHandle.getZoom() > 1.05) { _dragging = false; return; }
-      if (e.touches.length > 1) { _dragging = false; pageWrapper.style.transform = ''; return; } // multi-touch — abort
+      // If zoom changed during drag (e.g. pinch started), abort carousel
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) { _dragging = false; carousel.style.transform = 'translateX(-100%)'; return; }
+      if (e.touches.length > 1) { _dragging = false; carousel.style.transform = 'translateX(-100%)'; return; } // multi-touch — abort
       const t = e.touches[0];
       const dx = t.clientX - _dragX0;
       const dy = t.clientY - _dragY0;
@@ -2497,7 +2653,7 @@ const App = (() => {
         if (Math.abs(dy) > Math.abs(dx)) {
           // Vertical — abort carousel, let page scroll
           _dragging = false;
-          pageWrapper.style.transform = '';
+          carousel.style.transform = 'translateX(-100%)';
           return;
         }
         _dragLocked = true;
@@ -2506,69 +2662,46 @@ const App = (() => {
       // Prevent native scroll while carousel-dragging horizontally
       e.preventDefault();
 
+      // Convert dx pixels to percentage of one slide width
+      const slideWidth = carousel.clientWidth;
+      let offsetPct = (dx / slideWidth) * 100;
+
       // Rubber-band effect at edges
-      let tx = dx;
       if ((dx > 0 && currentPageIdx === 0) || (dx < 0 && currentPageIdx === _pages.length - 1)) {
         if (!_edgeBuzzed) { haptic.medium(); _edgeBuzzed = true; } // edge bounce
-        tx = dx * 0.25; // resist at edges
+        offsetPct *= 0.25; // resist at edges
       }
-      pageWrapper.style.transform = `translateX(${tx}px)`;
+
+      carousel.style.transform = `translateX(calc(-100% + ${offsetPct}%))`;
     }
 
     function _onDragEnd(e) {
       if (!_dragging) return;
       _dragging = false;
-      if (_isAnimating) { pageWrapper.style.transform = ''; return; }
+      if (_isAnimating) { carousel.style.transform = 'translateX(-100%)'; return; }
 
       const t = e.changedTouches[0];
       const dx = t ? t.clientX - _dragX0 : 0;
 
       if (Math.abs(dx) >= SWIPE_THRESHOLD) {
-        // Complete the swipe with animation
-        const direction = dx < 0 ? 'left' : 'right';
+        const delta = dx < 0 ? 1 : -1;
         const canGo = dx < 0 ? currentPageIdx < _pages.length - 1 : currentPageIdx > 0;
         if (canGo) {
-          haptic.light(); // swipe snap
-          _isAnimating = true;
-          const slideOut = direction === 'left' ? '-100%' : '100%';
-          const slideIn  = direction === 'left' ? '100%' : '-100%';
-          pageWrapper.style.transition = 'transform 0.18s ease-in';
-          pageWrapper.style.transform = `translateX(${slideOut})`;
-
-          function _afterOut() {
-            pageWrapper.removeEventListener('transitionend', _afterOut);
-            pageWrapper.style.transition = 'none';
-            pageWrapper.style.transform = `translateX(${slideIn})`;
-            currentPageIdx += (dx < 0 ? 1 : -1);
-            _renderCurrentPage();
-            void pageWrapper.offsetWidth;
-            pageWrapper.style.transition = 'transform 0.18s ease-out';
-            pageWrapper.style.transform = 'translateX(0)';
-            function _afterIn() {
-              pageWrapper.removeEventListener('transitionend', _afterIn);
-              pageWrapper.style.transition = '';
-              pageWrapper.style.transform = '';
-              _isAnimating = false;
-            }
-            pageWrapper.addEventListener('transitionend', _afterIn, { once: true });
-            setTimeout(() => { if (_isAnimating) _afterIn(); }, 400);
-          }
-          pageWrapper.addEventListener('transitionend', _afterOut, { once: true });
-          setTimeout(() => {
-            if (_isAnimating && pageWrapper.style.transform.includes(slideOut)) _afterOut();
-          }, 400);
+          haptic.light();
+          _goPage(delta); // uses animated carousel transition
           return;
         }
       }
+
       // Snap back
-      pageWrapper.style.transition = 'transform 0.2s ease-out';
-      pageWrapper.style.transform = 'translateX(0)';
-      setTimeout(() => { pageWrapper.style.transition = ''; pageWrapper.style.transform = ''; }, 250);
+      carousel.style.transition = 'transform 0.2s ease-out';
+      carousel.style.transform = 'translateX(-100%)';
+      setTimeout(() => { carousel.style.transition = ''; }, 250);
     }
 
-    pageWrapper.addEventListener('touchstart', _onDragStart, { passive: true });
-    pageWrapper.addEventListener('touchmove', _onDragMove, { passive: false });
-    pageWrapper.addEventListener('touchend', _onDragEnd, { passive: true });
+    carousel.addEventListener('touchstart', _onDragStart, { passive: true });
+    carousel.addEventListener('touchmove', _onDragMove, { passive: false });
+    carousel.addEventListener('touchend', _onDragEnd, { passive: true });
 
     // ── Tap zones for page turning ──
     let _tapStartX = 0, _tapStartY = 0, _tapStartTime = 0;
@@ -2594,7 +2727,8 @@ const App = (() => {
       // Only fire on quick taps with minimal movement
       if (duration > 300 || dx > 10 || dy > 10) return;
 
-      const rect = canvasArea.getBoundingClientRect();
+      const currentChartArea = slots[1].querySelector('.lm-slide-chart');
+      const rect = currentChartArea.getBoundingClientRect();
       const x = (t.clientX - rect.left) / rect.width;
 
       // Show tap flash feedback
@@ -2603,23 +2737,25 @@ const App = (() => {
       if (x >= 0.45) {
         flash.style.right = '0';
         flash.style.width = '55%';
-        canvasArea.appendChild(flash);
+        currentChartArea.appendChild(flash);
         setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
         _goPage(1);
       } else if (x <= 0.30) {
         flash.style.left = '0';
         flash.style.width = '30%';
-        canvasArea.appendChild(flash);
+        currentChartArea.appendChild(flash);
         setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
         _goPage(-1);
       }
     }
 
-    canvasArea.addEventListener('touchstart', _onTapStart, { passive: true });
-    canvasArea.addEventListener('touchend', _onTapEnd, { passive: true });
+    carousel.addEventListener('touchstart', _onTapStart, { passive: true });
+    carousel.addEventListener('touchend', _onTapEnd, { passive: true });
 
     // ── Initial render ──
-    _renderCurrentPage();
+    _updateSlots();
+    _checkSongBoundary();
+    _persistPage();
 
     // ── Clock + timer ──
     const clockEl = container.querySelector('.lm-clock');
@@ -3557,6 +3693,9 @@ const App = (() => {
   function _savePracticeLocal(data) {
     try { localStorage.setItem('bb_practice', JSON.stringify(data)); }
     catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      IDB.savePractice(data).catch(e => console.warn('IDB save practice failed', e));
+    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
     }
@@ -3579,8 +3718,27 @@ const App = (() => {
   }
 
   async function loadPracticeInstant() {
+    // Try IDB first (primary storage)
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try {
+        const idbPractice = await IDB.loadPractice();
+        if (idbPractice && idbPractice.length > 0) {
+          _practice = _migrateSchema(idbPractice, 'practice');
+          return;
+        }
+      } catch (e) { console.warn('IDB load practice failed', e); }
+    }
+    // Fall back to localStorage
     const local = _loadPracticeLocal();
-    if (local.length > 0) { _practice = local; return; }
+    if (local.length > 0) {
+      _practice = local;
+      // Backfill IDB from localStorage
+      if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+        IDB.savePractice(local).catch(() => {});
+      }
+      return;
+    }
+    // Last resort: service worker cache
     const sw = await _loadPracticeFromSWCache();
     if (sw && sw.length > 0) { _practice = sw; _savePracticeLocal(sw); }
   }
@@ -3744,6 +3902,146 @@ const App = (() => {
         practiceLists: [],
       };
       renderPracticeEdit(newP, true);
+    });
+  }
+
+  // ─── Metronome helpers ─────────────────────────────────
+
+  const _TIME_SIGS = [
+    { display: '4/4', beats: 4 },
+    { display: '3/4', beats: 3 },
+    { display: '6/8', beats: 6 },
+    { display: '2/4', beats: 2 },
+    { display: '5/4', beats: 5 },
+    { display: '7/8', beats: 7 },
+  ];
+
+  function _parseTimeSig(ts) {
+    if (!ts) return _TIME_SIGS[0];
+    const match = _TIME_SIGS.find(t => t.display === ts.trim());
+    return match || _TIME_SIGS[0];
+  }
+
+  function _metronomeHTML(bpm, timeSig) {
+    if (typeof Metronome === 'undefined') return '';
+    const b = parseInt(bpm) || 120;
+    const ts = _parseTimeSig(timeSig);
+    return `<div class="metronome-panel" id="metronome-panel">
+      <button class="metronome-toggle" id="metronome-toggle">
+        <i data-lucide="timer" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Metronome
+        <i data-lucide="chevron-down" class="metronome-chevron" style="width:14px;height:14px;margin-left:auto;"></i>
+      </button>
+      <div class="metronome-body" id="metronome-body">
+        <div class="metronome-bpm-row">
+          <button class="metronome-bpm-btn" id="met-bpm-down" title="Decrease BPM">\u2212</button>
+          <div class="metronome-bpm-display">
+            <input type="number" id="met-bpm-input" class="metronome-bpm-input" min="20" max="300" value="${b}" />
+            <span class="metronome-bpm-label">BPM</span>
+          </div>
+          <button class="metronome-bpm-btn" id="met-bpm-up" title="Increase BPM">+</button>
+        </div>
+        <div class="metronome-beats" id="met-beats">
+          ${Array(ts.beats).fill(0).map((_, i) => '<div class="metronome-beat-dot' + (i === 0 ? ' accent-dot' : '') + '"></div>').join('')}
+        </div>
+        <div class="metronome-controls">
+          <button class="metronome-ts-btn" id="met-ts" title="Time signature">${ts.display}</button>
+          <button class="metronome-play-btn" id="met-play" title="Start/stop metronome">
+            <i data-lucide="play" style="width:20px;height:20px;"></i>
+          </button>
+          <button class="metronome-tap-btn" id="met-tap" title="Tap tempo">TAP</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function _wireMetronome() {
+    if (typeof Metronome === 'undefined') return;
+    const panel = document.getElementById('metronome-panel');
+    if (!panel) return;
+
+    const toggle = document.getElementById('metronome-toggle');
+    const bpmInput = document.getElementById('met-bpm-input');
+    const bpmDown = document.getElementById('met-bpm-down');
+    const bpmUp = document.getElementById('met-bpm-up');
+    const playBtn = document.getElementById('met-play');
+    const tapBtn = document.getElementById('met-tap');
+    const tsBtn = document.getElementById('met-ts');
+    const beatsEl = document.getElementById('met-beats');
+
+    // Collapse/expand
+    toggle.addEventListener('click', () => {
+      panel.classList.toggle('expanded');
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [panel] });
+    });
+
+    // BPM adjustment with hold-to-repeat
+    let holdTimer = null;
+    function adjustBpm(delta) {
+      let val = parseInt(bpmInput.value) || 120;
+      val = Math.max(20, Math.min(300, val + delta));
+      bpmInput.value = val;
+      if (Metronome.isPlaying()) Metronome.setBpm(val);
+    }
+
+    function startHold(delta) { adjustBpm(delta); holdTimer = setInterval(() => adjustBpm(delta), 100); }
+    function stopHold() { clearInterval(holdTimer); holdTimer = null; }
+
+    bpmDown.addEventListener('pointerdown', (e) => { e.preventDefault(); startHold(-1); });
+    bpmDown.addEventListener('pointerup', stopHold);
+    bpmDown.addEventListener('pointerleave', stopHold);
+    bpmUp.addEventListener('pointerdown', (e) => { e.preventDefault(); startHold(1); });
+    bpmUp.addEventListener('pointerup', stopHold);
+    bpmUp.addEventListener('pointerleave', stopHold);
+
+    bpmInput.addEventListener('change', () => {
+      let val = parseInt(bpmInput.value) || 120;
+      val = Math.max(20, Math.min(300, val));
+      bpmInput.value = val;
+      if (Metronome.isPlaying()) Metronome.setBpm(val);
+    });
+
+    // Time signature cycling
+    const BEATS_MAP = { '4/4': 4, '3/4': 3, '6/8': 6, '2/4': 2, '5/4': 5, '7/8': 7 };
+    const TS_ORDER = ['4/4', '3/4', '6/8', '2/4', '5/4', '7/8'];
+    tsBtn.addEventListener('click', () => {
+      const idx = TS_ORDER.indexOf(tsBtn.textContent);
+      const next = TS_ORDER[(idx + 1) % TS_ORDER.length];
+      tsBtn.textContent = next;
+      const beats = BEATS_MAP[next];
+      beatsEl.innerHTML = Array(beats).fill(0).map((_, i) =>
+        '<div class="metronome-beat-dot' + (i === 0 ? ' accent-dot' : '') + '"></div>'
+      ).join('');
+      if (Metronome.isPlaying()) Metronome.setTimeSignature(beats);
+    });
+
+    // Play/stop
+    playBtn.addEventListener('click', () => {
+      if (Metronome.isPlaying()) {
+        Metronome.stop();
+        playBtn.classList.remove('playing');
+        playBtn.innerHTML = '<i data-lucide="play" style="width:20px;height:20px;"></i>';
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [playBtn] });
+        beatsEl.querySelectorAll('.metronome-beat-dot').forEach(d => d.classList.remove('active'));
+      } else {
+        const bpm = parseInt(bpmInput.value) || 120;
+        const beats = BEATS_MAP[tsBtn.textContent] || 4;
+        playBtn.classList.add('playing');
+        playBtn.innerHTML = '<i data-lucide="square" style="width:20px;height:20px;"></i>';
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [playBtn] });
+        Metronome.start(bpm, beats, (beat) => {
+          const dots = beatsEl.querySelectorAll('.metronome-beat-dot');
+          dots.forEach((d, i) => d.classList.toggle('active', i === beat));
+        });
+      }
+    });
+
+    // Tap tempo
+    tapBtn.addEventListener('click', () => {
+      const bpm = Metronome.tap();
+      if (bpm !== null) {
+        bpmInput.value = bpm;
+        if (Metronome.isPlaying()) Metronome.setBpm(bpm);
+      }
     });
   }
 
@@ -3965,6 +4263,9 @@ const App = (() => {
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}</div>
     </div>`;
 
+    // Metronome panel
+    html += _metronomeHTML();
+
     // Add song button (all users)
     html += `<button class="btn-ghost" id="btn-add-practice-song" style="width:100%;text-align:center;margin-bottom:16px;">
       <i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add Song
@@ -4013,6 +4314,7 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+    _wireMetronome();
 
     // Wire song clicks
     container.querySelectorAll('.setlist-song-row').forEach(row => {
@@ -4510,7 +4812,6 @@ const App = (() => {
         const isOpen = !body.classList.contains('hidden');
         body.classList.toggle('hidden');
         if (chevron) {
-          chevron.classList.toggle('rotated', isOpen);
           chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
         }
 
@@ -4654,9 +4955,109 @@ const App = (() => {
     document.body.appendChild(gate);
   }
 
+  // ─── Install Banner (Feature 2) ─────────────────────────────
+
+  let _deferredInstallPrompt = null;
+
+  function _showInstallBanner() {
+    if (localStorage.getItem('bb_install_dismissed')) return;
+    if (_isPWAInstalled()) return;
+    if (document.querySelector('.install-banner')) return;
+    const searchBar = document.getElementById('search-bar');
+    if (!searchBar) return;
+    const banner = document.createElement('div');
+    banner.className = 'install-banner';
+    banner.innerHTML = `
+      <i data-lucide="download" style="width:20px;height:20px;color:var(--accent);flex-shrink:0;"></i>
+      <span class="install-banner-text">Install Catman Trio for quick access and offline use.</span>
+      <button class="install-banner-btn">Install</button>
+      <button class="install-banner-dismiss" aria-label="Dismiss"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    `;
+    searchBar.insertAdjacentElement('afterend', banner);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [banner] });
+    banner.querySelector('.install-banner-btn').addEventListener('click', async () => {
+      if (_deferredInstallPrompt) {
+        _deferredInstallPrompt.prompt();
+        const result = await _deferredInstallPrompt.userChoice;
+        if (result.outcome === 'accepted') showToast('App installed!');
+        _deferredInstallPrompt = null;
+      }
+      banner.remove();
+    });
+    banner.querySelector('.install-banner-dismiss').addEventListener('click', () => {
+      localStorage.setItem('bb_install_dismissed', '1');
+      banner.remove();
+    });
+  }
+
+  function _showIOSInstallHint() {
+    if (localStorage.getItem('bb_install_dismissed')) return;
+    if (document.querySelector('.install-banner')) return;
+    const searchBar = document.getElementById('search-bar');
+    if (!searchBar) return;
+    const banner = document.createElement('div');
+    banner.className = 'install-banner';
+    banner.innerHTML = `
+      <i data-lucide="share" style="width:20px;height:20px;color:var(--accent);flex-shrink:0;"></i>
+      <span class="install-banner-text">Tap <strong>Share</strong> then <strong>"Add to Home Screen"</strong> for the best experience.</span>
+      <button class="install-banner-dismiss" aria-label="Dismiss"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+    `;
+    searchBar.insertAdjacentElement('afterend', banner);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [banner] });
+    banner.querySelector('.install-banner-dismiss').addEventListener('click', () => {
+      localStorage.setItem('bb_install_dismissed', '1');
+      banner.remove();
+    });
+  }
+
+  // ─── Welcome Overlay (Feature 9) ──────────────────────────
+
+  function _showWelcomeOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'welcome-overlay';
+    overlay.innerHTML = `
+      <div class="welcome-content">
+        <div class="welcome-logo">CT</div>
+        <div class="welcome-title">Catman Trio</div>
+        <div class="welcome-subtitle">Your band's song repository, setlists, and practice lists - all in one place.</div>
+        <div class="welcome-steps">
+          <div class="welcome-step">
+            <span class="welcome-step-num">1</span>
+            <span>Connect to <strong>GitHub</strong> to sync your data across devices</span>
+          </div>
+          <div class="welcome-step">
+            <span class="welcome-step-num">2</span>
+            <span>Add songs with charts, audio demos, and streaming links</span>
+          </div>
+          <div class="welcome-step">
+            <span class="welcome-step-num">3</span>
+            <span>Create setlists and practice lists for your gigs</span>
+          </div>
+        </div>
+        <button class="welcome-start-btn" id="welcome-start">Get Started</button>
+        <button class="welcome-skip-btn" id="welcome-skip">Skip for now</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#welcome-start').addEventListener('click', () => {
+      localStorage.setItem('bb_welcome_seen', '1');
+      overlay.remove();
+      Admin.showGitHubModal(() => { _syncAllFromDrive(true); });
+    });
+    overlay.querySelector('#welcome-skip').addEventListener('click', () => {
+      localStorage.setItem('bb_welcome_seen', '1');
+      overlay.remove();
+    });
+  }
+
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    // Initialize IndexedDB (before loading data)
+    if (typeof IDB !== 'undefined') {
+      try { await IDB.open(); } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
+    }
+
     // Register SW early so the install prompt can work
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js', { scope: './' })
@@ -4665,6 +5066,13 @@ const App = (() => {
       // Load cached PDF list once SW is ready
       navigator.serviceWorker.ready.then(() => _loadCachedPdfList()).catch(() => {});
     }
+
+    // Feature 2: beforeinstallprompt handler
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      _deferredInstallPrompt = e;
+      _showInstallBanner();
+    });
 
     // Request persistent storage to prevent eviction
     if (navigator.storage && navigator.storage.persist) {
@@ -4745,11 +5153,24 @@ const App = (() => {
     });
 
     let _searchTimer = null;
-    document.getElementById('search-input').addEventListener('input', e => {
+    const searchInput = document.getElementById('search-input');
+    const searchClearBtn = document.getElementById('search-clear');
+    searchInput.addEventListener('input', e => {
       _searchText = e.target.value;
+      if (searchClearBtn) searchClearBtn.classList.toggle('hidden', !_searchText);
       clearTimeout(_searchTimer);
       _searchTimer = setTimeout(() => renderList(), 80);
     });
+    if (searchClearBtn) {
+      searchClearBtn.addEventListener('click', () => {
+        _searchText = '';
+        searchInput.value = '';
+        searchClearBtn.classList.add('hidden');
+        renderList();
+        searchInput.focus();
+      });
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [searchClearBtn] });
+    }
 
     // Refresh button — full hard refresh: clear SW cache + reload for fresh source + data
     // Throttle: max 2 refreshes per 10 seconds
@@ -4794,7 +5215,8 @@ const App = (() => {
     });
 
     // Pull-to-refresh with visual indicator
-    let _ptrTriggered = false; // suppress toast when refresh comes from PTR
+    // _ptrTriggered is declared here so the refresh handler closure above can access it
+    var _ptrTriggered = false; // suppress toast when refresh comes from PTR
     {
       const appEl = document.getElementById('app');
       const ptrEl = document.getElementById('ptr-indicator');
@@ -4873,6 +5295,23 @@ const App = (() => {
       }, { passive: true });
     }
 
+    // Feature 8: PTR first-use hint for mobile
+    if (_isMobile() && !localStorage.getItem('bb_ptr_seen')) {
+      setTimeout(() => {
+        const ptrEl = document.getElementById('ptr-indicator');
+        if (!ptrEl || _view !== 'list') return;
+        ptrEl.classList.add('ptr-hint');
+        ptrEl.style.height = '40px';
+        const ptrText = ptrEl.querySelector('.ptr-text');
+        if (ptrText) ptrText.textContent = 'Pull down to refresh';
+        setTimeout(() => {
+          ptrEl.style.height = '0';
+          ptrEl.classList.remove('ptr-hint');
+          localStorage.setItem('bb_ptr_seen', '1');
+        }, 2500);
+      }, 4000);
+    }
+
     // Setlists button
     document.getElementById('btn-setlists').addEventListener('click', () => {
       if (_selectionMode) _exitSelectionMode();
@@ -4925,9 +5364,20 @@ const App = (() => {
     await loadSetlistsInstant();
     await loadPracticeInstant();
     _migratePracticeData();
+
+    // Feature 9: Welcome overlay for brand-new users
+    if (_songs.length === 0 && !GitHub.isConfigured() && !Drive.isConfigured() && !localStorage.getItem('bb_welcome_seen')) {
+      _showWelcomeOverlay();
+    }
+
     renderList();
     Admin.restoreEditMode();
     _initQueueIndicator();
+
+    // Feature 2: iOS Safari install hint (no beforeinstallprompt support)
+    if (_isIOS() && !_isPWAInstalled() && !_deferredInstallPrompt) {
+      setTimeout(() => _showIOSInstallHint(), 3000);
+    }
 
     // Auto-detect GitHub PAT from Drive if not configured locally
     if (!GitHub.isConfigured() && Drive.isConfigured()) {

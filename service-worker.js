@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.85';
+const CACHE_NAME = 'catmantrio-v17.86';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -14,11 +14,13 @@ const SHELL_ASSETS = [
   '/',
   '/index.html',
   '/app.css',
+  '/idb.js',
   '/app.js',
   '/drive.js',
   '/github.js',
   '/pdf-viewer.js',
   '/player.js',
+  '/metronome.js',
   '/admin.js',
   '/lucide.min.js',
   '/levenshtein-worker.js',
