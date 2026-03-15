@@ -401,7 +401,7 @@ a { color: inherit; text-decoration: none; }
   text-align: center;
   font-family: 'Chakra Petch', sans-serif;
   font-weight: 600;
-  padding-left: 10px;
+  padding-left: 3px;
 }
 .admin-buttons {
   display: grid;
