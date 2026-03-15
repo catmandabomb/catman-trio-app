@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.56';
+  const APP_VERSION = 'v17.57';
 
   let _songs      = [];
   let _setlists   = [];
@@ -208,8 +208,17 @@ const App = (() => {
   let _manualSyncHistory = []; // timestamps of recent manual syncs
 
   async function _syncAllFromDrive(force) {
-    const _useGitHub = GitHub.isConfigured() && localStorage.getItem('bb_migrated_to_github') === '1';
-    if (!Drive.isConfigured() && !_useGitHub) {
+    // GitHub is the primary metadata backend when configured — no migration flag needed.
+    // Drive is ONLY used for metadata sync on desktop when GitHub is NOT configured (legacy/pre-migration).
+    // Mobile NEVER reads metadata from Drive (avoids stale data overwriting local edits).
+    const _useGitHub = GitHub.isConfigured();
+    const _mobile = _isMobile();
+    if (!_useGitHub && _mobile) {
+      // Mobile without GitHub: use local cache only, never Drive for metadata
+      _syncDone();
+      return;
+    }
+    if (!_useGitHub && !Drive.isConfigured()) {
       _syncDone();
       return;
     }
@@ -243,20 +252,47 @@ const App = (() => {
         : await Drive.loadAllData();
       _lastDriveSnapshot = remoteData; // cache for dashboard diagnostic
       const { songs, setlists, practice } = remoteData;
+      let dataChanged = false;
       if (songs !== null) {
-        const changed = JSON.stringify(songs) !== JSON.stringify(_songs);
+        if (JSON.stringify(songs) !== JSON.stringify(_songs)) dataChanged = true;
         _songs = songs;
         _saveLocal(songs);
-        if (changed && _view === 'list') renderList();
       }
       if (setlists !== null) {
+        if (JSON.stringify(setlists) !== JSON.stringify(_setlists)) dataChanged = true;
         _setlists = setlists;
         _saveSetlistsLocal(setlists);
       }
       if (practice !== null) {
+        if (JSON.stringify(practice) !== JSON.stringify(_practice)) dataChanged = true;
         _practice = practice;
         _migratePracticeData();
         _savePracticeLocal(_practice);
+      }
+      // Auto-detect migration: if GitHub returned data, flag this device as migrated
+      if (_useGitHub && (songs !== null || setlists !== null || practice !== null)) {
+        if (localStorage.getItem('bb_migrated_to_github') !== '1') {
+          localStorage.setItem('bb_migrated_to_github', '1');
+        }
+      }
+      // Re-render whatever view the user is currently on
+      if (dataChanged) {
+        if (_view === 'list')              renderList();
+        else if (_view === 'detail' && _activeSong) {
+          _activeSong = _songs.find(s => s.id === _activeSong.id) || _activeSong;
+          renderDetail(_activeSong, true);
+        }
+        else if (_view === 'setlists')     renderSetlists(true);
+        else if (_view === 'setlist-detail' && _activeSetlist) {
+          _activeSetlist = _setlists.find(s => s.id === _activeSetlist.id) || _activeSetlist;
+          renderSetlistDetail(_activeSetlist, true);
+        }
+        else if (_view === 'practice')     renderPractice(true);
+        else if (_view === 'practice-detail' && _activePersona) {
+          _activePersona = _practice.find(p => p.id === _activePersona.id) || _activePersona;
+          renderPracticeDetail(_activePersona, true);
+        }
+        else if (_view === 'dashboard')    renderDashboard();
       }
       _markSynced();
     } catch (e) {
@@ -302,7 +338,8 @@ const App = (() => {
       _markSynced();
       return;
     }
-    if (Drive.isWriteConfigured()) {
+    // Drive metadata saves: desktop-only, pre-migration only
+    if (!_isMobile() && Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           await Drive.saveSongs(_songs);
@@ -316,7 +353,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only)');
+      showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
     }
   }
 
@@ -375,7 +412,8 @@ const App = (() => {
       _markSynced();
       return;
     }
-    if (Drive.isWriteConfigured()) {
+    // Drive metadata saves: desktop-only, pre-migration only
+    if (!_isMobile() && Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           await Drive.saveSetlists(_setlists);
@@ -389,7 +427,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only)');
+      showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
     }
   }
 
@@ -931,8 +969,10 @@ const App = (() => {
     // Uploads
     function wireUpload(btnId, inputId, assetKey, listId) {
       document.getElementById(btnId).addEventListener('click', () => {
-        if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
+        // File uploads always go to Drive — require Drive write access
+        if (!Drive.isWriteConfigured()) {
           Admin.showDriveModal(() => {});
+          showToast('Drive write access needed for file uploads.');
           return;
         }
         document.getElementById(inputId).click();
@@ -1192,8 +1232,8 @@ const App = (() => {
     // Wire new setlist
     document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
       if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
-        Admin.showDriveModal(() => {});
-        showToast('Configure Drive or GitHub, then try again.');
+        Admin.showGitHubModal(() => {});
+        showToast('Configure GitHub to sync data, then try again.');
         return;
       }
       renderSetlistEdit(Admin.newSetlist(_setlists), true);
@@ -2112,7 +2152,8 @@ const App = (() => {
       _markSynced();
       return;
     }
-    if (Drive.isWriteConfigured()) {
+    // Drive metadata saves: desktop-only, pre-migration only
+    if (!_isMobile() && Drive.isWriteConfigured()) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           await Drive.savePractice(_practice);
@@ -2126,7 +2167,7 @@ const App = (() => {
       }
       showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
     } else {
-      showToast((toastMsg || 'Saved') + ' (local only)');
+      showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
     }
   }
 
@@ -3164,8 +3205,8 @@ const App = (() => {
     document.getElementById('btn-add-song').addEventListener('click', () => {
       if (!Admin.isEditMode()) return;
       if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
-        Admin.showDriveModal(() => {});
-        showToast('Configure Drive or GitHub, then try again.');
+        Admin.showGitHubModal(() => {});
+        showToast('Configure GitHub to sync data, then try again.');
         return;
       }
       renderEdit(Admin.newSong(_songs), true);
