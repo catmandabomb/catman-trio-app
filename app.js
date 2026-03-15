@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.76';
+  const APP_VERSION = 'v17.77';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1632,6 +1632,7 @@ const App = (() => {
     }
 
     function _exitLiveMode() {
+      if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       document.body.classList.remove('live-mode-active');
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -1672,6 +1673,25 @@ const App = (() => {
     container.addEventListener('touchend', _onTouchEnd, { passive: true });
 
     _renderSlide();
+
+    // Clock + timer updates
+    function _updateClock() {
+      const now = new Date();
+      let h = now.getHours();
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const clockEl = container.querySelector('.lm-clock');
+      if (clockEl) clockEl.textContent = h + ':' + m + ' ' + ampm;
+
+      const elapsed = Math.floor((Date.now() - _startTime) / 1000);
+      const mins = Math.floor(elapsed / 60);
+      const secs = String(elapsed % 60).padStart(2, '0');
+      const timerEl = container.querySelector('.lm-timer');
+      if (timerEl) timerEl.textContent = mins + ':' + secs;
+    }
+    _updateClock();
+    _clockInterval = setInterval(_updateClock, 1000);
   }
 
   // ─── SETLIST EDIT VIEW ───────────────────────────────────
@@ -2235,8 +2255,113 @@ const App = (() => {
       </div>
     `;
 
+    // Tag Manager section (admin only)
+    if (Admin.isEditMode()) {
+      const tagCounts = {};
+      _songs.forEach(s => (s.tags || []).forEach(t => {
+        tagCounts[t] = (tagCounts[t] || 0) + 1;
+      }));
+      const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+      html += `<div class="dash-section"><div class="dash-section-title">Tag Manager</div>`;
+      if (sortedTags.length === 0) {
+        html += `<p class="muted" style="font-size:13px">No tags in use.</p>`;
+      } else {
+        html += `<div class="tag-manager-list">`;
+        sortedTags.forEach(([tag, count]) => {
+          html += `<div class="tag-mgr-row" data-tag="${esc(tag)}">
+            <span class="tag-mgr-name">${esc(tag)}</span>
+            <span class="tag-mgr-count">${count} song${count !== 1 ? 's' : ''}</span>
+            <button class="tag-mgr-btn tag-mgr-rename" data-tag="${esc(tag)}" title="Rename">
+              <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+            </button>
+            <button class="tag-mgr-btn tag-mgr-delete" data-tag="${esc(tag)}" title="Delete">
+              <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+            </button>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Wire Tag Manager
+    container.querySelectorAll('.tag-mgr-rename').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const oldTag = btn.dataset.tag;
+        const row = btn.closest('.tag-mgr-row');
+        const nameEl = row.querySelector('.tag-mgr-name');
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-input tag-mgr-input';
+        input.value = oldTag;
+        input.style.cssText = 'font-size:13px;padding:4px 8px;width:120px;';
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'tag-mgr-btn tag-mgr-confirm';
+        confirmBtn.title = 'Confirm rename';
+        confirmBtn.innerHTML = '<i data-lucide="check" style="width:12px;height:12px;"></i>';
+        btn.replaceWith(confirmBtn);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [confirmBtn] });
+
+        async function doRename() {
+          const newTag = input.value.trim();
+          if (!newTag || newTag === oldTag) { renderDashboard(); return; }
+          let changed = 0;
+          _songs.forEach(s => {
+            const tags = s.tags || [];
+            const idx = tags.indexOf(oldTag);
+            if (idx > -1) {
+              tags.splice(idx, 1);
+              if (!tags.includes(newTag)) tags.push(newTag);
+              s.tags = tags;
+              changed++;
+            }
+          });
+          if (changed) {
+            await saveSongs();
+            showToast('Renamed "' + oldTag + '" to "' + newTag + '" in ' + changed + ' song' + (changed !== 1 ? 's' : ''));
+          }
+          renderDashboard();
+        }
+
+        confirmBtn.addEventListener('click', doRename);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') doRename();
+          if (e.key === 'Escape') renderDashboard();
+        });
+      });
+    });
+
+    container.querySelectorAll('.tag-mgr-delete').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+        Admin.showConfirm('Delete Tag', 'Remove "' + tag + '" from all songs?', async () => {
+          let changed = 0;
+          _songs.forEach(s => {
+            const tags = s.tags || [];
+            const idx = tags.indexOf(tag);
+            if (idx > -1) {
+              tags.splice(idx, 1);
+              s.tags = tags;
+              changed++;
+            }
+          });
+          if (changed) {
+            await saveSongs();
+            showToast('Removed "' + tag + '" from ' + changed + ' song' + (changed !== 1 ? 's' : ''));
+          }
+          renderDashboard();
+        });
+      });
+    });
 
     // Wire GitHub dashboard buttons
     const ghPushBtn = document.getElementById('dash-github-push');
