@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.48';
+  const APP_VERSION = 'v17.49';
 
   let _songs      = [];
   let _setlists   = [];
@@ -1520,7 +1520,7 @@ const App = (() => {
     const untitled = _songs.filter(s => !s.title || !s.title.trim());
     if (untitled.length) {
       errors.push({
-        code: 1001,
+        code: 1001, // Red-Songs-NoTitle
         title: `${untitled.length} song${untitled.length > 1 ? 's' : ''} with no title`,
         detail: 'Fix: Edit each song and add a title.',
         items: untitled.map(s => `ID: ${s.id}`)
@@ -1530,7 +1530,7 @@ const App = (() => {
     // 1002: File references with empty Drive IDs
     if (emptyDriveIds.length) {
       errors.push({
-        code: 1002,
+        code: 1101, // Red-Files-MissingDriveID
         title: `${emptyDriveIds.length} file${emptyDriveIds.length > 1 ? 's' : ''} with missing Drive ID`,
         detail: 'These attachments cannot be loaded. Fix: Edit the song and re-upload the file, or remove the broken attachment.',
         items: emptyDriveIds.map(e => `"${esc(e.file)}" in "${esc(e.song)}"`)
@@ -1550,7 +1550,7 @@ const App = (() => {
     });
     if (orphanPractice.length) {
       errors.push({
-        code: 1003,
+        code: 1201, // Red-Practice-OrphanRefs
         title: `${orphanPractice.length} practice entry${orphanPractice.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
         detail: 'These entries will show as missing. Fix: Edit the practice list and remove the broken entries, or re-add the song to the repository.',
         items: orphanPractice.map(o => `"${esc(o.persona)}" → "${esc(o.list)}" → song ${o.songId}`)
@@ -1569,7 +1569,7 @@ const App = (() => {
     });
     if (orphanSetlist.length) {
       errors.push({
-        code: 1004,
+        code: 1301, // Red-Setlists-OrphanRefs
         title: `${orphanSetlist.length} setlist entry${orphanSetlist.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
         detail: 'These entries will show as missing. Fix: Edit the setlist and remove the broken entries, or re-add the song to the repository.',
         items: orphanSetlist.map(o => `"${esc(o.setlist)}" → song ${o.songId}`)
@@ -1585,7 +1585,7 @@ const App = (() => {
     });
     if (noAssets.length) {
       warnOrange.push({
-        code: 2001,
+        code: 2001, // Orange-Songs-NoAssets
         title: `${noAssets.length} song${noAssets.length > 1 ? 's' : ''} with no files or links`,
         detail: 'These songs have no charts, audio, or links. Fix: Edit each song and attach files or add links.',
         items: noAssets.map(s => esc(s.title || s.id))
@@ -1595,7 +1595,7 @@ const App = (() => {
     // 2002: Drive not connected
     if (!Drive.isConfigured()) {
       warnOrange.push({
-        code: 2002,
+        code: 2401, // Orange-Drive-NotConnected
         title: 'Drive not connected',
         detail: 'No API key or folder ID set. Songs load from local cache only. Fix: Open the Drive Setup modal and enter your credentials.'
       });
@@ -1604,7 +1604,7 @@ const App = (() => {
     // 2003: Drive is read-only
     if (Drive.isConfigured() && !Drive.isWriteConfigured()) {
       warnOrange.push({
-        code: 2003,
+        code: 2402, // Orange-Drive-ReadOnly
         title: 'Drive is read-only — changes won\'t sync',
         detail: 'OAuth Client ID is not set. All saves are local-only and won\'t be visible to other users. Fix: Set up an OAuth Client ID in Google Cloud Console and enter it in the Drive Setup modal.'
       });
@@ -1619,7 +1619,7 @@ const App = (() => {
     const dupTitles = Object.entries(titleCounts).filter(([, c]) => c > 1);
     if (dupTitles.length) {
       warnOrange.push({
-        code: 2004,
+        code: 2002, // Orange-Songs-DuplicateTitles
         title: `${dupTitles.length} duplicate song title${dupTitles.length > 1 ? 's' : ''}`,
         detail: 'Multiple songs share the same title, which can cause confusion. Fix: Rename one of the duplicates or delete the extra copy.',
         items: dupTitles.map(([t, c]) => `"${esc(t)}" (${c} copies)`)
@@ -1632,7 +1632,7 @@ const App = (() => {
     const noTags = _songs.filter(s => !(s.tags || []).length);
     if (noTags.length > 0 && noTags.length < totalSongs) {
       warnYellow.push({
-        code: 3001,
+        code: 3001, // Yellow-Songs-NoTags
         title: `${noTags.length} song${noTags.length > 1 ? 's' : ''} without tags`,
         detail: 'Untagged songs won\'t appear when filtering by tag. Fix: Edit the song and add relevant tags.',
         items: noTags.length <= 10 ? noTags.map(s => esc(s.title || s.id)) : [
@@ -1646,7 +1646,7 @@ const App = (() => {
     const dupes = Object.entries(driveIdToSong).filter(([, songs]) => songs.length > 1);
     if (dupes.length) {
       warnYellow.push({
-        code: 3002,
+        code: 3101, // Yellow-Files-SharedAcrossSongs
         title: `${dupes.length} file${dupes.length > 1 ? 's' : ''} shared across multiple songs`,
         detail: 'The same Drive file is attached to more than one song. This is usually fine, but deleting the file from one song would break the other. Fix: If unintentional, re-upload a separate copy to each song.',
         items: dupes.map(([id, songs]) => `${id.slice(0, 12)}… → ${songs.map(s => esc(s.title || s.id)).join(', ')}`)
@@ -1740,7 +1740,7 @@ const App = (() => {
       <div class="dash-section">
         <div class="dash-section-title">Data Breakdown</div>
         <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
-          <div class="dash-alert-title">${_codeTag(4001)} File Attachment Summary</div>
+          <div class="dash-alert-title">${_codeTag(4101)} File Attachment Summary</div>
           <div class="dash-alert-detail">
             ${_songs.filter(s => (s.assets?.charts || []).length).length} songs have charts ·
             ${_songs.filter(s => (s.assets?.audio || []).length).length} songs have audio ·
@@ -1748,7 +1748,7 @@ const App = (() => {
           </div>
         </div>
         <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
-          <div class="dash-alert-title">${_codeTag(4002)} Storage</div>
+          <div class="dash-alert-title">${_codeTag(4501)} Storage</div>
           <div class="dash-alert-detail">
             Songs JSON: ~${(JSON.stringify(_songs).length / 1024).toFixed(1)} KB ·
             Setlists JSON: ~${(JSON.stringify(_setlists).length / 1024).toFixed(1)} KB ·
@@ -1777,12 +1777,12 @@ const App = (() => {
       if (!el) return;
       if (!Drive.isConfigured()) {
         el.style.borderLeftColor = '#f59e0b';
-        el.innerHTML = `<div class="dash-alert-title">${_codeTag(5001)} Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>`;
+        el.innerHTML = `<div class="dash-alert-title">${_codeTag(2401)} Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>`;
         return;
       }
       try {
         if (!_lastDriveSnapshot) {
-          el.innerHTML = `<div class="dash-alert-title">${_codeTag(5002)} No sync data yet</div>` +
+          el.innerHTML = `<div class="dash-alert-title">${_codeTag(4401)} No sync data yet</div>` +
             `<div class="dash-alert-detail">Drive data will appear after the next sync. Use the refresh button on the main page to trigger a sync.</div>`;
           return;
         }
@@ -1815,7 +1815,7 @@ const App = (() => {
           ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
           : '';
         el.innerHTML =
-          `<div class="dash-alert-title">${allMatch ? `${_codeTag(5003)} In Sync` : `${_codeTag(5004)} Out of Sync`}</div>` +
+          `<div class="dash-alert-title">${allMatch ? `${_codeTag(4402)} In Sync` : `${_codeTag(2403)} Out of Sync`}</div>` +
           `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
           row('Songs', localSongs, driveSongs, songMatch) +
           row('Setlists', localSetlists, driveSetlists, setlistMatch) +
@@ -1851,7 +1851,7 @@ const App = (() => {
         }
       } catch (e) {
         el.style.borderLeftColor = '#e87c6a';
-        el.innerHTML = `<div class="dash-alert-title">${_codeTag(5005)} Drive check failed</div>` +
+        el.innerHTML = `<div class="dash-alert-title">${_codeTag(1401)} Drive check failed</div>` +
           `<div class="dash-alert-detail" style="font-size:12px;word-break:break-all;">${esc(String(e.message || e))}<br><br>` +
           `If this persists, try: close and reopen the app, or clear site data in Safari settings.</div>`;
       }
