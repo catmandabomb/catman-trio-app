@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.86';
+  const APP_VERSION = 'v17.87';
 
   let _songs      = [];
   let _setlists   = [];
@@ -19,6 +19,80 @@ const App = (() => {
   let _playerRefs = [];
   let _navStack   = [];
   let _activeSetlist = null;
+
+  // ─── Hash-based routing (Navigation API with popstate fallback) ───
+  let _isPopstateNavigation = false;
+  let _currentRouteParams = {};
+
+  function _viewToHash(viewName, params) {
+    switch (viewName) {
+      case 'list': return '#';
+      case 'detail': return params?.songId ? `#song/${params.songId}` : '#';
+      case 'setlists': return '#setlists';
+      case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
+      case 'practice': return '#practice';
+      case 'practice-detail': return params?.personaId ? `#practice/${params.personaId}` : '#practice';
+      case 'dashboard': return '#dashboard';
+      default: return '#';
+    }
+  }
+
+  function _resolveHash(hash) {
+    if (!hash || hash === '#' || hash === '') return { view: 'list' };
+    const parts = hash.replace(/^#/, '').split('/');
+    switch (parts[0]) {
+      case 'song': return { view: 'detail', songId: parts[1] };
+      case 'setlists': return { view: 'setlists' };
+      case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
+      case 'practice':
+        if (parts[1]) return { view: 'practice-detail', personaId: parts[1] };
+        return { view: 'practice' };
+      case 'dashboard': return { view: 'dashboard' };
+      default: return { view: 'list' };
+    }
+  }
+
+  function _navigateToRoute(route) {
+    if (!route) return;
+    switch (route.view) {
+      case 'list':
+        renderList();
+        break;
+      case 'detail': {
+        if (!route.songId) { renderList(); return; }
+        const song = _songs.find(s => s.id === route.songId);
+        if (song) renderDetail(song, true);
+        else renderList();
+        break;
+      }
+      case 'setlists':
+        renderSetlists();
+        break;
+      case 'setlist-detail': {
+        if (!route.setlistId) { renderSetlists(); return; }
+        const sl = _setlists.find(s => s.id === route.setlistId);
+        if (sl) renderSetlistDetail(sl, true);
+        else renderSetlists();
+        break;
+      }
+      case 'practice':
+        renderPractice();
+        break;
+      case 'practice-detail': {
+        if (!route.personaId) { renderPractice(); return; }
+        // Look up persona from practice data
+        const persona = (_practice || []).find(p => p.id === route.personaId);
+        if (persona) renderPracticeDetail(persona, true);
+        else renderPractice();
+        break;
+      }
+      case 'dashboard':
+        renderDashboard();
+        break;
+      default:
+        renderList();
+    }
+  }
   let _editSetlist   = null;
   let _editSetlistIsNew = false;
   let _savingSongs = false;
@@ -710,6 +784,7 @@ const App = (() => {
   // ─── View management & nav stack ─────────────────────────
 
   function _showView(name) {
+    const popstateNav = _isPopstateNavigation; // capture before async View Transition
     const swap = () => {
       document.querySelectorAll('.view').forEach(v => {
         v.classList.remove('active');
@@ -717,6 +792,18 @@ const App = (() => {
       const el = document.getElementById(`view-${name}`);
       if (el) { el.classList.add('active'); el.scrollTop = 0; }
       _view = name;
+      // Update URL hash for deep linking (don't push on popstate-driven navigation)
+      if (!popstateNav) {
+        const hash = _viewToHash(name, _currentRouteParams);
+        if (hash === '#' || hash === '') {
+          // Strip hash when returning to list view
+          if (location.hash) {
+            try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
+          }
+        } else if (location.hash !== hash) {
+          try { history.replaceState(null, '', hash); } catch (_) {}
+        }
+      }
       // Feature 5: aria-current on active nav button
       document.querySelectorAll('.topbar-nav-btn').forEach(btn => btn.removeAttribute('aria-current'));
       if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
@@ -812,6 +899,7 @@ const App = (() => {
     _revokeBlobCache();
     // If not explicitly in selection mode re-render, clear selection state
     if (!_selectionMode) { _selectedSongIds = new Set(); _removeSelectionBar(); }
+    _currentRouteParams = {};
     _navStack = [];
     _showView('list');
     // Two-line title: CATMAN gradient 1→6, TRIO gradient matching positions 2→5
@@ -1130,6 +1218,7 @@ const App = (() => {
     _revokeBlobCache();
     Player.stopAll();
     _activeSong = song;
+    _currentRouteParams = { songId: song.id };
     if (!skipNavPush) _pushNav(() => renderList());
     _showView('detail');
     _setTopbar(song.title || 'Song', true);
@@ -1841,6 +1930,7 @@ const App = (() => {
 
   function renderSetlists(skipNavReset) {
     _revokeBlobCache();
+    _currentRouteParams = {};
     if (!skipNavReset) {
       _navStack = [];
       _pushNav(() => renderList());
@@ -1959,6 +2049,7 @@ const App = (() => {
     _revokeBlobCache();
     Player.stopAll();
     _activeSetlist = setlist;
+    _currentRouteParams = { setlistId: setlist.id };
     if (!skipNavPush) _pushNav(() => renderSetlists());
     _showView('setlist-detail');
     _setTopbar(setlist.name || 'Setlist', true);
@@ -3001,6 +3092,7 @@ const App = (() => {
   // ─── ADMIN DASHBOARD ────────────────────────────────────────
 
   function renderDashboard() {
+    _currentRouteParams = {};
     _revokeBlobCache();
     _navStack = [];
     _pushNav(() => renderList());
@@ -3795,6 +3887,7 @@ const App = (() => {
   // ─── PRACTICE — Persona List View ────────────────────────
 
   function renderPractice(skipNavReset) {
+    _currentRouteParams = {};
     _revokeBlobCache();
     if (!skipNavReset) {
       _navStack = [];
@@ -4048,6 +4141,7 @@ const App = (() => {
   // ─── PRACTICE — Persona Practice Lists Selection ─────────
 
   function renderPracticeDetail(persona, skipNavPush) {
+    _currentRouteParams = { personaId: persona?.id };
     _revokeBlobCache();
     Player.stopAll();
     _activePersona = persona;
@@ -5061,11 +5155,35 @@ const App = (() => {
     // Register SW early so the install prompt can work
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js', { scope: './' })
-        .then(reg => console.info('SW registered:', reg.scope))
+        .then(reg => {
+          console.info('SW registered:', reg.scope);
+          // Notify user when a new version is available
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                showToast('New version available — pull down to refresh', 8000);
+              }
+            });
+          });
+        })
         .catch(e => console.warn('SW registration failed:', e));
       // Load cached PDF list once SW is ready
       navigator.serviceWorker.ready.then(() => _loadCachedPdfList()).catch(() => {});
     }
+
+    // ─── Hash-based routing listener ────────────────────────
+    window.addEventListener('popstate', () => {
+      _isPopstateNavigation = true;
+      _navStack = []; // Clear in-app nav stack to prevent desync with browser history
+      try {
+        const route = _resolveHash(location.hash);
+        _navigateToRoute(route);
+      } finally {
+        _isPopstateNavigation = false;
+      }
+    });
 
     // Feature 2: beforeinstallprompt handler
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -5371,6 +5489,13 @@ const App = (() => {
     }
 
     renderList();
+    // Deep link: if URL has a hash, navigate to it after data loads
+    if (location.hash && location.hash !== '#') {
+      const route = _resolveHash(location.hash);
+      if (route.view !== 'list') {
+        setTimeout(() => _navigateToRoute(route), 0);
+      }
+    }
     Admin.restoreEditMode();
     _initQueueIndicator();
 
@@ -6147,6 +6272,9 @@ document.addEventListener('DOMContentLoaded', () => {
     GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
     GitHub.onFlushSuccess = () => { localStorage.setItem('bb_last_synced', Date.now().toString()); };
     GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
+    GitHub.onDataChanged = (types) => {
+      App.showToast('Data synced from another tab — pull down to refresh', 3000);
+    };
     GitHub.init(); // Restore pending writes from crash recovery
   }
 

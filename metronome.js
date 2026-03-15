@@ -1,6 +1,9 @@
 /**
- * metronome.js — Web Audio lookahead scheduler metronome
+ * metronome.js — Dual-mode metronome: AudioWorklet (preferred) or setInterval fallback
  * IIFE: const Metronome
+ *
+ * AudioWorklet runs on the audio render thread (~2.9ms intervals), immune to UI jank.
+ * Falls back to main-thread setInterval scheduler if AudioWorklet is unavailable.
  */
 const Metronome = (() => {
   let _audioCtx = null;
@@ -12,14 +15,53 @@ const Metronome = (() => {
   let _timerID = null;
   let _onBeat = null;
 
+  // Dual-mode state
+  let _mode = null;          // 'worklet' | 'fallback' — set after first start()
+  let _workletNode = null;
+  let _workletReady = false;
+  let _workletInitPromise = null;
+  let _startGen = 0;
+
+  // Fallback scheduler constants
   const LOOKAHEAD = 25.0;      // ms
   const SCHEDULE_AHEAD = 0.1;  // seconds
 
   function _getCtx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (_audioCtx.state === 'suspended') _audioCtx.resume();
     return _audioCtx;
   }
+
+  // ─── AudioWorklet initialization ─────────────────────────
+
+  async function _initWorklet() {
+    if (_workletInitPromise) return _workletInitPromise;
+    _workletInitPromise = (async () => {
+      try {
+        const ctx = _getCtx();
+        if (!ctx.audioWorklet) throw new Error('AudioWorklet not supported');
+        await ctx.audioWorklet.addModule('metronome-processor.js');
+        _workletNode = new AudioWorkletNode(ctx, 'metronome-processor');
+        _workletNode.connect(ctx.destination);
+        _workletNode.port.onmessage = (e) => {
+          if (e.data.type === 'beat' && _isPlaying && _onBeat) {
+            _onBeat(e.data.beat, e.data.beatsPerMeasure);
+          }
+        };
+        _workletReady = true;
+        _mode = 'worklet';
+        console.info('Metronome: AudioWorklet mode active');
+      } catch (e) {
+        console.warn('Metronome: AudioWorklet unavailable, using fallback scheduler', e.message);
+        _workletReady = false;
+        _workletNode = null;
+        _mode = 'fallback';
+        _workletInitPromise = null; // Allow retry on next start
+      }
+    })();
+    return _workletInitPromise;
+  }
+
+  // ─── Fallback scheduler (current setInterval approach) ───
 
   function _scheduleNote(time, beat) {
     const ctx = _getCtx();
@@ -38,10 +80,12 @@ const Metronome = (() => {
 
     osc.start(time);
     osc.stop(time + 0.05);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
 
     if (_onBeat) {
       const delay = Math.max(0, (time - ctx.currentTime) * 1000);
-      setTimeout(() => { if (_isPlaying && _onBeat) _onBeat(beat, _beatsPerMeasure); }, delay);
+      const g = _startGen;
+      setTimeout(() => { if (g === _startGen && _isPlaying && _onBeat) _onBeat(beat, _beatsPerMeasure); }, delay);
     }
   }
 
@@ -54,35 +98,71 @@ const Metronome = (() => {
     }
   }
 
+  // ─── Public API ──────────────────────────────────────────
+
   async function start(bpm, beatsPerMeasure, onBeat) {
+    const gen = ++_startGen;
     if (_isPlaying) stop();
     _bpm = bpm || 120;
     _beatsPerMeasure = beatsPerMeasure || 4;
     _onBeat = onBeat || null;
     _currentBeat = 0;
+    _isPlaying = true;  // Set early for API consistency
+
     const ctx = _getCtx();
     if (ctx.state === 'suspended') await ctx.resume();
-    _nextNoteTime = ctx.currentTime + 0.05;
-    _isPlaying = true;
-    _scheduler();
-    _timerID = setInterval(_scheduler, LOOKAHEAD);
+    if (gen !== _startGen) { _isPlaying = false; return; }
+
+    // Initialize worklet on first start (or use cached result)
+    if (_mode === null) {
+      await _initWorklet();
+    }
+    if (gen !== _startGen) { _isPlaying = false; return; }
+
+    if (_mode === 'worklet' && _workletReady && _workletNode) {
+      _workletNode.port.postMessage({
+        type: 'start',
+        bpm: _bpm,
+        beatsPerMeasure: _beatsPerMeasure,
+      });
+    } else {
+      // Fallback scheduler
+      _nextNoteTime = ctx.currentTime + 0.05;
+      _scheduler();
+      _timerID = setInterval(_scheduler, LOOKAHEAD);
+    }
   }
 
   function stop() {
+    if (_mode === 'worklet' && _workletReady && _workletNode) {
+      _workletNode.port.postMessage({ type: 'stop' });
+    }
     if (_timerID) { clearInterval(_timerID); _timerID = null; }
     _isPlaying = false;
     _currentBeat = 0;
     _onBeat = null;
-    if (_audioCtx && _audioCtx.state === 'running') _audioCtx.suspend();
+    if (_audioCtx && _audioCtx.state === 'running' && _mode !== 'worklet') _audioCtx.suspend();
   }
 
-  function setBpm(bpm) { _bpm = Math.max(20, Math.min(300, bpm)); }
-  function setTimeSignature(beats) { _beatsPerMeasure = Math.max(1, Math.min(12, beats)); }
+  function setBpm(bpm) {
+    _bpm = Math.max(20, Math.min(300, bpm));
+    if (_mode === 'worklet' && _workletReady && _workletNode && _isPlaying) {
+      _workletNode.port.postMessage({ type: 'setBpm', bpm: _bpm });
+    }
+  }
+
+  function setTimeSignature(beats) {
+    _beatsPerMeasure = Math.max(1, Math.min(12, beats));
+    if (_mode === 'worklet' && _workletReady && _workletNode && _isPlaying) {
+      _workletNode.port.postMessage({ type: 'setTimeSignature', beatsPerMeasure: _beatsPerMeasure });
+    }
+  }
+
   function isPlaying() { return _isPlaying; }
   function getBpm() { return _bpm; }
   function getBeatsPerMeasure() { return _beatsPerMeasure; }
 
-  // Tap tempo
+  // Tap tempo (main-thread only — unchanged)
   const _tapTimes = [];
   function tap() {
     const now = performance.now();

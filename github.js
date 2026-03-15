@@ -50,6 +50,30 @@ const GitHub = (() => {
   let _flushing = false;
   let _consecutiveFailures = 0;
 
+  // Web Locks + BroadcastChannel for cross-tab coordination
+  const _hasLocks = typeof navigator !== 'undefined' && 'locks' in navigator;
+  const _hasBroadcast = typeof BroadcastChannel !== 'undefined';
+  let _syncChannel = null;
+  let _onDataChanged = null;
+
+  if (_hasBroadcast) {
+    try {
+      _syncChannel = new BroadcastChannel('catmantrio-sync');
+      _syncChannel.onmessage = (e) => {
+        if (e.data && e.data.type === 'data-changed') {
+          // Invalidate SHA cache for changed types so next write fetches fresh
+          const types = e.data.types || [];
+          for (const t of types) {
+            if (_shaCache[t] !== undefined) _shaCache[t] = null;
+          }
+          if (_onDataChanged) _onDataChanged(types);
+        }
+      };
+    } catch (e) {
+      console.warn('GitHub: BroadcastChannel init failed', e);
+    }
+  }
+
   // Rate limiting
   let _apiCallTimestamps = [];
 
@@ -460,6 +484,26 @@ const GitHub = (() => {
   }
 
   async function _flush() {
+    if (_hasLocks) {
+      try {
+        await navigator.locks.request('catmantrio-write', { ifAvailable: true }, async (lock) => {
+          if (!lock) {
+            // Another tab holds the lock — reschedule
+            _scheduleFlush();
+            return;
+          }
+          await _flushInner();
+        });
+      } catch (e) {
+        console.warn('GitHub: Web Lock request failed, rescheduling', e);
+        _scheduleFlush();
+      }
+      return;
+    }
+    await _flushInner();
+  }
+
+  async function _flushInner() {
     if (_flushing) {
       _scheduleFlush();
       return;
@@ -496,6 +540,7 @@ const GitHub = (() => {
     }
 
     let allOk = true;
+    const succeededTypes = [];
     for (const type of types) {
       try {
         await _flushType(type, snapshot[type], deletionSnapshot[type]);
@@ -508,6 +553,7 @@ const GitHub = (() => {
           _deletions[type].delete(id);
         }
         _consecutiveFailures = 0;
+        succeededTypes.push(type);
       } catch (e) {
         console.error(`GitHub flush ${type} failed:`, e);
         allOk = false;
@@ -520,6 +566,11 @@ const GitHub = (() => {
     _flushing = false;
 
     if (allOk && _onFlushSuccess) _onFlushSuccess();
+
+    // Notify other tabs about successfully flushed types (even if some failed)
+    if (_syncChannel && succeededTypes.length > 0) {
+      try { _syncChannel.postMessage({ type: 'data-changed', types: succeededTypes }); } catch (_) {}
+    }
 
     // If any pending remain, reschedule
     if (Object.values(_pending).some(v => v !== null)) {
@@ -796,7 +847,17 @@ const GitHub = (() => {
   async function flushNow() {
     if (_debounceTimer) clearTimeout(_debounceTimer);
     _consecutiveFailures = 0; // Reset on manual push
-    await _flush();
+    if (_hasLocks) {
+      try {
+        await navigator.locks.request('catmantrio-write', async () => {
+          await _flushInner();
+        });
+        return;
+      } catch (e) {
+        console.warn('GitHub: flushNow lock failed, flushing directly', e);
+      }
+    }
+    await _flushInner();
   }
 
   // ─── Public API ───────────────────────────────────────────
@@ -844,6 +905,7 @@ const GitHub = (() => {
     set onFlushError(fn)       { _onFlushError = fn; },
     set onFlushSuccess(fn)     { _onFlushSuccess = fn; },
     set onRateLimitWarning(fn) { _onRateLimitWarning = fn; },
+    set onDataChanged(fn)      { _onDataChanged = fn; },
   };
 
 })();

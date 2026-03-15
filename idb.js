@@ -20,7 +20,9 @@ const IDB = (() => {
         if (!db.objectStoreNames.contains('practice')) db.createObjectStore('practice', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
       };
-      req.onsuccess = (e) => { _db = e.target.result; _available = true; resolve(); };
+      req.onsuccess = (e) => { _db = e.target.result; _available = true;
+          _db.onversionchange = () => { _db.close(); _available = false; };
+          resolve(); };
       req.onerror = (e) => { reject(e.target.error); };
     });
   }

@@ -55,6 +55,68 @@ const PDFViewer = (() => {
   // ─── Phase 2: OffscreenCanvas feature detection ───────────
   const _hasOffscreen = typeof OffscreenCanvas !== 'undefined';
 
+  // ─── Phase 6: Off-thread PDF rendering via Web Worker ────
+  let _renderWorker = null;
+  let _renderCallbacks = new Map(); // id -> { resolve, reject, timer }
+  let _renderMsgId = 0;
+  const _pdfUrlMap = new WeakMap(); // PDFDocumentProxy -> blob URL string
+  const WORKER_TIMEOUT_MS = 10000;
+
+  function _initRenderWorker() {
+    if (_renderWorker || !_hasOffscreen) return;
+    try {
+      _renderWorker = new Worker('pdf-render-worker.js');
+      _renderWorker.onmessage = (e) => {
+        const { id, bitmap, displayW, displayH, error } = e.data;
+        const cb = _renderCallbacks.get(id);
+        if (!cb) {
+          // Timeout already fired — clean up leaked bitmap
+          if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+          return;
+        }
+        _renderCallbacks.delete(id);
+        clearTimeout(cb.timer);
+        if (error) {
+          cb.reject(new Error(error));
+        } else {
+          cb.resolve({ bitmap, displayW, displayH });
+        }
+      };
+      _renderWorker.onerror = () => {
+        // Worker failed — reject all pending callbacks and disable it
+        console.warn('PDFViewer: render worker failed, using main-thread rendering');
+        for (const [id, cb] of _renderCallbacks) {
+          clearTimeout(cb.timer);
+          cb.reject(new Error('worker crashed'));
+        }
+        _renderCallbacks.clear();
+        _renderWorker = null;
+      };
+    } catch (e) {
+      console.warn('PDFViewer: could not create render worker', e);
+      _renderWorker = null;
+    }
+  }
+
+  function _workerRender(pdfUrl, pageNum, containerWidth, dpr) {
+    return new Promise((resolve, reject) => {
+      if (!_renderWorker) { reject(new Error('no worker')); return; }
+      const id = ++_renderMsgId;
+      const timer = setTimeout(() => {
+        _renderCallbacks.delete(id);
+        reject(new Error('worker timeout'));
+      }, WORKER_TIMEOUT_MS);
+      _renderCallbacks.set(id, { resolve, reject, timer });
+      _renderWorker.postMessage({ id, type: 'render', pdfUrl, pageNum, containerWidth, dpr });
+    });
+  }
+
+  // Initialize worker eagerly
+  if (typeof window !== 'undefined') {
+    // Defer to avoid blocking parse
+    (typeof requestIdleCallback === 'function' ? requestIdleCallback : setTimeout)(() => _initRenderWorker());
+  }
+
   // ─── requestIdleCallback with Safari fallback ─────────────
   const _rIC = typeof requestIdleCallback === 'function'
     ? requestIdleCallback
@@ -285,6 +347,48 @@ const PDFViewer = (() => {
   async function _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerWidth) {
     if (!pdfDoc || typeof pdfDoc.getPage !== 'function') return;
 
+    // ─── Try worker path first ───
+    const pdfUrl = _pdfUrlMap.get(pdfDoc);
+    if (_renderWorker && pdfUrl) {
+      try {
+        const dpr = window.devicePixelRatio || 1;
+        const { bitmap, displayW, displayH } = await _workerRender(pdfUrl, pageNum, containerWidth, dpr);
+        // Draw ImageBitmap to visible canvas
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.style.width = displayW + 'px';
+        canvas.style.height = displayH + 'px';
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+
+        // Store in render cache
+        const pdfId = _getPdfId(pdfDoc);
+        const cacheKey = `${pdfId}-${pageNum}`;
+        canvas.dataset.renderKey = cacheKey;
+        if (_renderCache.size >= MAX_RENDER_CACHE) {
+          const oldestKey = _renderCache.keys().next().value;
+          _renderCache.delete(oldestKey);
+        }
+        // Pre-render to cache via worker as well (create offscreen copy)
+        let cacheCanvas;
+        if (_hasOffscreen) {
+          cacheCanvas = new OffscreenCanvas(canvas.width, canvas.height);
+        } else {
+          cacheCanvas = document.createElement('canvas');
+          cacheCanvas.width = canvas.width;
+          cacheCanvas.height = canvas.height;
+        }
+        cacheCanvas.getContext('2d').drawImage(canvas, 0, 0);
+        _renderCache.delete(cacheKey);
+        _renderCache.set(cacheKey, { canvas: cacheCanvas, displayW, displayH });
+        return;
+      } catch (e) {
+        // Worker failed — fall through to main-thread rendering
+      }
+    }
+
+    // ─── Main-thread fallback (progressive rendering) ───
     let page;
     try {
       page = await pdfDoc.getPage(pageNum);
@@ -323,11 +427,6 @@ const PDFViewer = (() => {
     canvas.dataset.renderKey = cacheKey;
 
     _rIC(async () => {
-      // Stale canvas guard: if the canvas is now showing a different page, skip the swap
-      // (still do the render to populate cache, just don't write to the visible canvas)
-      const isStale = canvas.dataset.renderKey !== cacheKey;
-
-      // Re-check that pdfDoc is still valid
       if (!docRef || typeof docRef.getPage !== 'function') return;
 
       let hiPage;
@@ -341,7 +440,6 @@ const PDFViewer = (() => {
       const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
       const hiVP = hiPage.getViewport({ scale: hiScale });
 
-      // Create offscreen canvas for the high-res render
       let hiCanvas, hiCtx;
       if (_hasOffscreen) {
         hiCanvas = new OffscreenCanvas(hiVP.width, hiVP.height);
@@ -359,8 +457,8 @@ const PDFViewer = (() => {
         return;
       }
 
-      // Only swap onto visible canvas if it's still showing the same page
-      if (!isStale) {
+      // Re-check staleness after await (canvas may have changed pages during render)
+      if (canvas.dataset.renderKey === cacheKey) {
         canvas.width = hiVP.width;
         canvas.height = hiVP.height;
         canvas.style.width = displayW + 'px';
@@ -370,7 +468,6 @@ const PDFViewer = (() => {
         swapCtx.drawImage(hiCanvas, 0, 0);
       }
 
-      // Store the sharp render in cache (with LRU eviction)
       if (_renderCache.size >= MAX_RENDER_CACHE) {
         const oldestKey = _renderCache.keys().next().value;
         _renderCache.delete(oldestKey);
@@ -682,6 +779,7 @@ const PDFViewer = (() => {
       const doc = await pdfjsLib.getDocument(url).promise;
       if (gen !== _openGen) { doc.destroy(); return; } // stale — user already opened another or closed
       _pdfDoc = doc;
+      _pdfUrlMap.set(doc, url);
       _updateNav();
       await _renderPage(1);
     } catch (e) {
@@ -695,11 +793,18 @@ const PDFViewer = (() => {
   function close() {
     modal().classList.add('hidden');
     if (_focusTrap) { _focusTrap.release(); _focusTrap = null; }
+    // Evict from worker cache BEFORE revoking blob URL (worker may still reference it)
+    if (_pdfDoc) {
+      clearRenderCache(_pdfDoc);
+      const url = _pdfUrlMap.get(_pdfDoc);
+      if (_renderWorker && url) {
+        _renderWorker.postMessage({ type: 'evict', pdfUrl: url });
+      }
+      try { _pdfDoc.destroy(); } catch (_) {}
+    }
     if (_blobUrl && _ownsBlobUrl) { try { URL.revokeObjectURL(_blobUrl); } catch(_){} }
     _blobUrl = null;
     _ownsBlobUrl = false;
-    // Clear cache for the closing doc before nulling the reference
-    if (_pdfDoc) clearRenderCache(_pdfDoc);
     _pdfDoc    = null;
     _pageNum   = 1;
     _rendering = false;

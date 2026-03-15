@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.86';
+const CACHE_NAME = 'catmantrio-v17.87';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -24,15 +24,16 @@ const SHELL_ASSETS = [
   '/admin.js',
   '/lucide.min.js',
   '/levenshtein-worker.js',
+  '/metronome-processor.js',
+  '/pdf-render-worker.js',
   '/manifest.json',
 ];
 
-// Install: cache shell
+// Install: cache shell (skipWaiting only on explicit SKIP_WAITING message, not unconditionally)
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_ASSETS))
   );
-  self.skipWaiting();
 });
 
 // Activate: remove old caches (keep SONGS_CACHE and PDF_CACHE)
