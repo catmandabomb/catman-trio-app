@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.71';
+  const APP_VERSION = 'v17.72';
 
   let _songs      = [];
   let _setlists   = [];
@@ -3341,16 +3341,20 @@ const App = (() => {
       volWrap.style.display = 'none';
     } else {
       volSlider.value = Player.getVolume();
+      function _updateVolFill() {
+        const pct = (parseFloat(volSlider.value) / parseFloat(volSlider.max)) * 100;
+        volSlider.style.background = `linear-gradient(to right, var(--accent-dim) 0%, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+      }
       function _updateVolIcon() {
         const v = parseFloat(volSlider.value);
         const name = v === 0 ? 'volume-x' : v < 0.5 ? 'volume-1' : 'volume-2';
-        // Lucide replaces <i> with <svg>, so we must swap the element each time
         const oldIcon = volWrap.querySelector('[data-lucide]') || volWrap.querySelector('svg');
         const newIcon = document.createElement('i');
         newIcon.setAttribute('data-lucide', name);
         newIcon.style.cssText = 'width:14px;height:14px;opacity:0.6;flex-shrink:0;';
         if (oldIcon) oldIcon.replaceWith(newIcon);
         if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [volWrap] });
+        _updateVolFill();
       }
       _updateVolIcon();
       volSlider.addEventListener('input', function() {
