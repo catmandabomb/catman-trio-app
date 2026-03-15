@@ -2874,7 +2874,7 @@ body.live-mode-active #topbar { display: none; }
 body.live-mode-active #app { padding-top: 0; }
 body.live-mode-active { background: #000; }
 
-#view-setlist-live {
+#view-setlist-live.active {
   min-height: 100vh;
   min-height: 100dvh;
   background: #000;
@@ -3078,5 +3078,29 @@ body.live-mode-active { background: #000; }
 }
 .setlist-picker-cancel:hover {
   color: var(--text-bright);
+  background: var(--bg-4);
+}
+
+/* ═══════════════════════════════════════════
+   COPY SETLIST BUTTON
+═══════════════════════════════════════════ */
+.btn-copy-setlist {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 12px;
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: all 0.15s;
+}
+.btn-copy-setlist:hover {
+  color: var(--text-bright);
+  border-color: var(--border-light);
   background: var(--bg-4);
 }

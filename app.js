@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.75';
+  const APP_VERSION = 'v17.76';
 
   let _songs      = [];
   let _setlists   = [];
@@ -105,6 +105,21 @@ const App = (() => {
       el.classList.remove('show');
       setTimeout(() => el.classList.add('hidden'), 200);
     }, duration);
+  }
+
+  function _fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      showToast('Setlist copied!');
+    } catch (_) {
+      showToast('Copy failed \u2014 try manually.');
+    }
+    document.body.removeChild(ta);
   }
 
   // ─── Blob cache ───────────────────────────────────────────
@@ -1447,7 +1462,7 @@ const App = (() => {
     let html = `<div class="detail-header">
       ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
-      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
+      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button>' : ''}</div>
     </div>`;
 
     if (songs.length === 0) {
@@ -1511,6 +1526,36 @@ const App = (() => {
     container.querySelector('.btn-live-mode')?.addEventListener('click', () => {
       _renderLiveMode(setlist);
     });
+
+    // Wire Copy Setlist button
+    container.querySelector('.btn-copy-setlist')?.addEventListener('click', () => {
+      const lines = [];
+      lines.push((setlist.name || 'Setlist') + ' (' + songs.length + ' song' + (songs.length !== 1 ? 's' : '') + ')');
+      lines.push('');
+      songs.forEach((entry, i) => {
+        const song = _songs.find(s => s.id === entry.id);
+        if (!song) return;
+        let line = (i + 1) + '. ' + (song.title || 'Untitled');
+        const meta = [];
+        if (song.key) meta.push(song.key);
+        if (song.bpm) meta.push(song.bpm + ' BPM');
+        if (song.timeSig) meta.push(song.timeSig);
+        if (meta.length) line += ' \u2014 ' + meta.join(' \u00b7 ');
+        lines.push(line);
+        if (entry.comment) lines.push('   ' + entry.comment);
+      });
+      const text = lines.join('\n');
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast('Setlist copied!');
+        }).catch(() => {
+          _fallbackCopy(text);
+        });
+      } else {
+        _fallbackCopy(text);
+      }
+    });
   }
 
   // ─── SETLIST LIVE MODE ──────────────────────────────────
@@ -1526,6 +1571,8 @@ const App = (() => {
     _revokeBlobCache();
     Player.stopAll();
     let currentIdx = 0;
+    const _startTime = Date.now();
+    let _clockInterval = null;
 
     _showView('setlist-live');
     document.body.classList.add('live-mode-active');
@@ -1545,6 +1592,10 @@ const App = (() => {
       container.innerHTML = `
         <div class="lm-header">
           <span class="lm-progress">${currentIdx + 1} / ${songs.length}</span>
+          <div class="lm-clock-group">
+            <span class="lm-clock"></span>
+            <span class="lm-timer">0:00</span>
+          </div>
           <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
         </div>
         <div class="lm-body">
