@@ -188,7 +188,7 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-3);
   opacity: 0.5;
   align-self: center;
-  margin-left: 15px;
+  margin-left: 6px;
   white-space: nowrap;
 }
 
@@ -2522,6 +2522,18 @@ textarea.form-input {
   .view {
     padding-left: 15vw;
     padding-right: 15vw;
+  }
+  #topbar-title {
+    margin-left: 30px;
+  }
+  .title-catman {
+    font-size: 18px;
+  }
+  .title-trio {
+    font-size: 17px;
+  }
+  .list-subheader {
+    padding-left: 30px;
   }
 }
 
