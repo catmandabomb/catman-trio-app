@@ -524,12 +524,38 @@ a { color: inherit; text-decoration: none; }
   font-size: 13px;
   color: var(--text);
 }
-.dash-alert.warn {
+.dash-alert.warn-orange {
   border-left-color: #f59e0b;
+}
+.dash-alert.warn-yellow {
+  border-left-color: #eab308;
 }
 .dash-alert.info {
   border-left-color: var(--blue);
 }
+.dash-alert-code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.view-refresh-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.view-refresh-btn {
+  width: 28px; height: 28px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.5;
+  transition: opacity .15s;
+}
+.view-refresh-btn:hover { opacity: 1; }
 .dash-alert-title {
   font-weight: 600;
   color: var(--text-bright);

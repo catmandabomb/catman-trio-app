@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.47';
+  const APP_VERSION = 'v17.48';
 
   let _songs      = [];
   let _setlists   = [];
@@ -271,6 +271,14 @@ const App = (() => {
       if (t) t.textContent = 'No songs yet.';
       if (s) s.textContent = '';
     }
+  }
+
+  /** Lightweight sync + re-render for non-main-page views */
+  async function _doSyncRefresh(afterCallback) {
+    showToast('Syncing from Drive…');
+    await _syncAllFromDrive(true);
+    showToast('Sync complete.');
+    if (afterCallback) afterCallback();
   }
 
   async function saveSongs(toastMsg) {
@@ -1068,7 +1076,11 @@ const App = (() => {
     const active = _setlists.filter(sl => !sl.archived).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     const archived = _setlists.filter(sl => sl.archived).sort((a, b) => (b.gigDate || b.updatedAt || '').localeCompare(a.gigDate || a.updatedAt || ''));
 
-    let html = '';
+    let html = `<div class="view-refresh-row">
+      <button class="icon-btn view-refresh-btn" id="btn-refresh-setlists" title="Sync from Drive" aria-label="Refresh">
+        <i data-lucide="refresh-cw"></i>
+      </button>
+    </div>`;
 
     if (Admin.isEditMode()) {
       html += `<button class="btn-ghost setlist-add-btn" id="btn-new-setlist">+ New Setlist</button>`;
@@ -1107,6 +1119,11 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire refresh
+    document.getElementById('btn-refresh-setlists')?.addEventListener('click', () => {
+      _doSyncRefresh(() => renderSetlists(true));
+    });
 
     // Wire card clicks
     container.querySelectorAll('.setlist-card').forEach(card => {
@@ -1468,14 +1485,16 @@ const App = (() => {
     _songs.forEach(s => (s.tags || []).forEach(t => allTags.add(t)));
 
     // ─── Analyze issues ───
-    // Severity levels:
-    //   issues   = broken data that WILL cause errors (red)
-    //   warnings = degraded state that SHOULD be fixed (yellow)
-    //   info     = cosmetic / nice-to-know (blue)
-    // Every item MUST include an actionable "fix" hint.
-    const issues = [];
-    const warnings = [];
-    const info = [];
+    // Severity levels & diagnostic codes:
+    //   errors       = broken data that WILL cause errors (red, 1xxx)
+    //   warnOrange   = degraded state that SHOULD be fixed (orange, 2xxx)
+    //   warnYellow   = cosmetic / low-priority (yellow, 3xxx)
+    //   infoBlue     = purely informational, no action (blue, 4xxx)
+    // Every actionable item MUST include a "Fix:" hint.
+    const errors = [];
+    const warnOrange = [];
+    const warnYellow = [];
+    const infoBlue = [];
 
     // Collect all driveIds referenced by songs (used by multiple checks)
     const referencedDriveIds = new Set();
@@ -1495,28 +1514,30 @@ const App = (() => {
     });
     const songIdSet = new Set(_songs.map(s => s.id));
 
-    // ── ISSUES (broken data) ──────────────────────────────
+    // ── ERRORS (red, 1xxx) — broken data that WILL cause errors ──
 
-    // Songs with no title — can't be found or displayed properly
+    // 1001: Songs with no title
     const untitled = _songs.filter(s => !s.title || !s.title.trim());
     if (untitled.length) {
-      issues.push({
+      errors.push({
+        code: 1001,
         title: `${untitled.length} song${untitled.length > 1 ? 's' : ''} with no title`,
         detail: 'Fix: Edit each song and add a title.',
         items: untitled.map(s => `ID: ${s.id}`)
       });
     }
 
-    // File references with empty Drive IDs — will fail to load
+    // 1002: File references with empty Drive IDs
     if (emptyDriveIds.length) {
-      issues.push({
+      errors.push({
+        code: 1002,
         title: `${emptyDriveIds.length} file${emptyDriveIds.length > 1 ? 's' : ''} with missing Drive ID`,
         detail: 'These attachments cannot be loaded. Fix: Edit the song and re-upload the file, or remove the broken attachment.',
         items: emptyDriveIds.map(e => `"${esc(e.file)}" in "${esc(e.song)}"`)
       });
     }
 
-    // Practice lists referencing songs that no longer exist
+    // 1003: Practice lists referencing deleted songs
     const orphanPractice = [];
     _practice.forEach(persona => {
       (persona.practiceLists || []).forEach(pl => {
@@ -1528,14 +1549,15 @@ const App = (() => {
       });
     });
     if (orphanPractice.length) {
-      issues.push({
+      errors.push({
+        code: 1003,
         title: `${orphanPractice.length} practice entry${orphanPractice.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
         detail: 'These entries will show as missing. Fix: Edit the practice list and remove the broken entries, or re-add the song to the repository.',
         items: orphanPractice.map(o => `"${esc(o.persona)}" → "${esc(o.list)}" → song ${o.songId}`)
       });
     }
 
-    // Setlists referencing songs that no longer exist
+    // 1004: Setlists referencing deleted songs
     const orphanSetlist = [];
     _setlists.forEach(sl => {
       (sl.songs || []).forEach(entry => {
@@ -1546,39 +1568,49 @@ const App = (() => {
       });
     });
     if (orphanSetlist.length) {
-      issues.push({
+      errors.push({
+        code: 1004,
         title: `${orphanSetlist.length} setlist entry${orphanSetlist.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
         detail: 'These entries will show as missing. Fix: Edit the setlist and remove the broken entries, or re-add the song to the repository.',
         items: orphanSetlist.map(o => `"${esc(o.setlist)}" → song ${o.songId}`)
       });
     }
 
-    // ── WARNINGS (degraded state) ─────────────────────────
+    // ── ORANGE WARNINGS (2xxx) — degraded state, should address ──
 
-    // Songs with no assets — functional but not useful
+    // 2001: Songs with no assets
     const noAssets = _songs.filter(s => {
       const a = s.assets || {};
       return !(a.charts || []).length && !(a.audio || []).length && !(a.links || []).length;
     });
     if (noAssets.length) {
-      warnings.push({
+      warnOrange.push({
+        code: 2001,
         title: `${noAssets.length} song${noAssets.length > 1 ? 's' : ''} with no files or links`,
         detail: 'These songs have no charts, audio, or links. Fix: Edit each song and attach files or add links.',
         items: noAssets.map(s => esc(s.title || s.id))
       });
     }
 
-    // Duplicate Drive file references
-    const dupes = Object.entries(driveIdToSong).filter(([, songs]) => songs.length > 1);
-    if (dupes.length) {
-      warnings.push({
-        title: `${dupes.length} file${dupes.length > 1 ? 's' : ''} shared across multiple songs`,
-        detail: 'The same Drive file is attached to more than one song. This is usually fine, but deleting the file from one song would break the other. Fix: If unintentional, re-upload a separate copy to each song.',
-        items: dupes.map(([id, songs]) => `${id.slice(0, 12)}… → ${songs.map(s => esc(s.title || s.id)).join(', ')}`)
+    // 2002: Drive not connected
+    if (!Drive.isConfigured()) {
+      warnOrange.push({
+        code: 2002,
+        title: 'Drive not connected',
+        detail: 'No API key or folder ID set. Songs load from local cache only. Fix: Open the Drive Setup modal and enter your credentials.'
       });
     }
 
-    // Duplicate song titles
+    // 2003: Drive is read-only
+    if (Drive.isConfigured() && !Drive.isWriteConfigured()) {
+      warnOrange.push({
+        code: 2003,
+        title: 'Drive is read-only — changes won\'t sync',
+        detail: 'OAuth Client ID is not set. All saves are local-only and won\'t be visible to other users. Fix: Set up an OAuth Client ID in Google Cloud Console and enter it in the Drive Setup modal.'
+      });
+    }
+
+    // 2004: Duplicate song titles
     const titleCounts = {};
     _songs.forEach(s => {
       const t = (s.title || '').trim().toLowerCase();
@@ -1586,19 +1618,21 @@ const App = (() => {
     });
     const dupTitles = Object.entries(titleCounts).filter(([, c]) => c > 1);
     if (dupTitles.length) {
-      warnings.push({
+      warnOrange.push({
+        code: 2004,
         title: `${dupTitles.length} duplicate song title${dupTitles.length > 1 ? 's' : ''}`,
         detail: 'Multiple songs share the same title, which can cause confusion. Fix: Rename one of the duplicates or delete the extra copy.',
         items: dupTitles.map(([t, c]) => `"${esc(t)}" (${c} copies)`)
       });
     }
 
-    // ── INFO (cosmetic / nice-to-know) ────────────────────
+    // ── YELLOW WARNINGS (3xxx) — low priority, cosmetic ──────
 
-    // Songs with no tags
+    // 3001: Songs without tags
     const noTags = _songs.filter(s => !(s.tags || []).length);
     if (noTags.length > 0 && noTags.length < totalSongs) {
-      info.push({
+      warnYellow.push({
+        code: 3001,
         title: `${noTags.length} song${noTags.length > 1 ? 's' : ''} without tags`,
         detail: 'Untagged songs won\'t appear when filtering by tag. Fix: Edit the song and add relevant tags.',
         items: noTags.length <= 10 ? noTags.map(s => esc(s.title || s.id)) : [
@@ -1608,25 +1642,25 @@ const App = (() => {
       });
     }
 
-    // Drive config checks
-    if (!Drive.isConfigured()) {
-      warnings.push({
-        title: 'Drive not connected',
-        detail: 'No API key or folder ID set. Songs load from local cache only. Fix: Open the Drive Setup modal and enter your credentials.'
-      });
-    } else if (!Drive.isWriteConfigured()) {
-      warnings.push({
-        title: 'Drive is read-only — changes won\'t sync',
-        detail: 'OAuth Client ID is not set. All saves are local-only and won\'t be visible to other users. Fix: Set up an OAuth Client ID in Google Cloud Console and enter it in the Drive Setup modal.'
+    // 3002: Files shared across multiple songs
+    const dupes = Object.entries(driveIdToSong).filter(([, songs]) => songs.length > 1);
+    if (dupes.length) {
+      warnYellow.push({
+        code: 3002,
+        title: `${dupes.length} file${dupes.length > 1 ? 's' : ''} shared across multiple songs`,
+        detail: 'The same Drive file is attached to more than one song. This is usually fine, but deleting the file from one song would break the other. Fix: If unintentional, re-upload a separate copy to each song.',
+        items: dupes.map(([id, songs]) => `${id.slice(0, 12)}… → ${songs.map(s => esc(s.title || s.id)).join(', ')}`)
       });
     }
 
     // ─── Render ───
-    const totalIssues = issues.length;
-    const totalWarnings = warnings.length;
-    const totalInfo = info.length;
-    const healthStatus = totalIssues > 0 ? 'Issues Found' : totalWarnings > 0 ? 'Warnings' : 'All Clear';
-    const healthBadge = totalIssues > 0 ? 'warn' : totalWarnings > 0 ? 'warn' : 'ok';
+    const totalErrors = errors.length;
+    const totalOrange = warnOrange.length;
+    const totalYellow = warnYellow.length;
+    const healthStatus = totalErrors > 0 ? 'Errors Found' : totalOrange > 0 ? 'Warnings' : totalYellow > 0 ? 'Minor Warnings' : 'All Clear';
+    const healthBadge = totalErrors > 0 ? 'warn' : totalOrange > 0 ? 'warn' : 'ok';
+
+    const _codeTag = (code) => `<span class="dash-alert-code">${code}</span>`;
 
     let html = `
       <div class="dash-header">
@@ -1668,34 +1702,34 @@ const App = (() => {
           <span class="dash-section-badge ${healthBadge}">${healthStatus}</span>
         </div>`;
 
-    if (totalIssues === 0 && totalWarnings === 0 && totalInfo === 0) {
+    if (totalErrors === 0 && totalOrange === 0 && totalYellow === 0) {
       html += `<div class="dash-ok">All ${totalSongs} songs, ${totalSetlists} setlists, and ${totalPracticeLists} practice lists checked — no problems found.</div>`;
     }
 
-    // Errors first
-    issues.forEach(issue => {
+    // Red errors (1xxx)
+    errors.forEach(e => {
       html += `<div class="dash-alert">
-        <div class="dash-alert-title">${issue.title}</div>
-        ${issue.detail ? `<div class="dash-alert-detail">${issue.detail}</div>` : ''}
-        ${issue.items ? `<ul class="dash-file-list">${issue.items.map(i => `<li>${i}</li>`).join('')}</ul>` : ''}
+        <div class="dash-alert-title">${_codeTag(e.code)} ${e.title}</div>
+        ${e.detail ? `<div class="dash-alert-detail">${e.detail}</div>` : ''}
+        ${e.items ? `<ul class="dash-file-list">${e.items.map(i => `<li>${i}</li>`).join('')}</ul>` : ''}
       </div>`;
     });
 
-    // Warnings
-    warnings.forEach(w => {
-      html += `<div class="dash-alert warn">
-        <div class="dash-alert-title">${w.title}</div>
+    // Orange warnings (2xxx)
+    warnOrange.forEach(w => {
+      html += `<div class="dash-alert warn-orange">
+        <div class="dash-alert-title">${_codeTag(w.code)} ${w.title}</div>
         ${w.detail ? `<div class="dash-alert-detail">${w.detail}</div>` : ''}
         ${w.items ? `<ul class="dash-file-list">${w.items.map(i => `<li>${i}</li>`).join('')}</ul>` : ''}
       </div>`;
     });
 
-    // Info
-    info.forEach(i => {
-      html += `<div class="dash-alert info">
-        <div class="dash-alert-title">${i.title}</div>
-        ${i.detail ? `<div class="dash-alert-detail">${i.detail}</div>` : ''}
-        ${i.items ? `<ul class="dash-file-list">${i.items.map(it => `<li>${it}</li>`).join('')}</ul>` : ''}
+    // Yellow warnings (3xxx)
+    warnYellow.forEach(w => {
+      html += `<div class="dash-alert warn-yellow">
+        <div class="dash-alert-title">${_codeTag(w.code)} ${w.title}</div>
+        ${w.detail ? `<div class="dash-alert-detail">${w.detail}</div>` : ''}
+        ${w.items ? `<ul class="dash-file-list">${w.items.map(it => `<li>${it}</li>`).join('')}</ul>` : ''}
       </div>`;
     });
 
@@ -1706,7 +1740,7 @@ const App = (() => {
       <div class="dash-section">
         <div class="dash-section-title">Data Breakdown</div>
         <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
-          <div class="dash-alert-title">File Attachment Summary</div>
+          <div class="dash-alert-title">${_codeTag(4001)} File Attachment Summary</div>
           <div class="dash-alert-detail">
             ${_songs.filter(s => (s.assets?.charts || []).length).length} songs have charts ·
             ${_songs.filter(s => (s.assets?.audio || []).length).length} songs have audio ·
@@ -1714,7 +1748,7 @@ const App = (() => {
           </div>
         </div>
         <div class="dash-alert info" style="border-left-color:var(--accent-dim)">
-          <div class="dash-alert-title">Storage</div>
+          <div class="dash-alert-title">${_codeTag(4002)} Storage</div>
           <div class="dash-alert-detail">
             Songs JSON: ~${(JSON.stringify(_songs).length / 1024).toFixed(1)} KB ·
             Setlists JSON: ~${(JSON.stringify(_setlists).length / 1024).toFixed(1)} KB ·
@@ -1742,12 +1776,13 @@ const App = (() => {
       const el = document.getElementById('dash-drive-sync');
       if (!el) return;
       if (!Drive.isConfigured()) {
-        el.innerHTML = '<div class="dash-alert-title">Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>';
+        el.style.borderLeftColor = '#f59e0b';
+        el.innerHTML = `<div class="dash-alert-title">${_codeTag(5001)} Drive not connected</div><div class="dash-alert-detail">No API key or folder ID configured.</div>`;
         return;
       }
       try {
         if (!_lastDriveSnapshot) {
-          el.innerHTML = `<div class="dash-alert-title">No sync data yet</div>` +
+          el.innerHTML = `<div class="dash-alert-title">${_codeTag(5002)} No sync data yet</div>` +
             `<div class="dash-alert-detail">Drive data will appear after the next sync. Use the refresh button on the main page to trigger a sync.</div>`;
           return;
         }
@@ -1780,7 +1815,7 @@ const App = (() => {
           ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
           : '';
         el.innerHTML =
-          `<div class="dash-alert-title">${allMatch ? 'In Sync' : 'Out of Sync'}</div>` +
+          `<div class="dash-alert-title">${allMatch ? `${_codeTag(5003)} In Sync` : `${_codeTag(5004)} Out of Sync`}</div>` +
           `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
           row('Songs', localSongs, driveSongs, songMatch) +
           row('Setlists', localSetlists, driveSetlists, setlistMatch) +
@@ -1816,7 +1851,7 @@ const App = (() => {
         }
       } catch (e) {
         el.style.borderLeftColor = '#e87c6a';
-        el.innerHTML = `<div class="dash-alert-title">Drive check failed</div>` +
+        el.innerHTML = `<div class="dash-alert-title">${_codeTag(5005)} Drive check failed</div>` +
           `<div class="dash-alert-detail" style="font-size:12px;word-break:break-all;">${esc(String(e.message || e))}<br><br>` +
           `If this persists, try: close and reopen the app, or clear site data in Safari settings.</div>`;
       }
@@ -1937,7 +1972,11 @@ const App = (() => {
     _setTopbar('Practice Lists', true);
 
     const container = document.getElementById('practice-list');
-    let html = '';
+    let html = `<div class="view-refresh-row">
+      <button class="icon-btn view-refresh-btn" id="btn-refresh-practice" title="Sync from Drive" aria-label="Refresh">
+        <i data-lucide="refresh-cw"></i>
+      </button>
+    </div>`;
 
     if (Admin.isEditMode()) {
       html += `<button class="btn-ghost setlist-add-btn" id="btn-new-persona">+ New Persona</button>`;
@@ -1973,6 +2012,11 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire refresh
+    document.getElementById('btn-refresh-practice')?.addEventListener('click', () => {
+      _doSyncRefresh(() => renderPractice(true));
+    });
 
     container.querySelectorAll('.persona-card').forEach(card => {
       card.addEventListener('click', (e) => {
@@ -2045,7 +2089,12 @@ const App = (() => {
     const activeLists = allLists.filter(l => !l.archived);
     const archivedLists = allLists.filter(l => l.archived);
 
-    let html = `<div class="detail-header">
+    let html = `<div class="view-refresh-row">
+      <button class="icon-btn view-refresh-btn" id="btn-refresh-practice-detail" title="Sync from Drive" aria-label="Refresh">
+        <i data-lucide="refresh-cw"></i>
+      </button>
+    </div>`;
+    html += `<div class="detail-header">
       ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-persona">Edit Persona</button></div>` : ''}
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
         <div class="persona-avatar persona-avatar-lg" style="background:${color}">${_personaInitials(persona.name)}</div>
@@ -2103,6 +2152,15 @@ const App = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Wire refresh
+    document.getElementById('btn-refresh-practice-detail')?.addEventListener('click', () => {
+      _doSyncRefresh(() => {
+        const updated = _practice.find(p => p.id === persona.id);
+        if (updated) renderPracticeDetail(updated, true);
+        else renderPractice(true);
+      });
+    });
 
     // Wire practice list card clicks
     container.querySelectorAll('.practice-list-card').forEach(card => {
