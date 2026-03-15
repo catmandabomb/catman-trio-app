@@ -388,8 +388,9 @@ a { color: inherit; text-decoration: none; }
 .list-subheader {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 400;
   letter-spacing: 0.02em;
   padding: var(--space-md) var(--space-md) 0 var(--space-sm);
@@ -398,6 +399,8 @@ a { color: inherit; text-decoration: none; }
 .subheader-text {
   flex: 1;
   text-align: left;
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 600;
 }
 .admin-buttons {
   display: grid;
@@ -410,12 +413,14 @@ a { color: inherit; text-decoration: none; }
 }
 .admin-dashboard-bar {
   grid-column: 1 / -1;
+  margin-top: 8px;
 }
 #btn-edit-mode.exit-mode {
   font-size: 10px;
   line-height: 1.3;
   text-align: center;
   padding: 4px 16px;
+  margin-right: 12px;
 }
 
 /* ═══════════════════════════════════════════
