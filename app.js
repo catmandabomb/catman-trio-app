@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.83';
+  const APP_VERSION = 'v17.85';
 
   let _songs      = [];
   let _setlists   = [];
@@ -39,6 +39,14 @@ const App = (() => {
   }
 
   function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+  function _timeAgo(ts) {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
 
   // ─── Haptic feedback ─────────────────────────────────────
   // Gracefully degrades on iOS / unsupported browsers (no-op)
@@ -482,9 +490,9 @@ const App = (() => {
         if (JSON.stringify(songs) !== JSON.stringify(_songs)) dataChanged = true;
         _songs = songs;
         _saveLocal(songs);
-        // Prune stale key filters that no longer exist in data
+        // Prune stale or hybrid key filters
         if (_activeKeys.length) {
-          const validKeys = new Set(_songs.map(s => (s.key || '').trim()).filter(Boolean));
+          const validKeys = new Set(_songs.map(s => (s.key || '').trim()).filter(k => k && !_isHybridKey(k)));
           _activeKeys = _activeKeys.filter(k => validKeys.has(k));
         }
       }
@@ -666,9 +674,12 @@ const App = (() => {
 
   function _showView(name) {
     const swap = () => {
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => {
+        v.classList.remove('active');
+        v.removeAttribute('aria-current');
+      });
       const el = document.getElementById(`view-${name}`);
-      if (el) { el.classList.add('active'); el.scrollTop = 0; }
+      if (el) { el.classList.add('active'); el.scrollTop = 0; el.setAttribute('aria-current', 'page'); }
       _view = name;
     };
     if (document.startViewTransition) {
@@ -720,19 +731,20 @@ const App = (() => {
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   }
 
+  function _isHybridKey(k) {
+    if (k.includes('/')) return true;
+    const low = k.toLowerCase();
+    return low === 'multiple' || low === 'various' || low === 'hybrid' || low === 'mixed';
+  }
+
   function _allKeys() {
-    const chromatic = ['C','C#','Db','D','D#','Eb','E','F','F#','Gb','G','G#','Ab','A','A#','Bb','B'];
-    const order = {};
-    chromatic.forEach((k, i) => { order[k] = i; order[k + 'm'] = i + 0.5; });
     const counts = {};
     _songs.forEach(s => {
-      if (s.key) counts[s.key.trim()] = (counts[s.key.trim()] || 0) + 1;
+      const k = (s.key || '').trim();
+      if (k && !_isHybridKey(k)) counts[k] = (counts[k] || 0) + 1;
     });
-    return Object.keys(counts).sort((a, b) => {
-      const oa = order[a] ?? 999;
-      const ob = order[b] ?? 999;
-      return oa - ob || a.localeCompare(b);
-    });
+    // Sort by usage count (most used first), like tags
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
   }
 
   function _filteredSongs() {
@@ -798,10 +810,9 @@ const App = (() => {
         keyBar.className = 'key-filter-bar';
         tagBar.parentNode.insertBefore(keyBar, tagBar.nextSibling);
       }
-      const pinnedKeys = _activeKeys.filter(k => allKeys.includes(k));
-      const unpinnedKeys = allKeys.filter(k => !_activeKeys.includes(k));
-      const orderedKeys = [...pinnedKeys, ...unpinnedKeys];
-      keyBar.innerHTML = orderedKeys.map(k =>
+      // Keep stable sort order (by usage count) — don't reorder on selection
+      // to prevent the multi-select glitch where pills shift under the user's finger
+      keyBar.innerHTML = allKeys.map(k =>
         `<button class="kf-chip ${_activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
       ).join('');
       keyBar.querySelectorAll('.kf-chip').forEach(btn => {
@@ -2012,11 +2023,16 @@ const App = (() => {
     let _wakeLock = null;
 
     // Screen Wake Lock — keep screen on during Live Mode only
-    (async () => {
+    async function _requestWakeLock() {
       try {
-        if ('wakeLock' in navigator) _wakeLock = await navigator.wakeLock.request('screen');
+        if ('wakeLock' in navigator && _liveModeActive) _wakeLock = await navigator.wakeLock.request('screen');
       } catch (_) {}
-    })();
+    }
+    function _onVisibilityChange() {
+      if (document.visibilityState === 'visible' && _liveModeActive && !_wakeLock) _requestWakeLock();
+    }
+    document.addEventListener('visibilitychange', _onVisibilityChange);
+    _requestWakeLock();
 
     // ── Build flat page list ──
     // Start with one placeholder per song; chart songs get expanded as PDFs load
@@ -2256,9 +2272,6 @@ const App = (() => {
       metadataSlide.classList.toggle('hidden', page.type !== 'metadata');
       loadingSlide.classList.toggle('hidden', page.type !== 'loading');
 
-      // Reset zoom when changing pages
-      if (_zpHandle) _zpHandle.resetZoom();
-
       if (page.type === 'chart') {
         _renderChartPage(page);
       } else if (page.type === 'metadata') {
@@ -2274,11 +2287,16 @@ const App = (() => {
     }
 
     function _renderChartPage(page) {
-      PDFViewer.renderToCanvas(page.pdfDoc, page.pageNum, chartCanvas, canvasArea).catch(err => {
+      const capturedIdx = currentPageIdx;
+      PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, chartCanvas, canvasArea).then(() => {
+        if (capturedIdx === currentPageIdx && _zpHandle) _zpHandle.resetZoom();
+      }).catch(err => {
         console.error('Live mode chart render error', err);
-        // Fallback: convert to metadata page
-        _pages[currentPageIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
-        _renderCurrentPage();
+        // Fallback: convert to metadata page — only if we're still on the same page
+        if (_pages[capturedIdx] === page) {
+          _pages[capturedIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
+          if (capturedIdx === currentPageIdx) _renderCurrentPage();
+        }
       });
     }
 
@@ -2354,6 +2372,12 @@ const App = (() => {
 
           _pages.splice(placeholderIdx, 1, ...chartPages);
 
+          // Pre-render first chart page for this song
+          const cw = canvasArea.clientWidth;
+          if (cw > 0) {
+            PDFViewer.preRenderPage(pdfDoc, 1, cw).catch(() => {});
+          }
+
           if (wasBeforeCurrent) {
             currentPageIdx += (chartPages.length - 1);
           }
@@ -2394,6 +2418,7 @@ const App = (() => {
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       if (_overlayTimer) { clearTimeout(_overlayTimer); _overlayTimer = null; }
       if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
+      PDFViewer.clearRenderCache();
       // Destroy all loaded PDF documents to free memory
       const seenDocs = new Set();
       for (const pg of _pages) {
@@ -2407,9 +2432,12 @@ const App = (() => {
       if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; }
       document.body.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
+      document.removeEventListener('visibilitychange', _onVisibilityChange);
       pageWrapper.removeEventListener('touchstart', _onDragStart);
       pageWrapper.removeEventListener('touchmove', _onDragMove);
       pageWrapper.removeEventListener('touchend', _onDragEnd);
+      canvasArea.removeEventListener('touchstart', _onTapStart);
+      canvasArea.removeEventListener('touchend', _onTapEnd);
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitFullscreenElement) {
@@ -2541,6 +2569,54 @@ const App = (() => {
     pageWrapper.addEventListener('touchstart', _onDragStart, { passive: true });
     pageWrapper.addEventListener('touchmove', _onDragMove, { passive: false });
     pageWrapper.addEventListener('touchend', _onDragEnd, { passive: true });
+
+    // ── Tap zones for page turning ──
+    let _tapStartX = 0, _tapStartY = 0, _tapStartTime = 0;
+    function _onTapStart(e) {
+      if (e.touches.length !== 1) return;
+      _tapStartX = e.touches[0].clientX;
+      _tapStartY = e.touches[0].clientY;
+      _tapStartTime = Date.now();
+    }
+
+    function _onTapEnd(e) {
+      if (_isAnimating) return;
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
+      const page = _pages[currentPageIdx];
+      if (!page || page.type !== 'chart') return;
+
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = Math.abs(t.clientX - _tapStartX);
+      const dy = Math.abs(t.clientY - _tapStartY);
+      const duration = Date.now() - _tapStartTime;
+
+      // Only fire on quick taps with minimal movement
+      if (duration > 300 || dx > 10 || dy > 10) return;
+
+      const rect = canvasArea.getBoundingClientRect();
+      const x = (t.clientX - rect.left) / rect.width;
+
+      // Show tap flash feedback
+      const flash = document.createElement('div');
+      flash.className = 'lm-tap-flash';
+      if (x >= 0.45) {
+        flash.style.right = '0';
+        flash.style.width = '55%';
+        canvasArea.appendChild(flash);
+        setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
+        _goPage(1);
+      } else if (x <= 0.30) {
+        flash.style.left = '0';
+        flash.style.width = '30%';
+        canvasArea.appendChild(flash);
+        setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
+        _goPage(-1);
+      }
+    }
+
+    canvasArea.addEventListener('touchstart', _onTapStart, { passive: true });
+    canvasArea.addEventListener('touchend', _onTapEnd, { passive: true });
 
     // ── Initial render ──
     _renderCurrentPage();
@@ -4590,6 +4666,15 @@ const App = (() => {
       navigator.serviceWorker.ready.then(() => _loadCachedPdfList()).catch(() => {});
     }
 
+    // Request persistent storage to prevent eviction
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(() => {});
+    }
+
+    // Show loading skeleton
+    const songList = document.getElementById('song-list');
+    if (songList) songList.innerHTML = Array(6).fill('<div class="skeleton-card"></div>').join('');
+
     // PWA install gate — mobile browsers only
     if (_isMobile() && !_isPWAInstalled()) {
       _showInstallGate();
@@ -4666,11 +4751,6 @@ const App = (() => {
       _searchTimer = setTimeout(() => renderList(), 80);
     });
 
-    // Request persistent storage (prevents iOS/Android from evicting cache)
-    if (navigator.storage && navigator.storage.persist) {
-      navigator.storage.persist().catch(() => {});
-    }
-
     // Refresh button — full hard refresh: clear SW cache + reload for fresh source + data
     // Throttle: max 2 refreshes per 10 seconds
     const REFRESH_WINDOW = 10000;
@@ -4720,8 +4800,8 @@ const App = (() => {
       const ptrEl = document.getElementById('ptr-indicator');
       const ptrText = ptrEl?.querySelector('.ptr-text');
       let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
-      const PTR_THRESHOLD = 260;
-      const PTR_MAX = 310;
+      const PTR_THRESHOLD = 310;
+      const PTR_MAX = 375;
 
       function _getScrollTop() {
         const activeView = appEl.querySelector('.view.active');
@@ -5501,7 +5581,15 @@ const App = (() => {
       }
 
       if (!status) {
-        badge.className = 'qi-badge hidden';
+        const lastSync = parseInt(localStorage.getItem('bb_last_synced') || '0', 10);
+        if (lastSync && navigator.onLine) {
+          const ago = _timeAgo(lastSync);
+          badge.classList.remove('hidden');
+          badge.className = 'qi-badge qi-synced';
+          badge.innerHTML = '<span class="qi-dot"></span>Synced ' + ago;
+        } else {
+          badge.className = 'qi-badge hidden';
+        }
         return;
       }
 
@@ -5518,11 +5606,75 @@ const App = (() => {
       }
     }
 
-    window.addEventListener('online', _updateQueueBadge);
-    window.addEventListener('offline', _updateQueueBadge);
+    let _onlineDebounce = null;
+    window.addEventListener('online', () => {
+      _updateQueueBadge();
+      clearTimeout(_onlineDebounce);
+      _onlineDebounce = setTimeout(() => {
+        showToast('Back online');
+        if (typeof GitHub !== 'undefined' && GitHub.hasPendingWrites && GitHub.hasPendingWrites()) {
+          GitHub.flush && GitHub.flush();
+        }
+      }, 1500);
+    });
+    window.addEventListener('offline', () => {
+      clearTimeout(_onlineDebounce);
+      _updateQueueBadge();
+      showToast('Offline — changes saved locally', 4000);
+    });
     setInterval(_updateQueueBadge, 2000);
     _updateQueueBadge();
   }
+
+  // ─── Keyboard shortcut help overlay ──────────────────────────
+  (function _initKeyboardHelp() {
+    const overlay = document.createElement('div');
+    overlay.className = 'kb-help-overlay';
+    overlay.innerHTML = `<div class="kb-help-content">
+      <h2>Keyboard Shortcuts</h2>
+      <div class="kb-help-group">
+        <h3>General</h3>
+        <div class="kb-help-row"><span>Show/hide this help</span><span class="kb-help-key">?</span></div>
+        <div class="kb-help-row"><span>Go back</span><span class="kb-help-key">Esc</span></div>
+      </div>
+      <div class="kb-help-group">
+        <h3>PDF Viewer</h3>
+        <div class="kb-help-row"><span>Next page</span><span class="kb-help-key">\u2192</span></div>
+        <div class="kb-help-row"><span>Previous page</span><span class="kb-help-key">\u2190</span></div>
+        <div class="kb-help-row"><span>Zoom in</span><span class="kb-help-key">+</span></div>
+        <div class="kb-help-row"><span>Zoom out</span><span class="kb-help-key">-</span></div>
+        <div class="kb-help-row"><span>Reset zoom</span><span class="kb-help-key">0</span></div>
+      </div>
+      <div class="kb-help-group">
+        <h3>Live Mode</h3>
+        <div class="kb-help-row"><span>Next page</span><span class="kb-help-key">\u2192</span> <span class="kb-help-key">Space</span> <span class="kb-help-key">PgDn</span></div>
+        <div class="kb-help-row"><span>Previous page</span><span class="kb-help-key">\u2190</span> <span class="kb-help-key">PgUp</span></div>
+        <div class="kb-help-row"><span>Exit</span><span class="kb-help-key">Esc</span></div>
+        <div class="kb-help-row" style="margin-top:8px;opacity:0.6;font-size:11px"><span>Bluetooth page turners work via keyboard events (PgUp/PgDn)</span></div>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.classList.remove('visible');
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (e.key === '?') {
+        // Don't show help when PDF modal or Live Mode is active
+        if (!document.getElementById('modal-pdf').classList.contains('hidden')) return;
+        if (document.body.classList.contains('live-mode-active')) return;
+        e.preventDefault();
+        overlay.classList.toggle('visible');
+      }
+      if (e.key === 'Escape' && overlay.classList.contains('visible')) {
+        overlay.classList.remove('visible');
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    });
+  })();
 
   return { init, showToast, renderList, renderDetail, renderEdit, renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail, renderDashboard, runDiagnostics, hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap };
 
@@ -5543,7 +5695,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Wire GitHub callbacks and init crash recovery
   if (typeof GitHub !== 'undefined') {
     GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
-    GitHub.onFlushSuccess = () => {};
+    GitHub.onFlushSuccess = () => { localStorage.setItem('bb_last_synced', Date.now().toString()); };
     GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
     GitHub.init(); // Restore pending writes from crash recovery
   }
