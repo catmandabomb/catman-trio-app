@@ -5172,6 +5172,8 @@ const App = (() => {
             _refreshing = true;
             location.reload();
           });
+          // Proactively check for updates on every page load
+          reg.update().catch(() => {});
         })
         .catch(e => console.warn('SW registration failed:', e));
       // Load cached PDF list once SW is ready
