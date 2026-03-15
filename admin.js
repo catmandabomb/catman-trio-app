@@ -173,11 +173,14 @@ const Admin = (() => {
   // ─── Confirm modal ────────────────────────────────────────
 
   let _confirmCleanup = null;
-  function showConfirm(title, message, onConfirm) {
+  function showConfirm(title, message, onConfirm, okLabel) {
     if (_confirmCleanup) _confirmCleanup();
     const overlay = document.getElementById('modal-confirm');
+    const okBtn = document.getElementById('btn-confirm-ok');
     document.getElementById('confirm-title').textContent   = title;
     document.getElementById('confirm-message').textContent = message;
+    okBtn.textContent = okLabel || 'Delete';
+    okBtn.className = okLabel ? 'btn-primary' : 'btn-danger';
     overlay.classList.remove('hidden');
 
     const ok     = () => { overlay.classList.add('hidden'); cleanup(); onConfirm(); };

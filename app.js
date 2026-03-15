@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.66';
+  const APP_VERSION = 'v17.67';
 
   let _songs      = [];
   let _setlists   = [];
@@ -2436,11 +2436,15 @@ const App = (() => {
         e.stopPropagation();
         const pl = allLists.find(l => l.id === btn.dataset.archiveId);
         if (pl) {
-          pl.archived = true;
-          const idx = _practice.findIndex(p => p.id === persona.id);
-          if (idx > -1) _practice[idx] = persona;
-          await savePractice();
-          renderPracticeDetail(persona, true);
+          Admin.showConfirm('Archive Practice List',
+            `Are you sure you want to archive "${pl.name}"? You can unarchive it later.`,
+            async () => {
+              pl.archived = true;
+              const idx = _practice.findIndex(p => p.id === persona.id);
+              if (idx > -1) _practice[idx] = persona;
+              await savePractice();
+              renderPracticeDetail(persona, true);
+            }, 'Archive');
         }
       });
     });
