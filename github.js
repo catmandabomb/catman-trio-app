@@ -106,21 +106,27 @@ const GitHub = (() => {
 
   const SYNC_CONFIG_FILENAME = '_github_sync.enc';
 
+  // App-level encryption key for PAT propagation via Drive.
+  // This isn't a secret — it's obfuscation to prevent casual/automated token detection.
+  // Real security comes from: (a) the PAT having limited repo scope, and
+  // (b) the actual data on GitHub being encrypted with the PAT-derived AES key.
+  const _PROP_KEY_SEED = 'catmantrio-sync-propagation-2024';
+
+  async function _getPropagationKey(usage) {
+    const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(_PROP_KEY_SEED));
+    return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [usage]);
+  }
+
   /**
-   * Encrypt the PAT with admin password hash and save to Drive.
-   * Called automatically when GitHub is configured + Drive write is available.
+   * Encrypt the PAT with app-level key and save to Drive.
+   * Called when GitHub is configured + Drive write is available.
+   * Other devices auto-load this file at boot — no password prompt needed.
    */
   async function publishPat() {
     const pat = _getPat();
     if (!pat || typeof Drive === 'undefined' || !Drive.isWriteConfigured()) return;
     try {
-      // Fall back to default hash if password was never changed from default
-      const pwHash = localStorage.getItem('bb_pw_hash') || 'e5c128a06031c45577c71b9a49a5fffa3a93e077354ce609bd616b5cf70d32f4';
-      const key = await crypto.subtle.importKey(
-        'raw',
-        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwHash)),
-        { name: 'AES-GCM' }, false, ['encrypt']
-      );
+      const key = await _getPropagationKey('encrypt');
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const encoded = new TextEncoder().encode(pat);
       const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
@@ -128,7 +134,6 @@ const GitHub = (() => {
         iv:   _toBase64(iv),
         data: _toBase64(new Uint8Array(ciphertext)),
       });
-      // Save to Drive using internal Drive methods
       await Drive.saveRawFile(SYNC_CONFIG_FILENAME, payload);
       console.info('GitHub: PAT published to Drive for other devices');
     } catch (e) {
@@ -137,10 +142,10 @@ const GitHub = (() => {
   }
 
   /**
-   * Try to load encrypted PAT from Drive and decrypt with admin password.
+   * Load encrypted PAT from Drive and decrypt. No password needed.
    * Returns the PAT string on success, null on failure.
    */
-  async function loadPublishedPat(adminPassword) {
+  async function loadPublishedPat() {
     if (typeof Drive === 'undefined' || !Drive.isConfigured()) return null;
     try {
       const file = await Drive.findFilePublic(SYNC_CONFIG_FILENAME);
@@ -152,13 +157,7 @@ const GitHub = (() => {
       if (!resp.ok) return null;
       const encryptedJson = await resp.text();
       const { iv, data } = JSON.parse(encryptedJson);
-      // Derive key from admin password hash (same as publishPat uses)
-      const pwHash = await _sha256ForPw(adminPassword);
-      const key = await crypto.subtle.importKey(
-        'raw',
-        await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pwHash)),
-        { name: 'AES-GCM' }, false, ['decrypt']
-      );
+      const key = await _getPropagationKey('decrypt');
       const ivBytes   = _fromBase64(iv);
       const dataBytes = _fromBase64(data);
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, dataBytes);
@@ -167,12 +166,6 @@ const GitHub = (() => {
       console.warn('GitHub: could not load published PAT', e);
       return null;
     }
-  }
-
-  // SHA-256 helper for admin password (same algorithm as Admin._sha256)
-  async function _sha256ForPw(str) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
   // ─── Encryption ───────────────────────────────────────────

@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.59';
+  const APP_VERSION = 'v17.60';
 
   let _songs      = [];
   let _setlists   = [];
@@ -208,85 +208,22 @@ const App = (() => {
   let _manualSyncHistory = []; // timestamps of recent manual syncs
 
   /**
-   * Auto-configure GitHub from encrypted PAT stored on Drive.
-   * Checks for _github_sync.enc on Drive. If found, prompts for admin password
-   * to decrypt the PAT. This allows "configure once on desktop, auto-connect on each device."
+   * Silently auto-configure GitHub from encrypted PAT stored on Drive.
+   * No user interaction needed — loads PAT, configures GitHub, triggers sync.
    */
   let _autoConfigAttempted = false;
   async function _tryAutoConfigureGitHub() {
     if (_autoConfigAttempted) return;
     _autoConfigAttempted = true;
     try {
-      const file = await Drive.findFilePublic('_github_sync.enc');
-      if (!file) return; // No published PAT — manual setup required
-
-      // PAT file exists — prompt for admin password to decrypt
-      // Create a one-time modal specifically for sync setup
-      const overlay = document.getElementById('modal-password');
-      const input   = document.getElementById('password-input');
-      const error   = document.getElementById('password-error');
-      const title   = overlay.querySelector('h2');
-      const desc    = overlay.querySelector('p.muted');
-
-      // Customize the modal text for sync setup
-      const origTitle = title.textContent;
-      const origDesc  = desc.textContent;
-      title.textContent = 'Sync Setup';
-      desc.textContent  = 'GitHub sync is available. Enter admin password to connect this device.';
-      input.value = '';
-      error.classList.add('hidden');
-      overlay.classList.remove('hidden');
-      setTimeout(() => input.focus(), 50);
-
-      const handleConfirm = async () => {
-        const password = input.value;
-        if (!password) return;
-        try {
-          const pat = await GitHub.loadPublishedPat(password);
-          if (pat) {
-            overlay.classList.add('hidden');
-            cleanup();
-            GitHub.saveConfig({ pat, owner: '', repo: '' }); // owner/repo use defaults
-            showToast('GitHub connected! Syncing data…');
-            _syncAllFromDrive(true);
-          } else {
-            error.textContent = 'Wrong password or sync config unavailable.';
-            error.classList.remove('hidden');
-            input.value = '';
-            input.focus();
-          }
-        } catch (e) {
-          error.textContent = 'Decryption failed. Check password.';
-          error.classList.remove('hidden');
-          input.value = '';
-          input.focus();
-        }
-      };
-
-      const handleCancel = () => {
-        overlay.classList.add('hidden');
-        cleanup();
-        showToast('You can set up GitHub sync in Admin Dashboard anytime.');
-      };
-
-      const handleKeydown = (e) => { if (e.key === 'Enter') handleConfirm(); };
-
-      const confirmBtn = document.getElementById('btn-password-confirm');
-      const cancelBtn  = document.getElementById('btn-password-cancel');
-      confirmBtn.addEventListener('click', handleConfirm);
-      cancelBtn.addEventListener('click', handleCancel);
-      input.addEventListener('keydown', handleKeydown);
-
-      function cleanup() {
-        confirmBtn.removeEventListener('click', handleConfirm);
-        cancelBtn.removeEventListener('click', handleCancel);
-        input.removeEventListener('keydown', handleKeydown);
-        // Restore original modal text
-        title.textContent = origTitle;
-        desc.textContent  = origDesc;
-      }
+      const pat = await GitHub.loadPublishedPat();
+      if (!pat) return; // No published PAT found — manual setup needed
+      GitHub.saveConfig({ pat, owner: '', repo: '' }); // owner/repo use defaults
+      console.info('GitHub auto-configured from Drive');
+      showToast('Sync connected.');
+      _syncAllFromDrive(true); // Trigger immediate sync
     } catch (e) {
-      console.warn('GitHub auto-detect check failed:', e);
+      console.warn('GitHub auto-detect failed:', e);
     }
   }
 
