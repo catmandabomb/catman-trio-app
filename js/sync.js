@@ -303,8 +303,11 @@ const Sync = (() => {
     }
 
     Store.set('syncing', true);
+    // Don't show "Syncing songs" if pull-to-refresh indicator is already visible
+    const ptrEl = document.getElementById('ptr-indicator');
+    const ptrActive = ptrEl && ptrEl.classList.contains('ptr-refreshing');
     const indicator = document.getElementById('sync-indicator');
-    if (indicator) indicator.classList.remove('hidden');
+    if (indicator && !ptrActive) indicator.classList.remove('hidden');
 
     try {
       const remoteData = _useGitHub

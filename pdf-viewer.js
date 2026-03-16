@@ -36,7 +36,8 @@ const PDFViewer = (() => {
   // ─── Phase 1: Page Render Cache ───────────────────────────
   // Cache stores pre-rendered canvases keyed by `${pdfId}-${pageNum}`
   const _renderCache = new Map(); // key: `${pdfId}-${pageNum}` → { canvas, displayW, displayH }
-  const MAX_RENDER_CACHE = 12;
+  const _isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const MAX_RENDER_CACHE = _isMobileDevice ? 20 : 40;
 
   // Assign stable IDs to pdfDoc objects via WeakMap (they have no built-in ID)
   const _pdfIdMap = new WeakMap();

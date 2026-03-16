@@ -399,9 +399,10 @@ const Setlists = (() => {
     const _songs = Store.get('songs');
     const container = document.getElementById('setlist-detail-content');
     const songs = setlist.songs || [];
+    const isAdmin = Admin.isEditMode();
 
     let html = `<div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
+      ${isAdmin ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button>' : ''}</div>
     </div>`;
@@ -409,33 +410,50 @@ const Setlists = (() => {
     if (songs.length === 0) {
       html += `<div class="empty-state" style="padding:40px 20px">
         <p>Empty setlist.</p>
-        <p class="muted">${Admin.isEditMode() ? 'Edit to add songs.' : 'No songs added yet.'}</p>
+        <p class="muted">${isAdmin ? 'Edit to add songs.' : 'No songs added yet.'}</p>
       </div>`;
     } else {
       html += `<div class="setlist-song-list">`;
       songs.forEach((entry, i) => {
-        const song = _songs.find(s => s.id === entry.id);
-        if (song) {
+        if (entry.freetext) {
+          // Freetext song — ad-hoc entry not in the song DB
           html += `
-            <div class="setlist-song-row" data-song-id="${esc(song.id)}">
+            <div class="setlist-song-row setlist-song-freetext" data-idx="${i}">
               <span class="setlist-song-num">${i + 1}</span>
               <div class="setlist-song-info">
-                <span class="setlist-song-title">${esc(song.title)}</span>
+                <span class="setlist-song-title">${esc(entry.title || 'Untitled')}</span>
                 <span class="setlist-song-meta">
-                  ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}${(song.key || song.bpm) && song.timeSig ? ' · ' : ''}${song.timeSig ? esc(song.timeSig) : ''}
+                  ${entry.key ? esc(entry.key) : ''}${entry.key && entry.bpm ? ' \u00b7 ' : ''}${entry.bpm ? esc(String(entry.bpm)) + ' bpm' : ''}
                 </span>
+                ${entry.notes ? `<span class="setlist-song-comment">${esc(entry.notes)}</span>` : ''}
                 ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
               </div>
-              <i data-lucide="chevron-right" class="file-item-arrow"></i>
+              ${isAdmin ? `<button class="icon-btn ft-edit-btn" data-idx="${i}" aria-label="Edit freetext song" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>` : ''}
             </div>`;
         } else {
-          html += `
-            <div class="setlist-song-row setlist-song-missing">
-              <span class="setlist-song-num">${i + 1}</span>
-              <div class="setlist-song-info">
-                <span class="setlist-song-title" style="color:var(--text-3);font-style:italic">Song not found</span>
-              </div>
-            </div>`;
+          const song = _songs.find(s => s.id === entry.id);
+          if (song) {
+            html += `
+              <div class="setlist-song-row" data-song-id="${esc(song.id)}">
+                <span class="setlist-song-num">${i + 1}</span>
+                <div class="setlist-song-info">
+                  <span class="setlist-song-title">${esc(song.title)}</span>
+                  <span class="setlist-song-meta">
+                    ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' \u00b7 ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}${(song.key || song.bpm) && song.timeSig ? ' \u00b7 ' : ''}${song.timeSig ? esc(song.timeSig) : ''}
+                  </span>
+                  ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
+                </div>
+                <i data-lucide="chevron-right" class="file-item-arrow"></i>
+              </div>`;
+          } else {
+            html += `
+              <div class="setlist-song-row setlist-song-missing">
+                <span class="setlist-song-num">${i + 1}</span>
+                <div class="setlist-song-info">
+                  <span class="setlist-song-title" style="color:var(--text-3);font-style:italic">Song not found</span>
+                </div>
+              </div>`;
+          }
         }
       });
       html += `</div>`;
@@ -444,14 +462,42 @@ const Setlists = (() => {
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    // Wire song clicks
-    container.querySelectorAll('.setlist-song-row:not(.setlist-song-missing)').forEach(row => {
+    // Wire song clicks (skip freetext and missing rows)
+    container.querySelectorAll('.setlist-song-row:not(.setlist-song-missing):not(.setlist-song-freetext)').forEach(row => {
       row.addEventListener('click', () => {
         const song = _songs.find(s => s.id === row.dataset.songId);
         if (song) {
           _pushNav(() => renderSetlistDetail(setlist));
           App.renderDetail(song, true);
         }
+      });
+    });
+
+    // Wire freetext edit buttons (admin only)
+    container.querySelectorAll('.ft-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx, 10);
+        const entry = songs[idx];
+        if (!entry || !entry.freetext) return;
+        _showFreetextEditModal(entry, () => {
+          // Re-fetch fresh setlist from store in case background sync updated _setlists
+          _syncFromStore();
+          const freshSetlist = _setlists.find(s => s.id === setlist.id);
+          if (!freshSetlist) { showToast('Setlist not found.'); return; }
+          // Apply freetext edits to the fresh copy
+          const freshEntry = (freshSetlist.songs || [])[idx];
+          if (freshEntry && freshEntry.freetext && freshEntry.id === entry.id) {
+            freshEntry.title = entry.title;
+            freshEntry.key = entry.key;
+            freshEntry.bpm = entry.bpm;
+            freshEntry.notes = entry.notes;
+          }
+          freshSetlist._ts = Date.now();
+          freshSetlist.updatedAt = new Date().toISOString();
+          _saveSetlists();
+          renderSetlistDetail(freshSetlist, true);
+        });
       });
     });
 
@@ -487,6 +533,17 @@ const Setlists = (() => {
       lines.push((setlist.name || 'Setlist') + ' (' + songs.length + ' song' + (songs.length !== 1 ? 's' : '') + ')');
       lines.push('');
       songs.forEach((entry, i) => {
+        if (entry.freetext) {
+          let line = (i + 1) + '. ' + (entry.title || 'Untitled');
+          const meta = [];
+          if (entry.key) meta.push(entry.key);
+          if (entry.bpm) meta.push(entry.bpm + ' BPM');
+          if (meta.length) line += ' \u2014 ' + meta.join(' \u00b7 ');
+          lines.push(line);
+          if (entry.notes) lines.push('   ' + entry.notes);
+          if (entry.comment) lines.push('   ' + entry.comment);
+          return;
+        }
         const song = _songs.find(s => s.id === entry.id);
         if (!song) return;
         let line = (i + 1) + '. ' + (song.title || 'Untitled');
@@ -526,12 +583,24 @@ const Setlists = (() => {
     // Build print-friendly HTML
     let rows = '';
     songs.forEach((entry, i) => {
+      if (entry.freetext) {
+        const meta = [];
+        if (entry.key) meta.push(esc(entry.key));
+        if (entry.bpm) meta.push(esc(String(entry.bpm)) + ' bpm');
+        rows += `<tr>
+          <td class="psl-num">${i + 1}</td>
+          <td class="psl-title">${esc(entry.title || 'Untitled')}</td>
+          <td class="psl-meta">${meta.join(' &middot; ')}</td>
+          ${entry.notes ? `</tr><tr><td></td><td colspan="2" class="psl-comment">${esc(entry.notes)}</td>` : ''}
+          ${entry.comment ? `</tr><tr><td></td><td colspan="2" class="psl-comment">${esc(entry.comment)}</td>` : ''}
+        </tr>`;
+        return;
+      }
       const song = allSongs.find(s => s.id === entry.id);
       if (!song) return;
       const meta = [];
       if (song.key) meta.push(esc(song.key));
       if (song.bpm) meta.push(esc(String(song.bpm)) + ' bpm');
-      if (song.timeSig) meta.push(esc(song.timeSig));
       rows += `<tr>
         <td class="psl-num">${i + 1}</td>
         <td class="psl-title">${esc(song.title)}</td>
@@ -569,27 +638,73 @@ const Setlists = (() => {
   <div class="psl-footer">Catman Trio</div>
 </body></html>`;
 
-    // Open print window
-    const win = window.open('', '_blank', 'width=700,height=900');
-    if (!win) {
-      showToast('Popup blocked — allow popups to print.');
-      return;
-    }
+    // Use a hidden iframe instead of window.open() — avoids the iOS bug where
+    // a popup opens a new Safari tab with no back button and no print dialog.
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:700px;height:900px;border:none;';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('tabindex', '-1');
+    document.body.appendChild(iframe);
+
     try {
-      win.document.write(printHtml);
-      win.document.close();
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      doc.open();
+      doc.write(printHtml);
+      doc.close();
     } catch (_) {
       showToast('Failed to prepare print view.');
-      try { win.close(); } catch (_e) {}
+      document.body.removeChild(iframe);
       return;
     }
-    // Print when content is rendered; close on completion
-    win.onload = () => {
-      try { win.print(); } catch (_) {}
+
+    // Wait for content to render, then trigger print from the iframe's window context
+    const iframeWin = iframe.contentWindow;
+    const _triggerPrint = () => {
+      try {
+        iframeWin.focus();
+        iframeWin.print();
+      } catch (_) {
+        // iOS Safari may not support iframe print — fall back to main window print
+        // by temporarily injecting the content into a printable div
+        _printFallback(printHtml);
+      }
+      // Clean up iframe after a short delay (print dialog is modal)
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch (_) {}
+      }, 1000);
     };
-    if (win.onafterprint !== undefined) {
-      win.onafterprint = () => { try { win.close(); } catch (_) {} };
+
+    // iframe onload fires when doc.close() completes
+    if (iframe.contentDocument.readyState === 'complete') {
+      _triggerPrint();
+    } else {
+      iframe.onload = _triggerPrint;
     }
+  }
+
+  // Fallback for iOS Safari: inject print content into a full-screen overlay,
+  // trigger window.print(), then remove. Works when iframe.print() is blocked.
+  function _printFallback(html) {
+    const overlay = document.createElement('div');
+    overlay.id = 'print-fallback-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#fff;overflow:auto;';
+    overlay.innerHTML = `<div style="padding:24px 32px;max-width:700px;margin:0 auto;">
+      <button id="print-fallback-close" style="position:fixed;top:12px;right:16px;z-index:10000;padding:8px 16px;font-size:14px;font-weight:600;background:#333;color:#fff;border:none;border-radius:8px;cursor:pointer;">Close</button>
+      <button id="print-fallback-print" style="position:fixed;top:12px;right:90px;z-index:10000;padding:8px 16px;font-size:14px;font-weight:600;background:#f0cc80;color:#111;border:none;border-radius:8px;cursor:pointer;">Print</button>
+    </div>`;
+    // Extract body content from the full HTML
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (bodyMatch) {
+      overlay.querySelector('div').insertAdjacentHTML('beforeend', bodyMatch[1]);
+    }
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#print-fallback-close').addEventListener('click', () => {
+      document.body.removeChild(overlay);
+    });
+    overlay.querySelector('#print-fallback-print').addEventListener('click', () => {
+      window.print();
+    });
   }
 
   // ─── SETLIST LIVE MODE (ForScore-style charts + pedal support) ──
@@ -598,6 +713,18 @@ const Setlists = (() => {
     if (_liveModeActive) return; // double-entry guard
     const _songs = Store.get('songs');
     const songs = (setlist.songs || []).map(entry => {
+      if (entry.freetext) {
+        // Freetext song — build a song-like object for Live Mode
+        return {
+          id: entry.id,
+          title: entry.title || 'Untitled',
+          key: entry.key || '',
+          bpm: entry.bpm || '',
+          notes: entry.notes || '',
+          comment: entry.comment || '',
+          _freetext: true,
+        };
+      }
       const song = _songs.find(s => s.id === entry.id);
       return song ? { ...song, comment: entry.comment || '' } : null;
     }).filter(Boolean);
@@ -614,6 +741,25 @@ const Setlists = (() => {
     let _zpHandle = null; // zoom/pan handle for chart canvas
     let _overlayTimer = null;
     let _wakeLock = null;
+
+    // Feature: Dark/Inverted Score Mode
+    let _darkMode = false;
+    try { _darkMode = sessionStorage.getItem('bb_live_dark_mode') === '1'; } catch (_) {}
+
+    // Feature: Half-Page Turns
+    let _halfPageMode = false;
+    try { _halfPageMode = sessionStorage.getItem('bb_live_half_page') === '1'; } catch (_) {}
+
+    // Feature: Auto-Advance
+    let _autoAdvance = false;
+    let _autoAdvanceTimer = null;
+    let _autoAdvanceSecs = 30;
+    let _autoAdvanceStart = 0; // timestamp for progress bar
+    let _autoAdvanceRaf = null;
+    try {
+      const savedSecs = parseInt(sessionStorage.getItem('bb_live_auto_secs'), 10);
+      if (savedSecs > 0) _autoAdvanceSecs = savedSecs;
+    } catch (_) {}
 
     // Screen Wake Lock -- keep screen on during Live Mode only
     function _updateWakeLockIndicator(active) {
@@ -697,6 +843,11 @@ const Setlists = (() => {
       <div class="lm-header" style="opacity:0">
         <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:20px;height:20px;"></i></button>
         <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:12px;height:12px;opacity:0.15;"></i></span>
+        <div class="lm-tools">
+          <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:18px;height:18px;"></i></button>
+          <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:18px;height:18px;"></i></button>
+          <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:18px;height:18px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
+        </div>
         <div class="lm-clock-group">
           <span class="lm-clock"></span>
           <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:12px;height:12px;"></i> <span class="lm-timer">Start</span></button>
@@ -738,6 +889,7 @@ const Setlists = (() => {
           </div>
         </div>
         <div class="lm-chart-overlay"></div>
+        <div class="lm-auto-progress"></div>
       </div>
       <div class="lm-nav" style="opacity:0">
         <button class="lm-nav-btn lm-prev" aria-label="Previous">
@@ -759,10 +911,14 @@ const Setlists = (() => {
     const nextBtn        = container.querySelector('.lm-next');
     let _currentChartArea = slots[1].querySelector('.lm-slide-chart');
     let _currentCanvas    = slots[1].querySelector('.lm-slide-canvas');
+    const autoProgressBar = container.querySelector('.lm-auto-progress');
+
+    // Restore dark mode class on carousel
+    if (_darkMode) carousel.classList.add('lm-dark-mode');
 
     // Wire buttons
-    prevBtn.addEventListener('click', () => _goPage(-1));
-    nextBtn.addEventListener('click', () => _goPage(1));
+    prevBtn.addEventListener('click', () => { if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } _goPage(-1); });
+    nextBtn.addEventListener('click', () => { if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } _goPage(1); });
     container.querySelector('.lm-close-btn').addEventListener('click', _exitLiveMode);
 
     // -- Quick-Jump Song Picker --
@@ -818,9 +974,211 @@ const Setlists = (() => {
       if (e.target === jumpOverlay) _closeJumpPicker();
     });
 
+    // -- Feature: Dark Mode Toggle --
+    const darkToggleBtn = container.querySelector('.lm-dark-toggle');
+    function _toggleDarkMode() {
+      _darkMode = !_darkMode;
+      carousel.classList.toggle('lm-dark-mode', _darkMode);
+      darkToggleBtn.classList.toggle('active', _darkMode);
+      darkToggleBtn.setAttribute('aria-pressed', String(_darkMode));
+      darkToggleBtn.innerHTML = `<i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:18px;height:18px;"></i>`;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [darkToggleBtn] });
+      try { sessionStorage.setItem('bb_live_dark_mode', _darkMode ? '1' : '0'); } catch (_) {}
+      haptic.tap();
+    }
+    darkToggleBtn.addEventListener('click', _toggleDarkMode);
+
+    // -- Feature: Half-Page Turn Toggle --
+    const halfToggleBtn = container.querySelector('.lm-half-toggle');
+    function _rebuildPagesForHalfMode() {
+      const curPage = _pages[currentPageIdx];
+      const curSongIdx = curPage ? curPage.songIdx : 0;
+      const curPageNum = curPage ? (curPage.pageNum || 1) : 1;
+      const curHalf = curPage ? curPage.half : undefined;
+
+      const newPages = [];
+      const seen = new Set();
+      for (const pg of _pages) {
+        if (pg.type === 'chart') {
+          const key = `${pg.songIdx}-${pg.pdfDoc ? 'p' : 'x'}-${pg.pageNum}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (_halfPageMode) {
+            newPages.push({ ...pg, half: 'top' });
+            newPages.push({ ...pg, half: 'bottom' });
+          } else {
+            const clean = { ...pg };
+            delete clean.half;
+            newPages.push(clean);
+          }
+        } else {
+          newPages.push(pg);
+        }
+      }
+      _pages = newPages;
+
+      // Restore closest page position
+      let bestIdx = 0;
+      for (let i = 0; i < _pages.length; i++) {
+        if (_pages[i].songIdx === curSongIdx && (_pages[i].pageNum || 0) === curPageNum) {
+          bestIdx = i;
+          if (!_halfPageMode || _pages[i].half === 'top' || _pages[i].half === curHalf) break;
+        }
+      }
+      currentPageIdx = Math.min(bestIdx, _pages.length - 1);
+      _updateSlots();
+      _persistPage();
+    }
+
+    function _toggleHalfPage() {
+      _halfPageMode = !_halfPageMode;
+      halfToggleBtn.classList.toggle('active', _halfPageMode);
+      halfToggleBtn.setAttribute('aria-pressed', String(_halfPageMode));
+      try { sessionStorage.setItem('bb_live_half_page', _halfPageMode ? '1' : '0'); } catch (_) {}
+      _rebuildPagesForHalfMode();
+      haptic.tap();
+    }
+    halfToggleBtn.addEventListener('click', _toggleHalfPage);
+
+    // -- Feature: Auto-Advance --
+    const autoToggleBtn = container.querySelector('.lm-auto-toggle');
+    const autoLabel = autoToggleBtn.querySelector('.lm-auto-label');
+    let _autoIntervalPickerOpen = false;
+
+    function _startAutoAdvance() {
+      _autoAdvance = true;
+      _autoAdvanceStart = Date.now();
+      autoToggleBtn.classList.add('active');
+      autoToggleBtn.setAttribute('aria-pressed', 'true');
+      _autoAdvanceTimer = setInterval(() => {
+        if (!_isAnimating && currentPageIdx < _pages.length - 1) {
+          _goPage(1);
+          _autoAdvanceStart = Date.now();
+          _updateAutoProgress();
+        } else if (currentPageIdx >= _pages.length - 1) {
+          _stopAutoAdvance();
+        }
+      }, _autoAdvanceSecs * 1000);
+      _updateAutoProgress();
+    }
+
+    function _stopAutoAdvance() {
+      _autoAdvance = false;
+      _autoAdvanceStart = 0;
+      autoToggleBtn.classList.remove('active');
+      autoToggleBtn.setAttribute('aria-pressed', 'false');
+      if (_autoAdvanceTimer) { clearInterval(_autoAdvanceTimer); _autoAdvanceTimer = null; }
+      if (_autoAdvanceRaf) { cancelAnimationFrame(_autoAdvanceRaf); _autoAdvanceRaf = null; }
+      if (autoProgressBar) { autoProgressBar.style.width = '0'; }
+    }
+
+    function _toggleAutoAdvance() {
+      if (_autoAdvance) {
+        _stopAutoAdvance();
+      } else {
+        _startAutoAdvance();
+      }
+      haptic.tap();
+    }
+
+    function _updateAutoProgress() {
+      if (!_autoAdvance || !autoProgressBar) return;
+      const elapsed = Date.now() - _autoAdvanceStart;
+      const total = _autoAdvanceSecs * 1000;
+      const pct = Math.min(100, (elapsed / total) * 100);
+      autoProgressBar.style.width = pct + '%';
+      if (_autoAdvance) {
+        _autoAdvanceRaf = requestAnimationFrame(_updateAutoProgress);
+      }
+    }
+
+    function _setAutoAdvanceInterval(secs) {
+      _autoAdvanceSecs = secs;
+      if (autoLabel) autoLabel.textContent = secs + 's';
+      try { sessionStorage.setItem('bb_live_auto_secs', String(secs)); } catch (_) {}
+      if (_autoAdvance) {
+        _stopAutoAdvance();
+        _startAutoAdvance();
+      }
+    }
+
+    let _autoPickerDelayTimer = null;
+
+    function _showAutoIntervalPicker() {
+      if (_autoIntervalPickerOpen) return;
+      _autoIntervalPickerOpen = true;
+      const intervals = [10, 15, 20, 30, 45, 60];
+      const pickerEl = document.createElement('div');
+      pickerEl.className = 'lm-auto-picker';
+      pickerEl.innerHTML = intervals.map(s =>
+        `<button class="lm-auto-pick-item${s === _autoAdvanceSecs ? ' active' : ''}" data-secs="${s}">${s}s</button>`
+      ).join('');
+      container.appendChild(pickerEl);
+
+      pickerEl.addEventListener('click', (e) => {
+        const item = e.target.closest('.lm-auto-pick-item');
+        if (!item) return;
+        const secs = parseInt(item.dataset.secs, 10);
+        if (secs > 0) _setAutoAdvanceInterval(secs);
+        haptic.tap();
+        _closeAutoIntervalPicker();
+      });
+
+      // Close on outside click (delayed to avoid capturing the open click)
+      _autoPickerDelayTimer = setTimeout(() => {
+        _autoPickerDelayTimer = null;
+        document.addEventListener('click', _autoPickerOutsideClick, { once: true });
+      }, 50);
+    }
+
+    function _autoPickerOutsideClick(e) {
+      const picker = container.querySelector('.lm-auto-picker');
+      if (picker && !picker.contains(e.target) && !autoToggleBtn.contains(e.target)) {
+        _closeAutoIntervalPicker();
+      }
+    }
+
+    function _closeAutoIntervalPicker() {
+      if (_autoPickerDelayTimer) { clearTimeout(_autoPickerDelayTimer); _autoPickerDelayTimer = null; }
+      _autoIntervalPickerOpen = false;
+      const picker = container.querySelector('.lm-auto-picker');
+      if (picker) picker.remove();
+      document.removeEventListener('click', _autoPickerOutsideClick);
+    }
+
+    // Tap = toggle, long-press = open interval picker
+    let _autoLongPressTimer = null;
+    autoToggleBtn.addEventListener('pointerdown', () => {
+      _autoLongPressTimer = setTimeout(() => {
+        _autoLongPressTimer = null;
+        _showAutoIntervalPicker();
+      }, 500);
+    });
+    autoToggleBtn.addEventListener('pointerup', () => {
+      if (_autoLongPressTimer) {
+        clearTimeout(_autoLongPressTimer);
+        _autoLongPressTimer = null;
+        _toggleAutoAdvance();
+      }
+    });
+    autoToggleBtn.addEventListener('pointerleave', () => {
+      if (_autoLongPressTimer) {
+        clearTimeout(_autoLongPressTimer);
+        _autoLongPressTimer = null;
+      }
+    });
+    // iOS Safari doesn't fire pointerleave on drag-off — use pointercancel as fallback
+    autoToggleBtn.addEventListener('pointercancel', () => {
+      if (_autoLongPressTimer) {
+        clearTimeout(_autoLongPressTimer);
+        _autoLongPressTimer = null;
+      }
+    });
+
     // -- Navigation --
     let _lastRenderedSongIdx = -1;
     let _isAnimating = false;
+    let _animStartTime = 0; // timestamp when animation started — for stuck detection
 
     function _renderPageIntoSlide(slide, pageIdx) {
       const page = _pages[pageIdx];
@@ -848,7 +1206,13 @@ const Setlists = (() => {
         void chartArea.offsetWidth;
         let cw = chartArea.clientWidth;
         if (cw <= 0) cw = carousel.clientWidth || 0;
+        // Retry: if width is still 0, try window width as last resort
+        if (cw <= 0) cw = window.innerWidth || 0;
         if (cw <= 0) return Promise.resolve();
+        // Half-page mode: set alignment class on chart area for top/bottom clipping
+        chartArea.classList.remove('half-top', 'half-bottom');
+        if (page.half === 'top') chartArea.classList.add('half-top');
+        else if (page.half === 'bottom') chartArea.classList.add('half-bottom');
         return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
           .catch(err => {
             console.error('Live mode chart render error', err);
@@ -913,7 +1277,8 @@ const Setlists = (() => {
       const songNum = page.songIdx + 1;
       const totalSongs = _songEntries.length;
       if (page.type === 'chart') {
-        progressEl.textContent = `Song ${songNum}/${totalSongs} \u00b7 Page ${page.pageNum}/${page.totalSongPages}`;
+        const halfLabel = page.half ? (page.half === 'top' ? '\u25B2' : '\u25BC') : '';
+        progressEl.textContent = `Song ${songNum}/${totalSongs} \u00b7 Page ${page.pageNum}/${page.totalSongPages}${halfLabel ? ' ' + halfLabel : ''}`;
       } else {
         progressEl.textContent = `Song ${songNum}/${totalSongs}`;
       }
@@ -922,6 +1287,11 @@ const Setlists = (() => {
     }
 
     function _goPage(delta, animate) {
+      // Safety: if _isAnimating has been stuck for >1s, force-clear it
+      if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1000)) {
+        console.warn('Live mode: animation stuck, force-clearing');
+        _isAnimating = false;
+      }
       if (_isAnimating) return;
       if (_zpHandle && _zpHandle.getZoom() > 1.05) _zpHandle.resetZoom();
       const newIdx = currentPageIdx + delta;
@@ -938,58 +1308,66 @@ const Setlists = (() => {
 
       // Animated transition using the pre-rendered adjacent slide
       _isAnimating = true;
+      _animStartTime = Date.now();
       const targetX = delta > 0 ? '-200%' : '0%'; // slide left or right
 
+      // Set transition first, force reflow, THEN change transform.
+      // Without the reflow, some browsers batch both changes and skip the animation.
       carousel.style.transition = 'transform 0.25s ease-out';
+      void carousel.offsetWidth; // force style recalc so transition is registered
       carousel.style.transform = `translateX(${targetX})`;
 
       function _afterSnap() {
         carousel.removeEventListener('transitionend', _afterSnap);
-        _isAnimating = false;
+        try {
+          // Recycle slides
+          if (delta > 0) {
+            const recycled = slots.shift();
+            slots.push(recycled);
+            currentPageIdx = newIdx;
+            carousel.insertBefore(recycled, chartOverlay);
+          } else {
+            const recycled = slots.pop();
+            slots.unshift(recycled);
+            currentPageIdx = newIdx;
+            carousel.insertBefore(recycled, slots[1]);
+          }
 
-        // Recycle slides
-        if (delta > 0) {
-          const recycled = slots.shift();
-          slots.push(recycled);
-          currentPageIdx = newIdx;
-          carousel.insertBefore(recycled, chartOverlay);
-        } else {
-          const recycled = slots.pop();
-          slots.unshift(recycled);
-          currentPageIdx = newIdx;
-          carousel.insertBefore(recycled, slots[1]);
+          // Reset position to show center (no transition)
+          carousel.style.transition = 'none';
+          carousel.style.transform = 'translateX(-100%)';
+
+          // Re-attach zoom/pan to the new center slide
+          if (_zpHandle) _zpHandle.destroy();
+          _currentChartArea = slots[1].querySelector('.lm-slide-chart');
+          _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
+          _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+
+          // Re-render center slide ONLY if its page index is stale
+          if ((parseInt(slots[1].dataset.pageIdx, 10) || 0) !== currentPageIdx) {
+            _renderPageIntoSlide(slots[1], currentPageIdx);
+          }
+
+          // Pre-render the new adjacent page into the recycled slot
+          if (delta > 0 && currentPageIdx < _pages.length - 1) {
+            _renderPageIntoSlide(slots[2], currentPageIdx + 1);
+          } else if (delta > 0) {
+            _renderPageIntoSlide(slots[2], -1);
+          }
+          if (delta < 0 && currentPageIdx > 0) {
+            _renderPageIntoSlide(slots[0], currentPageIdx - 1);
+          } else if (delta < 0) {
+            _renderPageIntoSlide(slots[0], -1);
+          }
+
+          _updateProgress();
+          _checkSongBoundary();
+          _persistPage();
+        } finally {
+          // ALWAYS clear animation lock, even if recycle/render throws
+          _isAnimating = false;
+          _animStartTime = 0;
         }
-
-        // Reset position to show center (no transition)
-        carousel.style.transition = 'none';
-        carousel.style.transform = 'translateX(-100%)';
-
-        // Re-attach zoom/pan to the new center slide
-        if (_zpHandle) _zpHandle.destroy();
-        _currentChartArea = slots[1].querySelector('.lm-slide-chart');
-        _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
-        _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
-
-        // Re-render center slide ONLY if its page index is stale
-        if ((parseInt(slots[1].dataset.pageIdx, 10) || 0) !== currentPageIdx) {
-          _renderPageIntoSlide(slots[1], currentPageIdx);
-        }
-
-        // Pre-render the new adjacent page into the recycled slot
-        if (delta > 0 && currentPageIdx < _pages.length - 1) {
-          _renderPageIntoSlide(slots[2], currentPageIdx + 1);
-        } else if (delta > 0) {
-          _renderPageIntoSlide(slots[2], -1);
-        }
-        if (delta < 0 && currentPageIdx > 0) {
-          _renderPageIntoSlide(slots[0], currentPageIdx - 1);
-        } else if (delta < 0) {
-          _renderPageIntoSlide(slots[0], -1);
-        }
-
-        _updateProgress();
-        _checkSongBoundary();
-        _persistPage();
       }
 
       carousel.addEventListener('transitionend', _afterSnap, { once: true });
@@ -1052,7 +1430,12 @@ const Setlists = (() => {
           const song = _pages[placeholderIdx].song;
           const chartPages = [];
           for (let p = 1; p <= numPages; p++) {
-            chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, totalSongPages: numPages });
+            if (_halfPageMode) {
+              chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, half: 'top', totalSongPages: numPages });
+              chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, half: 'bottom', totalSongPages: numPages });
+            } else {
+              chartPages.push({ type: 'chart', songIdx, song, pdfDoc, pageNum: p, totalSongPages: numPages });
+            }
           }
 
           const wasBeforeCurrent = placeholderIdx < currentPageIdx;
@@ -1071,7 +1454,20 @@ const Setlists = (() => {
           }
 
           if (wasAtCurrent) {
-            _updateSlots();
+            // Don't reset carousel mid-animation — defer until animation completes
+            if (_isAnimating) {
+              const _checkAfterAnim = setInterval(() => {
+                if (!_liveModeActive) { clearInterval(_checkAfterAnim); return; }
+                if (!_isAnimating) {
+                  clearInterval(_checkAfterAnim);
+                  _updateSlots();
+                }
+              }, 50);
+              // Safety: clear after 2s no matter what
+              setTimeout(() => clearInterval(_checkAfterAnim), 2000);
+            } else {
+              _updateSlots();
+            }
           }
         });
       } catch (err) {
@@ -1125,14 +1521,20 @@ const Setlists = (() => {
       _lmHeader.style.opacity = '1';
       _lmCarousel.style.opacity = '1';
       _lmNav.style.opacity = '1';
-      // Clean up inline styles after transition
+      // Clean up inline opacity styles after fade-in.
+      // IMPORTANT: Do NOT reset carousel.style.transition here — _goPage may
+      // have started a slide animation during the 300ms window, and overwriting
+      // the transition kills it (transitionend never fires, _isAnimating sticks).
       setTimeout(() => {
         _lmHeader.style.removeProperty('transition');
-        _lmCarousel.style.removeProperty('transition');
+        _lmHeader.style.removeProperty('opacity');
         _lmNav.style.removeProperty('transition');
-        // Restore carousel transition for swipe navigation
-        carousel.style.transition = 'none';
-        carousel.style.transform = 'translateX(-100%)';
+        _lmNav.style.removeProperty('opacity');
+        // Only clean carousel opacity — carousel transition is managed by
+        // _updateSlots() and _goPage(), which set it to 'none' / 'transform ...'
+        // as needed. Removing it here is safe; setting it to 'none' is not.
+        _lmCarousel.style.removeProperty('transition');
+        _lmCarousel.style.removeProperty('opacity');
       }, 300);
     }
 
@@ -1216,6 +1618,10 @@ const Setlists = (() => {
         }
       }
       _pages = [];
+      // Stop auto-advance
+      _stopAutoAdvance();
+      // Close interval picker if open
+      _closeAutoIntervalPicker();
       // Release wake lock
       if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; _updateWakeLockIndicator(false); }
       document.body.classList.remove('live-mode-active');
@@ -1239,20 +1645,41 @@ const Setlists = (() => {
 
     // -- Keyboard navigation (with pedal support) --
     function _onKey(e) {
+      // Don't capture shortcuts when typing in an input/textarea
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
       // Close jump picker on any navigation key
       if (!jumpOverlay.classList.contains('hidden')) _closeJumpPicker();
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
         e.preventDefault();
+        if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } // reset timer on manual nav
         _goPage(1);
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
         e.preventDefault();
+        if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); }
         _goPage(-1);
       } else if (e.key === 'Escape') {
-        if (!jumpOverlay.classList.contains('hidden')) {
+        if (_autoIntervalPickerOpen) {
+          _closeAutoIntervalPicker();
+        } else if (!jumpOverlay.classList.contains('hidden')) {
           _closeJumpPicker();
         } else {
           _exitLiveMode();
         }
+      } else if (e.key === 'd' || e.key === 'D') {
+        _toggleDarkMode();
+      } else if (e.key === 'h' || e.key === 'H') {
+        _toggleHalfPage();
+      } else if (e.key === 'a' || e.key === 'A') {
+        _toggleAutoAdvance();
+      } else if (e.key === '+' || e.key === '=') {
+        // Increase auto-advance interval
+        const next = Math.min(120, _autoAdvanceSecs + 5);
+        _setAutoAdvanceInterval(next);
+      } else if (e.key === '-' || e.key === '_') {
+        // Decrease auto-advance interval
+        const next = Math.max(5, _autoAdvanceSecs - 5);
+        _setAutoAdvanceInterval(next);
       }
     }
     document.addEventListener('keydown', _onKey);
@@ -1327,6 +1754,7 @@ const Setlists = (() => {
         const canGo = dx < 0 ? currentPageIdx < _pages.length - 1 : currentPageIdx > 0;
         if (canGo) {
           haptic.light();
+          if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } // reset timer
           _goPage(delta);
           return;
         }
@@ -1369,6 +1797,9 @@ const Setlists = (() => {
       const currentChartArea = slots[1].querySelector('.lm-slide-chart');
       const rect = currentChartArea.getBoundingClientRect();
       const x = (t.clientX - rect.left) / rect.width;
+
+      // Reset auto-advance timer on manual tap navigation
+      if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); }
 
       // Show tap flash feedback
       const flash = document.createElement('div');
@@ -1448,6 +1879,86 @@ const Setlists = (() => {
     _clockInterval = setInterval(_updateClock, 1000);
   }
 
+  // ─── FREETEXT SONG EDIT MODAL ──────────────────────────────────
+
+  function _showFreetextEditModal(entry, onSave) {
+    const triggerEl = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'ft-modal-title');
+    overlay.innerHTML = `
+      <div class="modal">
+        <h2 id="ft-modal-title">Edit Freetext Song</h2>
+        <div class="form-field">
+          <label class="form-label" for="ft-title">Title</label>
+          <input class="form-input" id="ft-title" type="text" value="${esc(entry.title || '')}" placeholder="e.g. Brown Eyed Girl - cover in Amaj" maxlength="300" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="ft-key">Key <span class="muted" style="font-weight:400">(optional)</span></label>
+          <input class="form-input" id="ft-key" type="text" value="${esc(entry.key || '')}" placeholder="e.g. A, Bbm, G" maxlength="20" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="ft-bpm">BPM <span class="muted" style="font-weight:400">(optional)</span></label>
+          <input class="form-input" id="ft-bpm" type="number" value="${entry.bpm || ''}" placeholder="e.g. 120" min="20" max="400" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="ft-notes">Notes <span class="muted" style="font-weight:400">(optional)</span></label>
+          <textarea class="form-input" id="ft-notes" rows="3" placeholder="Chord changes, arrangement notes…" maxlength="2000">${esc(entry.notes || '')}</textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="ft-cancel">Cancel</button>
+          <button class="btn-primary" id="ft-save">Save</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const titleInput = overlay.querySelector('#ft-title');
+    titleInput.focus();
+
+    function _closeModal() {
+      if (document.activeElement) document.activeElement.blur();
+      overlay.remove();
+      if (triggerEl && triggerEl.isConnected) triggerEl.focus();
+    }
+
+    overlay.querySelector('#ft-save').addEventListener('click', () => {
+      const title = titleInput.value.trim();
+      if (!title) { showToast('Title is required.'); titleInput.focus(); return; }
+      entry.title = title;
+      entry.key = overlay.querySelector('#ft-key').value.trim();
+      const bpmVal = parseInt(overlay.querySelector('#ft-bpm').value, 10);
+      entry.bpm = (bpmVal > 0 && bpmVal <= 400) ? bpmVal : '';
+      entry.notes = overlay.querySelector('#ft-notes').value.trim();
+      _closeModal();
+      if (onSave) onSave();
+    });
+
+    overlay.querySelector('#ft-cancel').addEventListener('click', _closeModal);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) _closeModal();
+    });
+
+    // Escape key closes modal
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); _closeModal(); return; }
+      // Focus trap: Tab wraps between first and last focusable elements
+      if (e.key === 'Tab') {
+        const focusable = overlay.querySelectorAll('input, textarea, button');
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
+      }
+    });
+  }
+
   // ─── SETLIST EDIT VIEW ───────────────────────────────────────
 
   function renderSetlistEdit(setlist, isNew, backToList) {
@@ -1489,11 +2000,14 @@ const Setlists = (() => {
       <div class="edit-section">
         <div class="edit-section-title">Songs in Setlist</div>
         <div id="slf-selected-songs" class="setlist-edit-selected"></div>
-        <div class="setlist-empty-msg ${sl.songs.length ? 'hidden' : ''}" id="slf-empty-msg">No songs added yet. Use the picker below.</div>
+        <div class="setlist-empty-msg ${sl.songs.length ? 'hidden' : ''}" id="slf-empty-msg">No songs added yet. Use the picker below or add a freetext song.</div>
+        <button class="btn-ghost slf-add-freetext" id="slf-add-freetext" style="margin-top:8px;font-size:13px;">
+          <i data-lucide="text-cursor-input" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add Freetext Song
+        </button>
       </div>
 
       <div class="edit-section">
-        <div class="edit-section-title">Add Songs</div>
+        <div class="edit-section-title">Add Songs from Library</div>
         <div class="form-field">
           <input class="form-input" id="slf-picker-search" type="text" placeholder="Search songs to add\u2026" autocomplete="off" />
         </div>
@@ -1519,6 +2033,31 @@ const Setlists = (() => {
       emptyMsg.classList.toggle('hidden', sl.songs.length > 0);
 
       container.innerHTML = sl.songs.map((entry, i) => {
+        if (entry.freetext) {
+          const ftTitle = esc(entry.title || 'Untitled freetext');
+          const ftMeta = [entry.key, entry.bpm ? entry.bpm + ' bpm' : ''].filter(Boolean).join(' \u00b7 ');
+          return `
+            <div class="setlist-edit-row setlist-edit-freetext" data-idx="${i}">
+              <div class="drag-handle"><i data-lucide="grip-vertical" style="width:16px;height:16px;"></i></div>
+              <span class="setlist-song-num">${i + 1}</span>
+              <div class="setlist-edit-row-info">
+                <div class="setlist-edit-row-header">
+                  <span class="setlist-edit-row-title">${ftTitle}</span>
+                  ${ftMeta ? `<span class="setlist-edit-row-key">${esc(ftMeta)}</span>` : ''}
+                </div>
+                ${entry.notes ? `<div class="setlist-edit-row-notes muted" style="font-size:12px;margin-top:2px;">${esc(entry.notes)}</div>` : ''}
+                <div class="setlist-edit-comment-wrap">
+                  <input class="form-input setlist-comment-input" type="text"
+                    value="${esc(entry.comment || '')}" placeholder="Add note\u2026"
+                    maxlength="300" data-comment-idx="${i}" />
+                </div>
+              </div>
+              <div class="setlist-edit-row-actions">
+                <button class="icon-btn sl-ft-edit" data-idx="${i}" aria-label="Edit freetext song" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>
+                <button class="icon-btn sl-remove" data-idx="${i}" style="color:var(--red)" aria-label="Remove song"><i data-lucide="x"></i></button>
+              </div>
+            </div>`;
+        }
         const song = _songs.find(s => s.id === entry.id);
         const title = song ? esc(song.title) : '<em style="color:var(--text-3)">Song not found</em>';
         const key = song && song.key ? esc(song.key) : '';
@@ -1577,11 +2116,22 @@ const Setlists = (() => {
           if (sl.songs[idx]) sl.songs[idx].comment = input.value;
         });
       });
+      // Wire freetext edit buttons
+      container.querySelectorAll('.sl-ft-edit').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.idx, 10);
+          const entry = sl.songs[idx];
+          if (!entry || !entry.freetext) return;
+          _showFreetextEditModal(entry, () => {
+            _renderSelectedSongs();
+          });
+        });
+      });
     }
 
     function _renderPicker() {
       const search = (document.getElementById('slf-picker-search')?.value || '').toLowerCase();
-      const selectedIds = new Set(sl.songs.map(e => e.id));
+      const selectedIds = new Set(sl.songs.filter(e => !e.freetext).map(e => e.id));
       let available = [..._songs]
         .filter(s => !selectedIds.has(s.id))
         .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
@@ -1626,11 +2176,32 @@ const Setlists = (() => {
 
     document.getElementById('slf-picker-search').addEventListener('input', () => _renderPicker());
 
+    // Wire "Add Freetext Song" button
+    document.getElementById('slf-add-freetext').addEventListener('click', () => {
+      const newFt = {
+        id: 'ft_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        freetext: true,
+        title: '',
+        key: '',
+        bpm: '',
+        notes: '',
+        comment: '',
+      };
+      _showFreetextEditModal(newFt, () => {
+        sl.songs.push(newFt);
+        _renderSelectedSongs();
+        _renderPicker();
+      });
+    });
+
     // Save
     document.getElementById('slf-save').addEventListener('click', async () => {
       if (_savingSetlists) return;
+      if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
+      const emptyFt = sl.songs.find(e => e.freetext && !(e.title || '').trim());
+      if (emptyFt) { showToast('All freetext songs need a title.'); return; }
       _savingSetlists = true;
       sl._ts = Date.now();
       try {
@@ -1654,6 +2225,7 @@ const Setlists = (() => {
 
     // Cancel
     document.getElementById('slf-cancel').addEventListener('click', () => {
+      if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
       _navigateBack();
     });
 

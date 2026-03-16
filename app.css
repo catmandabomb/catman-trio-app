@@ -2265,6 +2265,23 @@ textarea.form-input {
   cursor: default;
   opacity: 0.5;
 }
+.setlist-song-row.setlist-song-freetext {
+  cursor: default;
+  border-left: 3px solid var(--accent);
+}
+.setlist-song-row.setlist-song-freetext .file-item-arrow {
+  display: none;
+}
+.setlist-song-row.setlist-song-freetext .ft-edit-btn {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.setlist-song-row.setlist-song-freetext .ft-edit-btn:hover {
+  opacity: 1;
+}
+.setlist-edit-freetext {
+  border-left: 3px solid var(--accent);
+}
 
 .setlist-song-num {
   font-size: 13px;
@@ -3798,6 +3815,150 @@ html.live-mode-active { overflow: hidden; }
 @media (max-width: 600px) {
   .lm-timer { font-size: 16px; }
   .lm-clock { font-size: 12px; }
+}
+
+/* ═══════════════════════════════════════════
+   LIVE MODE TOOLS (Dark, Half-Page, Auto)
+═══════════════════════════════════════════ */
+.lm-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.lm-dark-toggle,
+.lm-half-toggle,
+.lm-auto-toggle {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+  position: relative;
+}
+.lm-auto-toggle {
+  width: auto;
+  padding: 0 10px;
+  gap: 4px;
+}
+.lm-auto-label {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lm-dark-toggle:hover,
+.lm-half-toggle:hover,
+.lm-auto-toggle:hover {
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.2);
+}
+.lm-dark-toggle.active,
+.lm-half-toggle.active {
+  color: var(--accent);
+  background: rgba(240,204,128,0.12);
+  border-color: rgba(240,204,128,0.3);
+}
+.lm-auto-toggle.active {
+  color: var(--accent);
+  background: rgba(240,204,128,0.12);
+  border-color: rgba(240,204,128,0.3);
+  animation: lm-pulse-ring 2s ease-in-out infinite;
+}
+@keyframes lm-pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240,204,128,0); }
+  50% { box-shadow: 0 0 0 4px rgba(240,204,128,0.2); }
+}
+
+/* Dark Mode — invert canvas colors */
+.lm-carousel.lm-dark-mode .lm-slide-canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+.lm-carousel.lm-dark-mode .lm-slide {
+  background: #111;
+}
+
+/* Half-Page Turns — clip chart to show top or bottom half */
+.lm-slide-chart.half-top {
+  align-items: flex-start;
+}
+.lm-slide-chart.half-bottom {
+  align-items: flex-end;
+}
+
+/* Auto-Advance Progress Bar */
+.lm-auto-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.1s linear;
+  z-index: 6;
+  border-radius: 0 2px 2px 0;
+}
+
+/* Auto-Advance Interval Picker */
+.lm-auto-picker {
+  position: absolute;
+  top: 60px;
+  right: 50%;
+  transform: translateX(50%);
+  z-index: 110;
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(30,30,30,0.95);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.lm-auto-pick-item {
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-variant-numeric: tabular-nums;
+}
+.lm-auto-pick-item:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.12);
+}
+.lm-auto-pick-item.active {
+  color: var(--accent);
+  background: rgba(240,204,128,0.15);
+  border-color: rgba(240,204,128,0.3);
+}
+
+@media (max-width: 600px) {
+  .lm-tools { gap: 4px; }
+  .lm-dark-toggle,
+  .lm-half-toggle,
+  .lm-auto-toggle {
+    width: 34px; height: 34px;
+    /* Ensure 44px touch target via padding even though visual is 34px */
+    min-width: 44px; min-height: 44px;
+  }
+  .lm-auto-toggle { width: auto; padding: 0 8px; min-width: auto; }
+  .lm-auto-label { font-size: 10px; }
+  .lm-auto-picker { top: 52px; max-width: calc(100vw - 16px); }
+  .lm-auto-pick-item { padding: 10px 12px; font-size: 14px; min-height: 44px; }
 }
 
 /* ═══════════════════════════════════════════
