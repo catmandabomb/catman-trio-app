@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v17.98';
+const CACHE_NAME = 'catmantrio-v17.99';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -210,9 +210,12 @@ self.addEventListener('message', (e) => {
   }
 });
 
-// Fetch: shell-first, network fallback
+// Fetch strategy:
+// - Navigation (HTML): network-first so new versions arrive immediately
+// - Shell assets (JS/CSS): cache-first with ignoreSearch for offline resilience
+// - External APIs: bypass SW entirely
 self.addEventListener('fetch', (e) => {
-  // Don't intercept Google API calls
+  // Don't intercept external API calls
   if (e.request.url.includes('googleapis.com') ||
       e.request.url.includes('gstatic.com') ||
       e.request.url.includes('accounts.google.com') ||
@@ -222,10 +225,27 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // Navigation requests (HTML pages): network-first
+  // This ensures users always get fresh index.html with latest cache-busting params
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          if (resp.status === 200) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          }
+          return resp;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  // Shell assets: cache-first (ignoreSearch so ?v= params match pre-cached files)
   e.respondWith(
-    caches.match(e.request).then(cached => {
+    caches.match(e.request, { ignoreSearch: true }).then(cached => {
       return cached || fetch(e.request).then(resp => {
-        // Cache successful GET responses for shell assets
         if (e.request.method === 'GET' && resp.status === 200) {
           const url = new URL(e.request.url);
           if (SHELL_ASSETS.some(a => url.pathname.endsWith(a) || url.pathname === a)) {
@@ -236,8 +256,8 @@ self.addEventListener('fetch', (e) => {
         return resp;
       });
     }).catch(() => {
-      // Offline fallback for navigation
-      if (e.request.mode === 'navigate') {
+      // Offline fallback for any missed navigation
+      if (e.request.destination === 'document') {
         return caches.match('/index.html');
       }
     })

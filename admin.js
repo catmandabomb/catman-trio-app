@@ -47,7 +47,7 @@ const Admin = (() => {
     document.getElementById('btn-add-song')?.classList.remove('hidden');
     document.getElementById('admin-dashboard-bar')?.classList.remove('hidden');
     const btn = document.getElementById('btn-edit-mode');
-    if (btn) { btn.innerHTML = 'Exit<br>Admin'; btn.classList.add('exit-mode'); }
+    if (btn) { btn.textContent = 'Exit Admin'; btn.classList.add('exit-mode'); }
   }
 
   function exitEditMode() {

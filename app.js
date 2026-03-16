@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.98';
+  const APP_VERSION = 'v17.99';
 
   let _songs      = [];
   let _setlists   = [];
@@ -842,6 +842,10 @@ const App = (() => {
       // Skip redundant title update to prevent flash on refresh
       if (!(isHome && el.classList.contains('title-home'))) {
         if (isHtml) el.innerHTML = title; else el.textContent = title;
+      } else {
+        // Always ensure version badge is current even when skipping full rebuild
+        const badge = el.querySelector('#admin-version-badge');
+        if (badge && badge.textContent !== APP_VERSION) badge.textContent = APP_VERSION;
       }
       el.classList.toggle('title-home', !!isHome);
     }
@@ -984,7 +988,7 @@ const App = (() => {
     const orderedKeys = [...pinnedKeys, ...unpinnedKeys];
     const keyFP = orderedKeys.join(',') + '|' + _activeKeys.join(',');
     const keyBar = document.getElementById('key-filter-bar');
-    if (allKeys.length > 0) {
+    if (allKeys.length > 0 && keyBar) {
       if (keyFP !== _lastKeyBarFP) {
         _lastKeyBarFP = keyFP;
         keyBar.innerHTML = orderedKeys.map(k =>
@@ -5381,6 +5385,9 @@ const App = (() => {
                 newWorker.postMessage({ type: 'SKIP_WAITING' });
                 showToast('Updating to new version…', 3000);
               }
+              if (newWorker.state === 'redundant') {
+                console.warn('SW update failed (became redundant)');
+              }
             });
           });
           // Reload page once the new SW takes control
@@ -6367,6 +6374,86 @@ const App = (() => {
       } catch (e) {
         return { status: 'fail', detail: `Pipeline exception: ${e.message}` };
       }
+    });
+
+    // ═══════════════════════════════════════════════════════
+    // SECTION 10: DOM Structure & Layout (smoke tests)
+    // ═══════════════════════════════════════════════════════
+
+    const SEC10 = 'DOM Structure';
+
+    await _test(SEC10, 'Version badge visible', async () => {
+      const badge = document.getElementById('admin-version-badge');
+      if (!badge) return { status: 'fail', detail: 'Badge element not found' };
+      if (badge.classList.contains('hidden')) return { status: 'fail', detail: 'Badge has .hidden class' };
+      const text = badge.textContent.trim();
+      if (!text) return { status: 'fail', detail: 'Badge has no text content' };
+      if (text !== APP_VERSION) return { status: 'warn', detail: `Badge: "${text}", expected: "${APP_VERSION}"` };
+      return { status: 'pass', detail: text };
+    });
+
+    await _test(SEC10, 'List view layout is flex column', async () => {
+      const vl = document.getElementById('view-list');
+      if (!vl) return { status: 'fail', detail: '#view-list not found' };
+      const style = getComputedStyle(vl);
+      const display = style.display;
+      const direction = style.flexDirection;
+      const overflow = style.overflow || style.overflowY;
+      if (display !== 'flex') return { status: 'fail', detail: `display: ${display} (expected flex)` };
+      if (direction !== 'column') return { status: 'fail', detail: `flex-direction: ${direction} (expected column)` };
+      return { status: 'pass', detail: `display:flex, flex-direction:column, overflow:${overflow}` };
+    });
+
+    await _test(SEC10, 'Scroll wrapper is direct child of list view', async () => {
+      const sw = document.getElementById('song-list-scroll');
+      if (!sw) return { status: 'fail', detail: '#song-list-scroll not found' };
+      if (sw.parentElement?.id !== 'view-list') return { status: 'fail', detail: `Parent is #${sw.parentElement?.id || '(none)'}, expected #view-list` };
+      const style = getComputedStyle(sw);
+      if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') return { status: 'warn', detail: `overflow-y: ${style.overflowY} (expected auto)` };
+      return { status: 'pass', detail: 'Correctly nested, overflow-y: ' + style.overflowY };
+    });
+
+    await _test(SEC10, 'Filter bars pinned outside scroll wrapper', async () => {
+      const tagBar = document.getElementById('tag-filter-bar');
+      const keyBar = document.getElementById('key-filter-bar');
+      const issues = [];
+      if (!tagBar) { issues.push('tag-filter-bar missing'); }
+      else if (tagBar.parentElement?.id !== 'view-list') { issues.push(`tag-filter-bar parent: #${tagBar.parentElement?.id}`); }
+      if (!keyBar) { issues.push('key-filter-bar missing'); }
+      else if (keyBar.parentElement?.id !== 'view-list') { issues.push(`key-filter-bar parent: #${keyBar.parentElement?.id}`); }
+      if (issues.length) return { status: 'fail', detail: issues.join('; ') };
+      return { status: 'pass', detail: 'Both filter bars are direct children of #view-list (pinned)' };
+    });
+
+    await _test(SEC10, 'Sync indicator inside scroll wrapper', async () => {
+      const si = document.getElementById('sync-indicator');
+      if (!si) return { status: 'fail', detail: 'sync-indicator not found' };
+      if (si.parentElement?.id !== 'song-list-scroll') return { status: 'fail', detail: `Parent is #${si.parentElement?.id}, expected #song-list-scroll` };
+      return { status: 'pass', detail: 'Correctly inside scroll wrapper' };
+    });
+
+    await _test(SEC10, 'Refresh button hidden on mobile', async () => {
+      const btn = document.getElementById('btn-refresh');
+      if (!btn) return { status: 'fail', detail: 'Refresh button not found' };
+      if (!_isMobile()) return { status: 'skip', detail: 'Not a mobile device' };
+      const style = getComputedStyle(btn);
+      if (style.display === 'none') return { status: 'pass', detail: 'Hidden via CSS (display:none)' };
+      return { status: 'fail', detail: `Visible on mobile — display: ${style.display}` };
+    });
+
+    await _test(SEC10, 'Song list element exists', async () => {
+      const sl = document.getElementById('song-list');
+      if (!sl) return { status: 'fail', detail: '#song-list not found' };
+      if (sl.parentElement?.id !== 'song-list-scroll') return { status: 'fail', detail: `Parent: #${sl.parentElement?.id}, expected #song-list-scroll` };
+      const cards = sl.querySelectorAll('.song-card').length;
+      return { status: 'pass', detail: `${cards} song card(s) rendered` };
+    });
+
+    await _test(SEC10, 'Body mobile class matches detection', async () => {
+      const hasCls = document.body.classList.contains('is-mobile');
+      const isMob = _isMobile();
+      if (hasCls !== isMob) return { status: 'warn', detail: `body.is-mobile: ${hasCls}, _isMobile(): ${isMob}` };
+      return { status: 'pass', detail: `is-mobile: ${hasCls}` };
     });
 
     // Final render
