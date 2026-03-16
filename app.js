@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.91';
+  const APP_VERSION = 'v17.92';
 
   let _songs      = [];
   let _setlists   = [];
@@ -2197,7 +2197,7 @@ const App = (() => {
     _revokeBlobCache();
     Player.stopAll();
 
-    const _startTime = Date.now();
+    let _startTime = null; // null until user starts the timer
     let _clockInterval = null;
     let _zpHandle = null; // zoom/pan handle for chart canvas
     let _overlayTimer = null;
@@ -2273,7 +2273,7 @@ const App = (() => {
         <span class="lm-progress"></span>
         <div class="lm-clock-group">
           <span class="lm-clock"></span>
-          <span class="lm-timer">0:00</span>
+          <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:12px;height:12px;"></i> <span class="lm-timer">Start</span></button>
         </div>
         <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
       </div>
@@ -2418,6 +2418,10 @@ const App = (() => {
       loadArea.classList.toggle('hidden', page.type !== 'loading');
 
       if (page.type === 'chart') {
+        // Force reflow after un-hiding chartArea — iOS Safari may not have
+        // laid out the element yet, causing clientWidth === 0 and a blank render.
+        // This read is synchronous and triggers layout without affecting desktop.
+        void chartArea.offsetWidth;
         return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea)
           .catch(err => {
             console.error('Live mode chart render error', err);
@@ -2860,7 +2864,9 @@ const App = (() => {
 
     // ── Clock + timer ──
     const clockEl = container.querySelector('.lm-clock');
-    const timerEl = container.querySelector('.lm-timer');
+    let timerEl = container.querySelector('.lm-timer');
+    const timerBtn = container.querySelector('.lm-timer-btn');
+
     function _updateClock() {
       const now = new Date();
       let h = now.getHours();
@@ -2869,11 +2875,27 @@ const App = (() => {
       const m = String(now.getMinutes()).padStart(2, '0');
       if (clockEl) clockEl.textContent = h + ':' + m + ' ' + ampm;
 
-      const elapsed = Math.floor((Date.now() - _startTime) / 1000);
-      const mins = Math.floor(elapsed / 60);
-      const secs = String(elapsed % 60).padStart(2, '0');
-      if (timerEl) timerEl.textContent = mins + ':' + secs;
+      if (_startTime) {
+        const elapsed = Math.floor((Date.now() - _startTime) / 1000);
+        const mins = Math.floor(elapsed / 60);
+        const secs = String(elapsed % 60).padStart(2, '0');
+        if (timerEl) timerEl.textContent = mins + ':' + secs;
+      }
     }
+
+    function _startTimer() {
+      _startTime = Date.now();
+      if (timerBtn) {
+        timerBtn.innerHTML = '<i data-lucide="clock" style="width:12px;height:12px;"></i> <span class="lm-timer">0:00</span>';
+        timerEl = timerBtn.querySelector('.lm-timer'); // re-acquire after innerHTML change
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [timerBtn] });
+        timerBtn.classList.add('lm-timer-running');
+        timerBtn.removeEventListener('click', _startTimer);
+      }
+    }
+
+    if (timerBtn) timerBtn.addEventListener('click', _startTimer);
+
     _updateClock();
     _clockInterval = setInterval(_updateClock, 1000);
   }
