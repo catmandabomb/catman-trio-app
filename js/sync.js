@@ -223,6 +223,23 @@ const Sync = (() => {
     if (changed) _savePracticeLocal(practice);
   }
 
+  // ─── Data fingerprinting (avoids JSON.stringify for comparison) ──
+
+  function _fingerprint(arr) {
+    if (!arr || !arr.length) return '0:0';
+    let hash = arr.length;
+    for (let i = 0; i < arr.length; i++) {
+      const item = arr[i];
+      hash = (hash * 31 + (item._ts || 0)) | 0;
+      if (item.id) {
+        for (let j = 0; j < item.id.length; j++) {
+          hash = (hash * 31 + item.id.charCodeAt(j)) | 0;
+        }
+      }
+    }
+    return arr.length + ':' + hash;
+  }
+
   // ─── Sync helpers ──────────────────────────────────────────
 
   function _shouldSync() {
@@ -298,7 +315,7 @@ const Sync = (() => {
       let dataChanged = false;
 
       if (songs !== null) {
-        if (JSON.stringify(songs) !== JSON.stringify(Store.get('songs'))) dataChanged = true;
+        if (_fingerprint(songs) !== _fingerprint(Store.get('songs'))) dataChanged = true;
         Store.set('songs', songs);
         _saveLocal(songs);
         const activeKeys = Store.get('activeKeys');
@@ -308,12 +325,12 @@ const Sync = (() => {
         }
       }
       if (setlists !== null) {
-        if (JSON.stringify(setlists) !== JSON.stringify(Store.get('setlists'))) dataChanged = true;
+        if (_fingerprint(setlists) !== _fingerprint(Store.get('setlists'))) dataChanged = true;
         Store.set('setlists', setlists);
         _saveSetlistsLocal(setlists);
       }
       if (practice !== null) {
-        if (JSON.stringify(practice) !== JSON.stringify(Store.get('practice'))) dataChanged = true;
+        if (_fingerprint(practice) !== _fingerprint(Store.get('practice'))) dataChanged = true;
         Store.set('practice', practice);
         migratePracticeData();
         _savePracticeLocal(Store.get('practice'));

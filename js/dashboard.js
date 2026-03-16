@@ -1326,10 +1326,10 @@ const Dashboard = (() => {
 
   // ─── Router registration ──────────────────────────────────
 
-  Router.register('dashboard', (route) => {
+  Router.register('dashboard', Utils.safeRender('dashboard', (route) => {
     if (route && route.rerender) { renderDashboard(); return; }
     renderDashboard();
-  });
+  }));
 
   // ─── Public API ───────────────────────────────────────────
 

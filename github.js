@@ -256,9 +256,10 @@ const GitHub = (() => {
   function _trackApiCall() {
     const now = Date.now();
     _apiCallTimestamps.push(now);
-    // Prune older than 1 hour
+    // Prune older than 1 hour, cap at 500 entries max
     const cutoff = now - 3600000;
     _apiCallTimestamps = _apiCallTimestamps.filter(t => t > cutoff);
+    if (_apiCallTimestamps.length > 500) _apiCallTimestamps = _apiCallTimestamps.slice(-500);
 
     const count = _apiCallTimestamps.length;
     if (count >= RATE_PAUSE_THRESHOLD && _onRateLimitWarning) {
@@ -841,6 +842,7 @@ const GitHub = (() => {
       pendingTypes,
       flushing: _flushing,
       debounceCount: _debounceCount,
+      lastError: _consecutiveFailures > 0,
     };
   }
 

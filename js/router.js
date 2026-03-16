@@ -11,6 +11,11 @@ const Router = (() => {
   const _registry = {};       // viewName → renderFn(route)
   const _hooks = {};          // hookName → fn
 
+  // ─── Cached DOM references ─────────────────────────────────
+  let _viewEls = null;        // cached .view NodeList
+  let _navBtns = null;        // cached .topbar-nav-btn NodeList
+  const _prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
   /**
    * Register a render function for a view name.
    * Called by view modules at load time.
@@ -76,7 +81,13 @@ const Router = (() => {
 
   // ─── View switching ─────────────────────────────────────────
 
+  function _ensureCached() {
+    if (!_viewEls) _viewEls = document.querySelectorAll('.view');
+    if (!_navBtns) _navBtns = document.querySelectorAll('.topbar-nav-btn');
+  }
+
   function showView(name) {
+    _ensureCached();
     const popstateNav = Store.get('isPopstateNavigation');
     const isFirstCall = !Store.get('showViewCalled');
     const currentView = Store.get('view');
@@ -87,13 +98,16 @@ const Router = (() => {
       if (!alreadyActive) {
         // Clean up detail anchor bar when leaving detail view
         if (currentView === 'detail' && name !== 'detail') _callHook('cleanupDetailAnchors');
-        document.querySelectorAll('.view').forEach(v => {
-          v.classList.remove('active');
-        });
+        if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
+        if ((currentView === 'practice-detail' || currentView === 'practice-edit') && !name.startsWith('practice')) _callHook('cleanupPractice');
+        _viewEls.forEach(v => v.classList.remove('active'));
         const el = document.getElementById(`view-${name}`);
         if (el) {
           el.classList.add('active');
           el.scrollTop = 0;
+          // Focus management for accessibility — move focus to new view
+          if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+          requestAnimationFrame(() => el.focus({ preventScroll: true }));
           if (name === 'list') {
             const sw = document.getElementById('song-list-scroll');
             if (sw) sw.scrollTop = 0;
@@ -113,16 +127,20 @@ const Router = (() => {
         }
       }
       // aria-current on active nav button
-      document.querySelectorAll('.topbar-nav-btn').forEach(btn => btn.removeAttribute('aria-current'));
+      _navBtns.forEach(btn => btn.removeAttribute('aria-current'));
       if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
         document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
       } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
         document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
       }
+      // Show topbar refresh on setlists/practice top-level views
+      const showRefresh = name === 'setlists' || name === 'practice' || name === 'practice-detail';
+      document.getElementById('btn-topbar-refresh')?.classList.toggle('hidden', !showRefresh);
     };
 
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (alreadyActive || isFirstCall || prefersReducedMotion) {
+    const skipTransition = Store.get('skipViewTransition');
+    if (skipTransition) Store.set('skipViewTransition', false);
+    if (alreadyActive || isFirstCall || _prefersReducedMotion.matches || skipTransition) {
       swap();
     } else if (document.startViewTransition) {
       try { document.startViewTransition(swap); } catch (_) { swap(); }
@@ -149,7 +167,10 @@ const Router = (() => {
   }
 
   function pushNav(renderFn) {
-    Store.get('navStack').push(renderFn);
+    const stack = Store.get('navStack');
+    stack.push(renderFn);
+    // Cap stack depth to prevent memory leaks from deep navigation chains
+    if (stack.length > 20) stack.splice(0, stack.length - 20);
   }
 
   function navigateBack() {

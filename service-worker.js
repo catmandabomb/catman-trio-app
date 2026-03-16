@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v18.5';
+const CACHE_NAME = 'catmantrio-v18.6';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -21,6 +21,9 @@ const SHELL_ASSETS = [
   '/js/router.js',
   '/js/sync.js',
   '/js/dashboard.js',
+  '/js/practice.js',
+  '/js/setlists.js',
+  '/js/songs.js',
   '/app.js',
   '/drive.js',
   '/github.js',
@@ -223,12 +226,28 @@ self.addEventListener('message', (e) => {
 // - Shell assets (JS/CSS): cache-first with ignoreSearch for offline resilience
 // - External APIs: bypass SW entirely
 self.addEventListener('fetch', (e) => {
+  // CDN scripts (pdf.js, SortableJS): cache-first for offline support
+  if (e.request.url.includes('cdnjs.cloudflare.com') ||
+      e.request.url.includes('cdn.jsdelivr.net')) {
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        if (cached) return cached;
+        return fetch(e.request).then(resp => {
+          if (resp.status === 200) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          }
+          return resp;
+        });
+      }).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
   // Don't intercept external API calls
   if (e.request.url.includes('googleapis.com') ||
       e.request.url.includes('gstatic.com') ||
       e.request.url.includes('accounts.google.com') ||
-      e.request.url.includes('cdnjs.cloudflare.com') ||
-      e.request.url.includes('cdn.jsdelivr.net') ||
       e.request.url.includes('api.github.com')) {
     return;
   }

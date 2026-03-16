@@ -1,5 +1,57 @@
+/* ═══════════════════════════════════════════════════
+   TABLE OF CONTENTS
+   ─────────────────────────────────────────────────
+   1. View Transitions
+   2. CSS Variables & Reset
+   3. Topbar
+   4. Buttons
+   5. Main Layout
+   6. Subheader & Admin Bar
+   7. Admin Dashboard View
+   8. Search & Filter Bar
+   9. Key Filter Chips
+   10. Song List
+   11. Detail View
+   12. Edit Form
+   13. Sync Indicator
+   14. Empty State
+   15. Modals
+   16. Setlists
+   17. Practice Lists
+   18. Toast Notifications
+   19. PWA Install Gate
+   20. GitHub Integration
+   21. Desktop Content Centering
+   22. Scrollbar
+   23. Sync Diagnostics
+   24. Offline Queue Indicator
+   25. A/B Loop (Practice Mode)
+   26. Setlist Live Mode
+   27. Quick-Add to Setlist
+   28. Copy Setlist Button
+   29. Live Mode Clock & Timer
+   30. Tag Manager (Admin)
+   31. Batch Selection Mode
+   32. Loading Skeleton
+   33. Keyboard Shortcut Help
+   34. Synced State Badge
+   35. Print Stylesheet
+   36. Metronome
+   37. Install Banner
+   38. Detail Section Anchor Bar
+   39. Accessibility — Reduced Motion
+
+   BREAKPOINTS (standard values):
+     380px  — small phones
+     500px  — medium phones
+     600px  — large phones / small tablets
+     768px  — tablets
+     900px  — small desktop
+     1024px — desktop
+═══════════════════════════════════════════════════ */
+
 /* ═══════════════════════════════════════════
-   VIEW TRANSITIONS
+   1. VIEW TRANSITIONS
 ═══════════════════════════════════════════ */
 @keyframes vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes vt-fade-in  { from { opacity: 0; } to { opacity: 1; } }
@@ -34,7 +86,7 @@
   --text:         #d4d0cc;
   --text-bright:  #f0eeeb;
   --text-2:       #9e9a94;
-  --text-3:       #7d7973;
+  --text-3:       #918d87;
 
   /* Accent: vibrant gold */
   --accent:       #f0cc80;
@@ -55,7 +107,7 @@
   --purple-bg:    rgba(167,139,250,0.14);
 
   --tag-bg:       #252529;
-  --tag-text:     #a09a93;
+  --tag-text:     #b0aaa3;
 
   /* Radii: slightly rounder for modern feel */
   --radius-sm:    8px;
@@ -218,9 +270,9 @@ a { color: inherit; text-decoration: none; }
 }
 
 .admin-version-badge {
-  font-size: 6px;
+  font-size: 7px;
   font-family: var(--font-mono);
-  color: var(--text-2);
+  color: var(--text-bright);
   opacity: 0.55;
   position: absolute;
   bottom: -2px;
@@ -280,13 +332,10 @@ a { color: inherit; text-decoration: none; }
 @media (min-width: 600px) {
   .volume-slider { width: 160px; }
 }
-@media (max-width: 420px) {
-  .volume-slider { width: 90px; }
+@media (max-width: 380px) {
+  .volume-slider { width: 80px; }
   .topbar-nav-btn { padding: 2px 4px; font-size: 10px; }
   .topbar-right { gap: 4px; }
-}
-@media (max-width: 350px) {
-  .volume-slider { width: 70px; }
   .modal-overlay { padding: 12px; }
   .modal { padding: 20px; }
   .modal-actions { flex-wrap: wrap; }
@@ -312,12 +361,12 @@ a { color: inherit; text-decoration: none; }
 }
 /* Hide refresh button on touch devices — pull-to-refresh replaces it */
 @media (pointer: coarse) {
-  .search-refresh-btn { display: none !important; }
+  .search-refresh-btn { display: none; }
 }
 @media (hover: none) {
-  .search-refresh-btn { display: none !important; }
+  .search-refresh-btn { display: none; }
 }
-body.is-mobile .search-refresh-btn { display: none !important; }
+body.is-mobile .search-refresh-btn { display: none; }
 
 .topbar-nav-btn {
   padding: 3px 5px;
@@ -512,8 +561,8 @@ body.is-mobile .search-refresh-btn { display: none !important; }
    ADMIN DASHBOARD BAR
 ═══════════════════════════════════════════ */
 .admin-dashboard-btn {
-  font-size: 11px !important;
-  padding: 3px 10px !important;
+  font-size: 11px;
+  padding: 3px 10px;
   white-space: nowrap;
 }
 
@@ -633,19 +682,17 @@ body.is-mobile .search-refresh-btn { display: none !important; }
   margin-right: 6px;
   vertical-align: 1px;
 }
-.view-refresh-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 4px;
-}
-.view-refresh-btn {
-  width: 28px; height: 28px;
+.view-refresh-row { display: none; }
+.view-refresh-btn { display: none; }
+.topbar-refresh-btn {
+  width: 32px; height: 32px;
   padding: 0;
   display: flex; align-items: center; justify-content: center;
   opacity: 0.5;
   transition: opacity .15s;
 }
-.view-refresh-btn:hover { opacity: 1; }
+.topbar-refresh-btn:hover { opacity: 1; }
+.topbar-refresh-btn svg { width: 16px; height: 16px; }
 .dash-alert-title {
   font-weight: 600;
   color: var(--text-bright);
@@ -866,9 +913,11 @@ body.is-mobile .search-refresh-btn { display: none !important; }
   contain: layout style paint;
   /* content-visibility: auto removed — breaks cardIn animation for off-screen cards */
 }
-/* Skip card entrance animation on data-refresh re-renders */
+/* Skip card entrance animation on data-refresh re-renders; enable content-visibility for scroll perf */
 #song-list.no-animate .song-card {
   animation: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 .song-card:hover {
   background: var(--bg-3);
@@ -1375,6 +1424,14 @@ body.is-mobile .search-refresh-btn { display: none !important; }
 }
 .audio-player.playing .audio-play-btn {
   animation: playPulse 2s ease-in-out infinite;
+}
+.audio-player.buffering .audio-play-btn {
+  animation: bufferPulse 0.8s ease-in-out infinite;
+  opacity: 0.7;
+}
+@keyframes bufferPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(0.92); }
 }
 .audio-play-btn:active { transform: scale(0.95); }
 
@@ -2305,8 +2362,8 @@ textarea.form-input {
 }
 
 .setlist-comment-input {
-  padding: 6px 10px !important;
-  font-size: 16px !important;
+  padding: 6px 10px;
+  font-size: 16px;
   font-style: italic;
 }
 
@@ -2544,8 +2601,8 @@ textarea.form-input {
   height: 16px;
 }
 .practice-archive-toggle {
-  color: var(--text-2) !important;
-  font-size: 13px !important;
+  color: var(--text-2);
+  font-size: 13px;
 }
 
 /* Accordion chevron rotation */
@@ -3052,6 +3109,13 @@ textarea.form-input {
   background: #6ea8fe;
   animation: qi-pulse 1s infinite;
 }
+.qi-error {
+  background: rgba(232,80,80,0.18);
+  color: #f06060;
+  border: 1px solid rgba(232,80,80,0.35);
+  cursor: pointer;
+}
+.qi-error .qi-dot { background: #f06060; }
 @keyframes qi-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -3661,6 +3725,30 @@ html.live-mode-active { overflow: hidden; }
   transition: all 0.15s;
 }
 .btn-copy-setlist:hover {
+  color: var(--text-bright);
+  border-color: var(--border-light);
+  background: var(--bg-4);
+}
+
+/* ═══════════════════════════════════════════
+   PRINT SETLIST BUTTON
+═══════════════════════════════════════════ */
+.btn-print-setlist {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 12px;
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: all 0.15s;
+}
+.btn-print-setlist:hover {
   color: var(--text-bright);
   border-color: var(--border-light);
   background: var(--bg-4);
@@ -4351,7 +4439,7 @@ html.live-mode-active { overflow: hidden; }
   background: rgba(212, 180, 120, 0.15);
 }
 /* Hide on narrow screens to avoid overlapping content */
-@media (max-width: 379px) {
+@media (max-width: 380px) {
   .detail-anchor-bar { display: none; }
 }
 /* On wide screens, position relative to the content area */
@@ -4371,4 +4459,18 @@ html.live-mode-active { overflow: hidden; }
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Static indicators for buffering/playing when animations disabled */
+  .audio-player.buffering .audio-play-btn {
+    opacity: 0.5 !important;
+    box-shadow: 0 0 0 2px var(--accent) !important;
+  }
+  .audio-player.playing .audio-play-btn {
+    box-shadow: 0 2px 16px rgba(232,195,115,0.45) !important;
+  }
+}
+
+/* Audio error flash indicator */
+.audio-player.audio-error {
+  border-color: var(--error, #e54);
+  box-shadow: 0 0 8px rgba(229,68,68,0.2);
 }

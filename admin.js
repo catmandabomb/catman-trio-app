@@ -170,14 +170,21 @@ const Admin = (() => {
       if (e.key === 'Escape') cancel();
     };
 
+    // Dismiss on backdrop click (outside the modal card)
+    const backdropClick = (e) => {
+      if (e.target === overlay) cancel();
+    };
+
     document.getElementById('btn-password-confirm').addEventListener('click', confirm);
     document.getElementById('btn-password-cancel').addEventListener('click', cancel);
     input.addEventListener('keydown', keydown);
+    overlay.addEventListener('click', backdropClick);
 
     function cleanup() {
       document.getElementById('btn-password-confirm').removeEventListener('click', confirm);
       document.getElementById('btn-password-cancel').removeEventListener('click', cancel);
       input.removeEventListener('keydown', keydown);
+      overlay.removeEventListener('click', backdropClick);
       _pwCleanup = null;
     }
     _pwCleanup = cleanup;

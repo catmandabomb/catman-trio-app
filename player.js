@@ -17,9 +17,9 @@ const Player = (() => {
   let _audioElements = [];
 
   // Playback speed steps — per-player (each audio file has independent speed)
-  // Tap cycles: 1.0 → 0.9 → 0.8 → 0.75 → 0.5 → 1.0
+  // Tap cycles: 1.0 → 0.9 → 0.8 → 0.7 → 0.6 → 0.5 → 1.0
   // Long-press: reset to 1x immediately.
-  const _speedSteps = [1, 0.9, 0.8, 0.75, 0.5];
+  const _speedSteps = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
 
   // ─── Media Session (lock screen / notification controls) ───
   const _hasMediaSession = ('mediaSession' in navigator);
@@ -101,7 +101,7 @@ const Player = (() => {
           ${playIcon()}
         </button>
         <div class="audio-progress-wrap">
-          <input type="range" class="audio-progress" value="0" min="0" step="0.1" />
+          <input type="range" class="audio-progress" value="0" min="0" step="0.1" aria-label="Audio progress" />
           <div class="audio-time">
             <span class="audio-current">0:00</span>
             <span class="audio-duration">0:00</span>
@@ -276,7 +276,7 @@ const Player = (() => {
     function _applySpeed(speed) {
       const prev = _playerSpeed;
       _playerSpeed = speed;
-      const label = speed === 1 ? '1x' : (speed % 1 === 0 ? speed + 'x' : speed.toFixed(speed === 0.75 ? 2 : 1) + 'x');
+      const label = speed === 1 ? '1x' : speed.toFixed(1) + 'x';
       if (speedBtn) {
         speedBtn.textContent = label;
         speedBtn.classList.toggle('speed-active', speed !== 1);
@@ -306,6 +306,15 @@ const Player = (() => {
       });
       speedBtn.addEventListener('pointerleave', () => {
         clearTimeout(_speedTimer);
+      });
+      // Keyboard: Enter/Space cycles speed, same as tap
+      speedBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const idx = _speedSteps.indexOf(_playerSpeed);
+          const nextIdx = (idx === -1 || idx >= _speedSteps.length - 1) ? 0 : idx + 1;
+          _applySpeed(_speedSteps[nextIdx]);
+        }
       });
     }
 
@@ -372,7 +381,7 @@ const Player = (() => {
       // If A/B loop is active near end, the loop handler will re-seek — skip reset
       if (loopActive && loopB >= audio.duration - 0.5) return;
       _stopRaf();
-      el.classList.remove('playing');
+      el.classList.remove('playing', 'buffering');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
       progress.value = 0;
@@ -382,12 +391,26 @@ const Player = (() => {
       _clearMediaSession();
     });
 
-    // Error recovery — reset UI on audio errors
+    // iOS buffering — show loading state while waiting for data
+    audio.addEventListener('waiting', () => {
+      el.classList.add('buffering');
+    });
+    audio.addEventListener('playing', () => {
+      el.classList.remove('buffering');
+    });
+    audio.addEventListener('canplay', () => {
+      el.classList.remove('buffering');
+    });
+
+    // Error recovery — reset UI on audio errors with user feedback
     audio.addEventListener('error', () => {
-      el.classList.remove('playing');
+      el.classList.remove('playing', 'buffering');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
       if (_active === audio) { _active = null; _clearMediaSession(); }
+      // Brief inline error indicator
+      el.classList.add('audio-error');
+      setTimeout(() => el.classList.remove('audio-error'), 3000);
     });
 
     // Play/Pause button — handles Android autoplay policy gracefully
@@ -401,6 +424,8 @@ const Player = (() => {
         _playPending = true;
         _active = audio;
         el.classList.add('playing');
+        // Show buffering indicator if audio data isn't ready yet (common on iOS)
+        if (audio.readyState < 3) el.classList.add('buffering');
         playBtn.innerHTML = pauseIcon();
         if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
         const mediaTitle = songTitle || name;
@@ -408,17 +433,19 @@ const Player = (() => {
         if (playPromise && typeof playPromise.then === 'function') {
           playPromise.then(() => {
             _playPending = false;
+            el.classList.remove('buffering');
             _setMediaSession(mediaTitle, 'Catman Trio');
           }).catch(() => {
             // Play rejected (autoplay policy / audio not ready) — reset UI
             _playPending = false;
-            el.classList.remove('playing');
+            el.classList.remove('playing', 'buffering');
             playBtn.innerHTML = playIcon();
             if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
             if (_active === audio) _active = null;
           });
         } else {
           _playPending = false;
+          el.classList.remove('buffering');
           _setMediaSession(mediaTitle, 'Catman Trio');
         }
       } else {

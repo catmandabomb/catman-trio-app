@@ -207,6 +207,13 @@ const Modal = (() => {
     overlay.innerHTML = `<div class="modal ${cls}">${content}</div>`;
     document.body.appendChild(overlay);
 
+    // Auto-discover heading for aria-labelledby
+    const heading = overlay.querySelector('h2, h3, h4');
+    if (heading) {
+      if (!heading.id) heading.id = id + '-title';
+      overlay.setAttribute('aria-labelledby', heading.id);
+    }
+
     const handle = show(overlay, {
       backdrop,
       escape,

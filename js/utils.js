@@ -23,6 +23,7 @@ const Utils = (() => {
   }
 
   function deepClone(obj) {
+    if (typeof structuredClone === 'function') return structuredClone(obj);
     return JSON.parse(JSON.stringify(obj));
   }
 
@@ -90,8 +91,8 @@ const Utils = (() => {
     const el = document.getElementById('toast');
     if (!el) return;
     haptic.tap();
-    // Sanitize: only allow <br> tags, escape everything else
-    el.innerHTML = msg.replace(/<(?!br\s*\/?>)/gi, '&lt;');
+    // Sanitize: escape all HTML first, then restore <br> tags only
+    el.innerHTML = esc(msg).replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     el.classList.remove('hidden');
     el.classList.add('show');
     const timer = Store.get('toastTimer');
@@ -269,6 +270,27 @@ const Utils = (() => {
     return match || TIME_SIGS[0];
   }
 
+  // ─── Error boundary wrapper ─────────────────────────────────
+
+  function safeRender(name, renderFn) {
+    return function(...args) {
+      try {
+        return renderFn(...args);
+      } catch (err) {
+        console.error(`[${name}] Render error:`, err);
+        showToast('Something went wrong');
+        const container = document.querySelector('.view.active > div') ||
+          document.querySelector('.view.active');
+        if (container) {
+          container.innerHTML = `<div style="padding:32px;text-align:center;">
+            <p style="color:var(--text-2);margin-bottom:12px;">Something went wrong rendering ${esc(name)}.</p>
+            <button class="btn-primary" onclick="location.reload()">Reload</button>
+          </div>`;
+        }
+      }
+    };
+  }
+
   // ─── Public API ─────────────────────────────────────────────
 
   return {
@@ -296,6 +318,7 @@ const Utils = (() => {
     safeColor,
     personaInitials,
     parseTimeSig,
+    safeRender,
   };
 
 })();
