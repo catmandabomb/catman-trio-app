@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.97';
+  const APP_VERSION = 'v17.98';
 
   let _songs      = [];
   let _setlists   = [];
@@ -983,14 +983,8 @@ const App = (() => {
     const unpinnedKeys = allKeys.filter(k => !_activeKeys.includes(k));
     const orderedKeys = [...pinnedKeys, ...unpinnedKeys];
     const keyFP = orderedKeys.join(',') + '|' + _activeKeys.join(',');
+    const keyBar = document.getElementById('key-filter-bar');
     if (allKeys.length > 0) {
-      let keyBar = document.getElementById('key-filter-bar');
-      if (!keyBar) {
-        keyBar = document.createElement('div');
-        keyBar.id = 'key-filter-bar';
-        keyBar.className = 'key-filter-bar';
-        tagBar.parentNode.insertBefore(keyBar, tagBar.nextSibling);
-      }
       if (keyFP !== _lastKeyBarFP) {
         _lastKeyBarFP = keyFP;
         keyBar.innerHTML = orderedKeys.map(k =>
@@ -1006,10 +1000,9 @@ const App = (() => {
           });
         });
       }
-    } else {
+    } else if (keyBar) {
       _lastKeyBarFP = '';
-      const existing = document.getElementById('key-filter-bar');
-      if (existing) existing.remove();
+      keyBar.innerHTML = '';
     }
 
     const container = document.getElementById('song-list');
@@ -5438,6 +5431,9 @@ const App = (() => {
       _showInstallGate();
       return; // Don't load the app
     }
+
+    // Tag body for mobile-specific CSS (backup for @media pointer/hover queries)
+    if (_isMobile()) document.body.classList.add('is-mobile');
 
     // Load display fonts dynamically (bypasses SW cache of old index.html)
     ['Audiowide', 'Oxanium:wght@600;700', 'Chakra+Petch:wght@600;700'].forEach(f => {

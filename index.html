@@ -19,10 +19,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=17.97" as="style">
+  <link rel="preload" href="app.css?v=17.98" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
   <link rel="preload" href="app.js" as="script">
-  <link rel="stylesheet" href="app.css?v=17.97" />
+  <link rel="stylesheet" href="app.css?v=17.98" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
@@ -82,15 +82,16 @@
           <i data-lucide="refresh-cw"></i>
         </button>
       </div>
-      <div id="sync-indicator" class="sync-indicator hidden">
-        <i data-lucide="refresh-cw" class="sync-spinner"></i>
-        <span>Syncing songs…</span>
-      </div>
       <div id="tag-filter-bar"></div>
+      <div id="key-filter-bar" class="key-filter-bar"></div>
       <div id="song-list-scroll">
         <div id="ptr-indicator" class="ptr-indicator">
           <div class="ptr-spinner"></div>
           <span class="ptr-text">Pull down to refresh</span>
+        </div>
+        <div id="sync-indicator" class="sync-indicator hidden">
+          <i data-lucide="refresh-cw" class="sync-spinner"></i>
+          <span>Syncing songs…</span>
         </div>
         <div id="song-list"></div>
         <div id="list-empty" class="empty-state hidden">
