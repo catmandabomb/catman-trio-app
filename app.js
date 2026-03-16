@@ -4,11 +4,12 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.94';
+  const APP_VERSION = 'v17.95';
 
   let _songs      = [];
   let _setlists   = [];
   let _view       = 'list';
+  let _showViewCalled = false;
   let _activeSong = null;
   let _editSong   = null;
   let _editIsNew  = false;
@@ -785,7 +786,8 @@ const App = (() => {
 
   function _showView(name) {
     const popstateNav = _isPopstateNavigation; // capture before async View Transition
-    const alreadyActive = _view === name;
+    const alreadyActive = _showViewCalled && _view === name;
+    _showViewCalled = true;
     const swap = () => {
       if (!alreadyActive) {
         document.querySelectorAll('.view').forEach(v => {
