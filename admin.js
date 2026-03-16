@@ -99,6 +99,7 @@ const Admin = (() => {
       key:      '',
       bpm:      '',
       timeSig:  '',
+      duration: 0,
       tags:     [],
       notes:    '',
       chartOrder: [], // [{driveId, order}] ordered charts for live mode

@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v18.00';
+  const APP_VERSION = 'v18.1';
 
   let _songs      = [];
   let _setlists   = [];
@@ -20,6 +20,7 @@ const App = (() => {
   let _playerRefs = [];
   let _navStack   = [];
   let _activeSetlist = null;
+  let _detailAnchorObserver = null; // IntersectionObserver for section anchors
 
   // ─── Hash-based routing (Navigation API with popstate fallback) ───
   let _isPopstateNavigation = false;
@@ -791,6 +792,8 @@ const App = (() => {
     _showViewCalled = true;
     const swap = () => {
       if (!alreadyActive) {
+        // Clean up detail anchor bar when leaving detail view
+        if (_view === 'detail' && name !== 'detail') _cleanupDetailAnchors();
         document.querySelectorAll('.view').forEach(v => {
           v.classList.remove('active');
         });
@@ -826,8 +829,9 @@ const App = (() => {
         document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
       }
     };
-    // Skip View Transition API on first render and same-view re-renders (avoids flash)
-    if (alreadyActive || isFirstCall) {
+    // Skip View Transition API on first render, same-view re-renders, or reduced motion preference
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (alreadyActive || isFirstCall || prefersReducedMotion) {
       swap();
     } else if (document.startViewTransition) {
       try { document.startViewTransition(swap); } catch (_) { swap(); }
@@ -1268,9 +1272,84 @@ const App = (() => {
 
   // ─── DETAIL VIEW ───────────────────────────────────────────
 
+  // ─── Detail Section Anchor Bar ──────────────────────────────────
+  function _cleanupDetailAnchors() {
+    if (_detailAnchorObserver) {
+      _detailAnchorObserver.disconnect();
+      _detailAnchorObserver = null;
+    }
+    document.getElementById('detail-anchor-bar')?.remove();
+  }
+
+  function _setupDetailAnchors() {
+    _cleanupDetailAnchors();
+    const scrollRoot = document.getElementById('view-detail');
+    if (!scrollRoot) return;
+
+    const sectionDefs = [
+      { id: 'detail-notes',  icon: 'notebook-pen', label: 'Notes' },
+      { id: 'detail-charts', icon: 'file-text',    label: 'Charts' },
+      { id: 'detail-audio',  icon: 'music',        label: 'Audio' },
+      { id: 'detail-links',  icon: 'link',         label: 'Links' },
+    ];
+
+    // Only include sections that actually exist in the DOM
+    const activeSections = sectionDefs.filter(s => document.getElementById(s.id));
+    if (activeSections.length < 2) return; // Don't show for 0-1 sections
+
+    // Build the anchor bar HTML
+    const bar = document.createElement('div');
+    bar.id = 'detail-anchor-bar';
+    bar.className = 'detail-anchor-bar';
+    bar.innerHTML = activeSections.map(s =>
+      `<button class="detail-anchor-dot" data-anchor-target="${s.id}" aria-label="Jump to ${s.label}" title="${s.label}">
+        <i data-lucide="${s.icon}"></i>
+      </button>`
+    ).join('');
+
+    scrollRoot.appendChild(bar);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bar] });
+
+    // Wire click handlers
+    bar.querySelectorAll('.detail-anchor-dot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        haptic.tap();
+        const target = document.getElementById(btn.dataset.anchorTarget);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    // IntersectionObserver to highlight current section
+    const dots = bar.querySelectorAll('.detail-anchor-dot');
+    const sectionEls = activeSections.map(s => document.getElementById(s.id));
+    const visibleRatios = new Map();
+
+    _detailAnchorObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        visibleRatios.set(entry.target.id, entry.intersectionRatio);
+      });
+      // Find the section with the highest visibility
+      let bestId = null;
+      let bestRatio = 0;
+      visibleRatios.forEach((ratio, id) => {
+        if (ratio > bestRatio) { bestRatio = ratio; bestId = id; }
+      });
+      dots.forEach(dot => {
+        dot.classList.toggle('active', dot.dataset.anchorTarget === bestId);
+      });
+    }, {
+      root: scrollRoot,
+      threshold: [0, 0.1, 0.25, 0.5, 0.75, 1.0],
+    });
+
+    sectionEls.forEach(el => { if (el) _detailAnchorObserver.observe(el); });
+  }
+
   function renderDetail(song, skipNavPush) {
     _revokeBlobCache();
     Player.stopAll();
+    _cleanupDetailAnchors();
     _activeSong = song;
     _currentRouteParams = { songId: song.id };
     if (!skipNavPush) _pushNav(() => renderList());
@@ -1280,6 +1359,9 @@ const App = (() => {
     const container = document.getElementById('detail-content');
     container.innerHTML = _buildDetailHTML(song);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Setup section anchor bar after DOM is populated
+    _setupDetailAnchors();
 
     if (Admin.isEditMode()) {
       container.querySelector('.btn-edit-song')?.addEventListener('click', () => renderEdit(song, false));
@@ -1467,14 +1549,14 @@ const App = (() => {
       </div>`;
 
     if (song.notes) {
-      html += `<div class="detail-section">
+      html += `<div class="detail-section" id="detail-notes">
         <div class="detail-section-label">Notes & Directions</div>
         <div class="detail-notes">${esc(song.notes)}</div>
       </div>`;
     }
 
     if (charts.length) {
-      html += `<div class="detail-section">
+      html += `<div class="detail-section" id="detail-charts">
         <div class="detail-section-label">Charts</div>
         <div class="file-list">
           ${charts.map(c => {
@@ -1506,7 +1588,7 @@ const App = (() => {
     }
 
     if (audio.length) {
-      html += `<div class="detail-section">
+      html += `<div class="detail-section" id="detail-audio">
         <div class="detail-section-label">Demo Recordings</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${audio.map(a => `
@@ -1522,7 +1604,7 @@ const App = (() => {
     }
 
     if (links.length) {
-      html += `<div class="detail-section">
+      html += `<div class="detail-section" id="detail-links">
         <div class="detail-section-label">Streaming & Links</div>
         <div class="embed-list">
           ${links.map(l => _buildEmbedHTML(l)).join('')}
@@ -1597,6 +1679,7 @@ const App = (() => {
         <div class="form-field">
           <label class="form-label">Title</label>
           <input class="form-input" id="ef-title" type="text" value="${esc(song.title)}" placeholder="Song title" />
+          <div id="ef-duplicate-warning" class="hidden" style="background:rgba(212,180,120,0.15);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;margin-top:4px;color:var(--accent);font-size:0.85rem;"></div>
         </div>
         <div class="form-field">
           <label class="form-label">Subtitle</label>
@@ -1614,6 +1697,10 @@ const App = (() => {
           <div class="form-field">
             <label class="form-label">Time Sig</label>
             <input class="form-input" id="ef-timesig" type="text" value="${esc(song.timeSig||'')}" placeholder="4/4" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">Duration</label>
+            <input class="form-input" id="ef-duration" type="text" value="${song.duration ? Math.floor(song.duration/60)+':'+String(Math.floor(song.duration%60)).padStart(2,'0') : ''}" placeholder="e.g. 4:30" />
           </div>
         </div>
         <div class="form-field">
@@ -1683,9 +1770,53 @@ const App = (() => {
     </div>`;
   }
 
+  function _parseDurationInput(val) {
+    if (!val) return 0;
+    val = val.trim();
+    if (/^\d+:\d{1,2}$/.test(val)) {
+      const [m, s] = val.split(':').map(Number);
+      return m * 60 + s;
+    }
+    const n = parseInt(val, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function _formatDuration(secs) {
+    if (!secs || secs <= 0) return '';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
   function _wireEditForm() {
     const song   = _editSong;
     const assets = song.assets;
+
+    // ─── Duplicate detection on title input (debounced) ───
+    const titleInput = document.getElementById('ef-title');
+    const dupWarning = document.getElementById('ef-duplicate-warning');
+    let _dupTimer = null;
+    titleInput.addEventListener('input', () => {
+      clearTimeout(_dupTimer);
+      _dupTimer = setTimeout(() => {
+        const val = titleInput.value.trim();
+        if (!val) { dupWarning.classList.add('hidden'); return; }
+        const excludeId = _editIsNew ? null : song.id;
+        const similar = _findSimilarSongsSync(val, excludeId);
+        if (similar.length > 0) {
+          const names = similar.map(s => s.title).join(', ');
+          dupWarning.textContent = 'Similar song found: ' + names + '. Is this a duplicate?';
+          dupWarning.classList.remove('hidden');
+        } else {
+          dupWarning.classList.add('hidden');
+        }
+      }, 300);
+    });
+
+    // ─── Duration field ───
+    const durationInput = document.getElementById('ef-duration');
+    // Expose for auto-detection from player.js
+    window._editSongDurationInput = durationInput;
 
     // Tags
     const tagWrap  = document.getElementById('ef-tag-wrap');
@@ -1867,6 +1998,7 @@ const App = (() => {
       song.key      = document.getElementById('ef-key').value.trim();
       song.bpm      = parseInt(document.getElementById('ef-bpm').value) || null;
       song.timeSig  = document.getElementById('ef-timesig').value.trim();
+      song.duration = _parseDurationInput(document.getElementById('ef-duration').value);
       song.notes    = document.getElementById('ef-notes').value.trim();
       assets.links  = assets.links
         .map(l => ({ ...l, url: l.url||'', embedId: _extractEmbedId(l.type, l.url||'') }))
@@ -2099,6 +2231,38 @@ const App = (() => {
 
   // ─── SETLIST DETAIL VIEW ─────────────────────────────────
 
+  function _buildSetlistTimingHTML(songEntries) {
+    if (!songEntries || songEntries.length === 0) return '';
+    let totalSecs = 0;
+    let missingCount = 0;
+    songEntries.forEach(entry => {
+      const s = _songs.find(x => x.id === entry.id);
+      if (s && s.duration && s.duration > 0) {
+        totalSecs += s.duration;
+      } else if (s) {
+        missingCount++;
+      }
+    });
+    if (totalSecs === 0 && missingCount === 0) return '';
+    let timeStr;
+    if (totalSecs >= 3600) {
+      const h = Math.floor(totalSecs / 3600);
+      const m = Math.floor((totalSecs % 3600) / 60);
+      timeStr = h + 'h ' + m + 'm';
+    } else {
+      const m = Math.floor(totalSecs / 60);
+      const s = Math.floor(totalSecs % 60);
+      timeStr = m + ':' + String(s).padStart(2, '0');
+    }
+    let html = '<div style="color:var(--text-2);font-size:0.85rem;margin-top:4px;">';
+    html += 'Total: ' + (totalSecs > 0 ? timeStr : '?');
+    if (missingCount > 0) {
+      html += ' <span class="muted">(' + missingCount + ' song' + (missingCount !== 1 ? 's' : '') + ' missing duration)</span>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderSetlistDetail(setlist, skipNavPush) {
     _revokeBlobCache();
     Player.stopAll();
@@ -2115,6 +2279,7 @@ const App = (() => {
       ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button>' : ''}</div>
+      ${_buildSetlistTimingHTML(songs)}
     </div>`;
 
     if (songs.length === 0) {
@@ -2133,7 +2298,7 @@ const App = (() => {
               <div class="setlist-song-info">
                 <span class="setlist-song-title">${esc(song.title)}</span>
                 <span class="setlist-song-meta">
-                  ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}${(song.key || song.bpm) && song.timeSig ? ' · ' : ''}${song.timeSig ? esc(song.timeSig) : ''}
+                  ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}${(song.key || song.bpm) && song.timeSig ? ' · ' : ''}${song.timeSig ? esc(song.timeSig) : ''}${(song.key || song.bpm || song.timeSig) && song.duration ? ' · ' : ''}${song.duration ? _formatDuration(song.duration) : ''}
                 </span>
                 ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
               </div>
@@ -2248,10 +2413,19 @@ const App = (() => {
     let _wakeLock = null;
 
     // Screen Wake Lock — keep screen on during Live Mode only
+    function _updateWakeLockIndicator(active) {
+      const el = document.getElementById('lm-wake-lock');
+      if (!el) return;
+      const icon = el.querySelector('i, svg');
+      if (icon) icon.style.opacity = active ? '0.4' : '0.15';
+    }
     async function _requestWakeLock() {
       try {
-        if ('wakeLock' in navigator && _liveModeActive) _wakeLock = await navigator.wakeLock.request('screen');
-      } catch (_) {}
+        if ('wakeLock' in navigator && _liveModeActive) {
+          _wakeLock = await navigator.wakeLock.request('screen');
+          _updateWakeLockIndicator(true);
+        }
+      } catch (_) { _updateWakeLockIndicator(false); }
     }
     function _onVisibilityChange() {
       if (document.visibilityState === 'visible' && _liveModeActive && !_wakeLock) _requestWakeLock();
@@ -2319,7 +2493,7 @@ const App = (() => {
       </div>
       <div class="lm-header" style="opacity:0">
         <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:20px;height:20px;"></i></button>
-        <span class="lm-progress"></span>
+        <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:12px;height:12px;opacity:0.15;"></i></span>
         <div class="lm-clock-group">
           <span class="lm-clock"></span>
           <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:12px;height:12px;"></i> <span class="lm-timer">Start</span></button>
@@ -2842,7 +3016,7 @@ const App = (() => {
       }
       _pages = [];
       // Release wake lock
-      if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; }
+      if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; _updateWakeLockIndicator(false); }
       document.body.classList.remove('live-mode-active');
       document.documentElement.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
@@ -5023,7 +5197,7 @@ const App = (() => {
             <i data-lucide="chevron-down" class="accordion-chevron rotated" style="width:16px;height:16px;flex-shrink:0;transition:transform 0.2s;"></i>
           </div>
           <div class="practice-accordion-body">
-            <textarea class="practice-note-input" data-practice-note-idx="${i}" rows="2" placeholder="Add practice notes…">${esc(entry.comment || '')}</textarea>
+            <textarea class="practice-note-input" data-practice-note-idx="${i}" rows="4" placeholder="Add practice notes…">${esc(entry.comment || '')}</textarea>
             ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
               <div class="detail-section-label">Charts</div>
               <div class="file-list">${(a.charts || []).map(c => `
@@ -5398,15 +5572,35 @@ const App = (() => {
       navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' })
         .then(reg => {
           console.info('SW registered:', reg.scope);
-          // Notify user when a new version is available
+          // ── Update notification helpers ──
+          function _promptSkipWaiting(waitingSW) {
+            const el = document.getElementById('toast');
+            showToast('Update available \u2014 tap to refresh', 5000);
+            // Allow tap-to-refresh
+            function _onTap() {
+              if (el) el.removeEventListener('click', _onTap);
+              waitingSW.postMessage({ type: 'SKIP_WAITING' });
+            }
+            if (el) el.addEventListener('click', _onTap, { once: true });
+            // Auto-refresh after 5s if user doesn't tap
+            setTimeout(() => {
+              if (el) el.removeEventListener('click', _onTap);
+              waitingSW.postMessage({ type: 'SKIP_WAITING' });
+            }, 5000);
+          }
+
+          // If a SW is already waiting when we register (e.g. installed in background)
+          if (reg.waiting && navigator.serviceWorker.controller) {
+            _promptSkipWaiting(reg.waiting);
+          }
+
+          // Notify user when a new version finishes installing
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // Tell the waiting SW to activate immediately
-                newWorker.postMessage({ type: 'SKIP_WAITING' });
-                showToast('Updating to new version…', 3000);
+                _promptSkipWaiting(newWorker);
               }
               if (newWorker.state === 'redundant') {
                 console.warn('SW update failed (became redundant)');
@@ -5418,7 +5612,8 @@ const App = (() => {
           navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (_refreshing) return;
             _refreshing = true;
-            location.reload();
+            showToast('App updated to ' + APP_VERSION + ' \u2014 refreshing\u2026', 2000);
+            setTimeout(() => location.reload(), 1500);
           });
           // Proactively check for updates on every page load
           reg.update().catch(() => {});
@@ -5445,6 +5640,18 @@ const App = (() => {
       e.preventDefault();
       _deferredInstallPrompt = e;
       _showInstallBanner();
+      // Also show the install button in the admin bar
+      const ib = document.getElementById('btn-install-app');
+      if (ib) ib.classList.remove('hidden');
+    });
+
+    // Hide install UI after the app is installed
+    window.addEventListener('appinstalled', () => {
+      _deferredInstallPrompt = null;
+      const ib = document.getElementById('btn-install-app');
+      if (ib) ib.classList.add('hidden');
+      const banner = document.querySelector('.install-banner');
+      if (banner) banner.remove();
     });
 
     // Request persistent storage to prevent eviction
@@ -5523,6 +5730,26 @@ const App = (() => {
       }
       renderEdit(Admin.newSong(_songs), true);
     });
+
+    // PWA Install button in admin bar
+    const installBtn = document.getElementById('btn-install-app');
+    if (installBtn) {
+      // Show if beforeinstallprompt already fired before this listener was attached
+      if (_deferredInstallPrompt && !_isPWAInstalled()) {
+        installBtn.classList.remove('hidden');
+      }
+      installBtn.addEventListener('click', async () => {
+        if (_deferredInstallPrompt) {
+          _deferredInstallPrompt.prompt();
+          const result = await _deferredInstallPrompt.userChoice;
+          if (result.outcome === 'accepted') {
+            showToast('App installed!');
+          }
+          _deferredInstallPrompt = null;
+          installBtn.classList.add('hidden');
+        }
+      });
+    }
 
     let _searchTimer = null;
     const searchInput = document.getElementById('search-input');
@@ -5612,8 +5839,8 @@ const App = (() => {
       const ptrEl = document.getElementById('ptr-indicator');
       const ptrText = ptrEl?.querySelector('.ptr-text');
       let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
-      const PTR_THRESHOLD = 310;
-      const PTR_MAX = 375;
+      const PTR_THRESHOLD = 220;
+      const PTR_MAX = 270;
 
       function _getScrollTop() {
         return songListScroll ? songListScroll.scrollTop : 0;
@@ -5702,6 +5929,96 @@ const App = (() => {
           localStorage.setItem('bb_ptr_seen', '1');
         }, 2500);
       }, 4000);
+    }
+
+    // ─── Swipe-to-go-back (iOS-style edge swipe) ──────────────
+    {
+      const appEl = document.getElementById('app');
+      let _swStartX = 0, _swStartY = 0, _swSwiping = false, _swLocked = false;
+      const SW_MIN_DIST = 80;       // minimum horizontal px to trigger back
+      const SW_EDGE_ZONE = 0.4;     // left 40% of screen
+
+      appEl.addEventListener('touchstart', (e) => {
+        if (!_navStack.length || _liveModeActive) return;
+        const t = e.touches[0];
+        // Only start from the left edge zone
+        if (t.clientX > window.innerWidth * SW_EDGE_ZONE) return;
+        _swStartX = t.clientX;
+        _swStartY = t.clientY;
+        _swSwiping = true;
+        _swLocked = false;
+      }, { passive: true });
+
+      appEl.addEventListener('touchmove', (e) => {
+        if (!_swSwiping) return;
+        const t = e.touches[0];
+        const dx = t.clientX - _swStartX;
+        const dy = t.clientY - _swStartY;
+
+        // Once we know direction, lock it in
+        if (!_swLocked && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+          if (Math.abs(dy) > Math.abs(dx)) {
+            // Vertical scroll — abort swipe
+            _swSwiping = false;
+            return;
+          }
+          _swLocked = true; // horizontal confirmed
+        }
+
+        if (!_swLocked) return;
+
+        // Prevent vertical scroll while swiping back
+        e.preventDefault();
+
+        // Visual feedback on the active view
+        const activeView = appEl.querySelector('.view.active');
+        if (activeView && dx > 0) {
+          activeView.classList.add('swipe-back-active');
+          activeView.classList.remove('swipe-back-snap');
+          const clamped = Math.min(dx, 200);
+          const opacity = 1 - (clamped / 600); // subtle fade
+          activeView.style.transform = 'translateX(' + clamped + 'px)';
+          activeView.style.opacity = opacity;
+        }
+      }, { passive: false });
+
+      appEl.addEventListener('touchend', (e) => {
+        if (!_swSwiping) return;
+        _swSwiping = false;
+        const dx = (e.changedTouches[0]?.clientX || 0) - _swStartX;
+        const dy = (e.changedTouches[0]?.clientY || 0) - _swStartY;
+        const activeView = appEl.querySelector('.view.active');
+
+        // Check if swipe qualifies: enough distance, more horizontal than vertical
+        if (_swLocked && dx >= SW_MIN_DIST && Math.abs(dx) > Math.abs(dy) && _navStack.length) {
+          haptic.tap();
+          // Snap off-screen then navigate
+          if (activeView) {
+            activeView.classList.remove('swipe-back-active');
+            activeView.classList.add('swipe-back-snap');
+            activeView.style.transform = 'translateX(100%)';
+            activeView.style.opacity = '0';
+            setTimeout(() => {
+              activeView.style.transform = '';
+              activeView.style.opacity = '';
+              activeView.classList.remove('swipe-back-snap');
+              _navigateBack();
+            }, 200);
+          } else {
+            _navigateBack();
+          }
+        } else {
+          // Cancel — snap back
+          if (activeView) {
+            activeView.classList.remove('swipe-back-active');
+            activeView.classList.add('swipe-back-snap');
+            activeView.style.transform = '';
+            activeView.style.opacity = '';
+            setTimeout(() => activeView.classList.remove('swipe-back-snap'), 250);
+          }
+        }
+        _swLocked = false;
+      }, { passive: true });
     }
 
     // Setlists button

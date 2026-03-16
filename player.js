@@ -16,10 +16,10 @@ const Player = (() => {
   if (isNaN(_volume) || _volume < 0 || _volume > 1) _volume = 1;
   let _audioElements = [];
 
-  // Playback speed — persists across players within the session (not localStorage)
-  // Tap: slow down by 0.1x (min 0.5x). At 0.5x wraps back to 1x.
+  // Playback speed steps — per-player (each audio file has independent speed)
+  // Tap cycles: 1.0 → 0.9 → 0.8 → 0.75 → 0.5 → 1.0
   // Long-press: reset to 1x immediately.
-  let _currentSpeed = 1;
+  const _speedSteps = [1, 0.9, 0.8, 0.75, 0.5];
 
   // ─── Media Session (lock screen / notification controls) ───
   const _hasMediaSession = ('mediaSession' in navigator);
@@ -56,6 +56,24 @@ const Player = (() => {
   }
 
   /**
+   * Auto-populate the edit form's duration field when audio metadata loads,
+   * but only if the field is empty (song has no duration yet). Does NOT auto-save.
+   */
+  function _tryAutoPopulateDuration(audioDuration) {
+    if (!audioDuration || !isFinite(audioDuration)) return;
+    try {
+      const input = window._editSongDurationInput;
+      if (!input || !document.body.contains(input)) return;
+      // Only populate if the field is currently empty
+      if (input.value.trim()) return;
+      const secs = Math.round(audioDuration);
+      const m = Math.floor(secs / 60);
+      const s = Math.floor(secs % 60);
+      input.value = m + ':' + String(s).padStart(2, '0');
+    } catch (_) {}
+  }
+
+  /**
    * Create and mount an audio player into `container`.
    * @param {HTMLElement} container
    * @param {Object}      opts
@@ -89,7 +107,7 @@ const Player = (() => {
             <span class="audio-duration">0:00</span>
           </div>
         </div>
-        <button class="audio-speed-btn" aria-label="Playback speed">${_currentSpeed === 1 ? '1x' : _currentSpeed.toFixed(1) + 'x'}</button>
+        <button class="audio-speed-btn" aria-label="Playback speed">1x</button>
       </div>
     `;
 
@@ -244,61 +262,59 @@ const Player = (() => {
     const duration = el.querySelector('.audio-duration');
     const speedBtn = el.querySelector('.audio-speed-btn');
 
-    // Apply session speed to new player
-    audio.playbackRate = _currentSpeed;
-    if (_currentSpeed !== 1) speedBtn.classList.add('speed-active');
+    // Per-player speed (independent per audio file)
+    let _playerSpeed = 1;
 
     // Smooth speed ramp — avoids audio decoder choke on instant rate change
     let _rampRaf = null;
-    function _rampRate(el, from, to, step, steps) {
-      if (step >= steps) { try { el.playbackRate = to; } catch (_) {} return; }
-      try { el.playbackRate = from + (to - from) * (step / steps); } catch (_) {}
-      _rampRaf = requestAnimationFrame(() => _rampRate(el, from, to, step + 1, steps));
+    function _rampRate(targetAudio, from, to, step, steps) {
+      if (step >= steps) { try { targetAudio.playbackRate = to; } catch (_) {} return; }
+      try { targetAudio.playbackRate = from + (to - from) * (step / steps); } catch (_) {}
+      _rampRaf = requestAnimationFrame(() => _rampRate(targetAudio, from, to, step + 1, steps));
     }
 
     function _applySpeed(speed) {
-      const prev = _currentSpeed;
-      _currentSpeed = speed;
-      const label = speed === 1 ? '1x' : speed.toFixed(1) + 'x';
-      speedBtn.textContent = label;
-      speedBtn.classList.toggle('speed-active', speed !== 1);
+      const prev = _playerSpeed;
+      _playerSpeed = speed;
+      const label = speed === 1 ? '1x' : (speed % 1 === 0 ? speed + 'x' : speed.toFixed(speed === 0.75 ? 2 : 1) + 'x');
+      if (speedBtn) {
+        speedBtn.textContent = label;
+        speedBtn.classList.toggle('speed-active', speed !== 1);
+      }
       // Ramp this player's rate smoothly over ~6 frames (~100ms)
       if (_rampRaf) cancelAnimationFrame(_rampRaf);
       _rampRate(audio, prev, speed, 0, 6);
-      // Sync all other players
-      _audioElements.forEach(a => {
-        if (a === audio) return;
-        try { _rampRate(a, prev, speed, 0, 6); } catch (_) {}
-        const btn = a.parentElement?.querySelector('.audio-speed-btn');
-        if (btn) { btn.textContent = label; btn.classList.toggle('speed-active', speed !== 1); }
-      });
     }
 
-    // Tap: slow down by 0.1x (wraps back to 1x at 0.5x). Long-press: reset to 1x.
-    let _speedTimer = null;
-    let _speedLongPressed = false;
-    speedBtn.addEventListener('pointerdown', (e) => {
-      _speedLongPressed = false;
-      _speedTimer = setTimeout(() => {
-        _speedLongPressed = true;
-        _applySpeed(1);
-      }, 500);
-    });
-    speedBtn.addEventListener('pointerup', () => {
-      clearTimeout(_speedTimer);
-      if (_speedLongPressed) return; // already handled
-      // Tap: decrease by 0.1, wrap at 0.5 back to 1
-      const next = Math.round((_currentSpeed - 0.1) * 10) / 10;
-      _applySpeed(next < 0.5 ? 1 : next);
-    });
-    speedBtn.addEventListener('pointerleave', () => {
-      clearTimeout(_speedTimer);
-    });
+    // Tap: cycle 1.0→0.9→0.8→0.75→0.5→1.0. Long-press: reset to 1x.
+    if (speedBtn) {
+      let _speedTimer = null;
+      let _speedLongPressed = false;
+      speedBtn.addEventListener('pointerdown', (e) => {
+        _speedLongPressed = false;
+        _speedTimer = setTimeout(() => {
+          _speedLongPressed = true;
+          _applySpeed(1);
+        }, 500);
+      });
+      speedBtn.addEventListener('pointerup', () => {
+        clearTimeout(_speedTimer);
+        if (_speedLongPressed) return;
+        const idx = _speedSteps.indexOf(_playerSpeed);
+        const nextIdx = (idx === -1 || idx >= _speedSteps.length - 1) ? 0 : idx + 1;
+        _applySpeed(_speedSteps[nextIdx]);
+      });
+      speedBtn.addEventListener('pointerleave', () => {
+        clearTimeout(_speedTimer);
+      });
+    }
 
     // Duration when metadata loads
     audio.addEventListener('loadedmetadata', () => {
       progress.max = audio.duration;
       duration.textContent = _formatTime(audio.duration);
+      // Auto-populate duration in edit form if song has no duration set
+      _tryAutoPopulateDuration(audio.duration);
     });
 
     // Smooth progress bar via rAF (timeupdate fires ~4Hz, too choppy)

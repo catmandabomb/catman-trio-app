@@ -1,10 +1,10 @@
 # Personal folders
 zz*/
-font-swatch.html
+Local*/
+Research/
 
 # Documentation / non-functional
 BRAINSTORM_*.md
-SETUP.md
 *.example.json
 
 # Claude session files
