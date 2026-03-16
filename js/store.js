@@ -12,7 +12,7 @@ const Store = (() => {
 
   const _state = {
     // ─── Version / Schema ────────────────────────────────────
-    APP_VERSION:        'v18.4',
+    APP_VERSION:        'v18.5',
     DATA_SCHEMA_VERSION: 1,
 
     // ─── Core data arrays ────────────────────────────────────
