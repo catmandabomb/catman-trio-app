@@ -191,24 +191,32 @@ a { color: inherit; text-decoration: none; }
   flex: none;
   flex-shrink: 1; /* allow title to shrink for large-text accessibility */
   min-width: 0;
+  overflow: visible; /* allow version badge to extend beyond title bounds */
 }
 .title-catman {
-  font-size: 24px;
+  font-size: clamp(18px, 5.5vw, 24px);
   display: block;
   white-space: nowrap;
 }
 .title-trio {
-  font-size: 23px;
+  font-size: clamp(17px, 5.3vw, 23px);
   display: block;
   text-align: center;
+  position: relative;
 }
 
 .admin-version-badge {
-  font-size: 9px;
+  font-size: 8px;
   font-family: var(--font-mono);
   color: var(--text-3);
-  opacity: 0.5;
-  align-self: center;
+  opacity: 0.45;
+  position: absolute;
+  top: -2px;
+  right: -22px;
+  transform: rotate(-25deg);
+  transform-origin: left center;
+  white-space: nowrap;
+  pointer-events: none;
   margin-left: 6px;
   white-space: nowrap;
 }
@@ -269,7 +277,6 @@ a { color: inherit; text-decoration: none; }
   .topbar-right { gap: 4px; }
 }
 @media (max-width: 350px) {
-  #topbar-title { font-size: 16px; }
   .volume-slider { width: 70px; }
   .modal-overlay { padding: 12px; }
   .modal { padding: 20px; }
@@ -471,11 +478,16 @@ a { color: inherit; text-decoration: none; }
   grid-column: 1 / -1;
   margin-top: 8px;
 }
+.admin-toggle-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+  letter-spacing: 0.03em;
+}
 #btn-edit-mode.exit-mode {
   font-size: 10px;
   line-height: 1.3;
   text-align: center;
-  padding: 4px 16px;
+  padding: 4px 12px;
   margin-right: 12px;
 }
 

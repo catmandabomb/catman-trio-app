@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.96';
+  const APP_VERSION = 'v17.97';
 
   let _songs      = [];
   let _setlists   = [];
@@ -786,6 +786,7 @@ const App = (() => {
 
   function _showView(name) {
     const popstateNav = _isPopstateNavigation; // capture before async View Transition
+    const isFirstCall = !_showViewCalled;
     const alreadyActive = _showViewCalled && _view === name;
     _showViewCalled = true;
     const swap = () => {
@@ -825,7 +826,10 @@ const App = (() => {
         document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
       }
     };
-    if (document.startViewTransition) {
+    // Skip View Transition API on first render and same-view re-renders (avoids flash)
+    if (alreadyActive || isFirstCall) {
+      swap();
+    } else if (document.startViewTransition) {
       try { document.startViewTransition(swap); } catch (_) { swap(); }
     } else {
       swap();
@@ -844,9 +848,6 @@ const App = (() => {
     document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
     document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
     document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
-    // Version badge visible on home page for all users
-    const vBadge = document.getElementById('admin-version-badge');
-    if (vBadge) vBadge.classList.toggle('hidden', !isHome);
   }
 
   function _pushNav(renderFn) {
@@ -938,7 +939,7 @@ const App = (() => {
     const catmanGrad = _gradientText('Catman', [215,175,90], [240,220,165]);
     const trioGrad   = _gradientText('Trio', [220,184,105], [235,211,150]);
     _setTopbar(
-      `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}</span>`,
+      `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}<span id="admin-version-badge" class="admin-version-badge">${esc(APP_VERSION)}</span></span>`,
       false, true, true
     );
     // Sync admin bar button state
@@ -977,7 +978,11 @@ const App = (() => {
 
     // Key filter chips — fingerprinted to prevent flash
     const allKeys = _allKeys();
-    const keyFP = allKeys.join(',') + '|' + _activeKeys.join(',');
+    // Pin selected keys to the left (same UX as tags)
+    const pinnedKeys = _activeKeys.filter(k => allKeys.includes(k));
+    const unpinnedKeys = allKeys.filter(k => !_activeKeys.includes(k));
+    const orderedKeys = [...pinnedKeys, ...unpinnedKeys];
+    const keyFP = orderedKeys.join(',') + '|' + _activeKeys.join(',');
     if (allKeys.length > 0) {
       let keyBar = document.getElementById('key-filter-bar');
       if (!keyBar) {
@@ -988,9 +993,7 @@ const App = (() => {
       }
       if (keyFP !== _lastKeyBarFP) {
         _lastKeyBarFP = keyFP;
-        // Keep stable sort order (by usage count) — don't reorder on selection
-        // to prevent the multi-select glitch where pills shift under the user's finger
-        keyBar.innerHTML = allKeys.map(k =>
+        keyBar.innerHTML = orderedKeys.map(k =>
           `<button class="kf-chip ${_activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
         ).join('');
         keyBar.querySelectorAll('.kf-chip').forEach(btn => {
@@ -5451,10 +5454,6 @@ const App = (() => {
       const nodes = [topbar, ...modals].filter(Boolean);
       if (nodes.length) lucide.createIcons({ nodes });
     }
-
-    // Populate version badge (shown on home page for all users)
-    const vBadge = document.getElementById('admin-version-badge');
-    if (vBadge) vBadge.textContent = APP_VERSION;
 
     document.getElementById('btn-back').addEventListener('click', () => {
       _navigateBack();
