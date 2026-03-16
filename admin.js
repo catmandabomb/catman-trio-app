@@ -371,37 +371,8 @@ const Admin = (() => {
     _ghCleanup = cleanup;
   }
 
-  // ─── Focus trap utility (Feature 4) ──────────────────────
-
-  function _trapFocus(modalEl) {
-    if (!modalEl) return null;
-    const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-    const previousFocus = document.activeElement;
-    const handler = (e) => {
-      if (e.key !== 'Tab') return;
-      const focusable = [...modalEl.querySelectorAll(focusableSelector)].filter(el => el.offsetParent !== null);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    modalEl.addEventListener('keydown', handler);
-    // Focus first focusable element
-    const firstFocusable = modalEl.querySelector(focusableSelector);
-    if (firstFocusable) setTimeout(() => firstFocusable.focus(), 50);
-    return {
-      release() {
-        modalEl.removeEventListener('keydown', handler);
-        if (previousFocus && previousFocus.focus) {
-          try { previousFocus.focus(); } catch (_) {}
-        }
-      }
-    };
-  }
+  // ─── Focus trap (delegated to Modal module) ──────────────
+  const _trapFocus = Modal.trapFocus;
 
   return {
     isEditMode,

@@ -1,0 +1,201 @@
+/**
+ * router.js — Hash routing + view management
+ *
+ * Registry pattern: view modules register render functions at load time.
+ * Router calls them by key, avoiding circular deps.
+ */
+
+const Router = (() => {
+
+  // ─── View registry ──────────────────────────────────────────
+  const _registry = {};       // viewName → renderFn(route)
+  const _hooks = {};          // hookName → fn
+
+  /**
+   * Register a render function for a view name.
+   * Called by view modules at load time.
+   */
+  function register(viewName, renderFn) {
+    _registry[viewName] = renderFn;
+  }
+
+  /**
+   * Register a named hook (e.g. 'cleanupDetailAnchors').
+   */
+  function registerHook(name, fn) {
+    _hooks[name] = fn;
+  }
+
+  function _callHook(name) {
+    if (_hooks[name]) _hooks[name]();
+  }
+
+  // ─── Hash ↔ View mapping ───────────────────────────────────
+
+  function viewToHash(viewName, params) {
+    switch (viewName) {
+      case 'list': return '#';
+      case 'detail': return params?.songId ? `#song/${params.songId}` : '#';
+      case 'setlists': return '#setlists';
+      case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
+      case 'practice': return '#practice';
+      case 'practice-detail': return params?.personaId ? `#practice/${params.personaId}` : '#practice';
+      case 'dashboard': return '#dashboard';
+      default: return '#';
+    }
+  }
+
+  function resolveHash(hash) {
+    if (!hash || hash === '#' || hash === '') return { view: 'list' };
+    const parts = hash.replace(/^#/, '').split('/');
+    switch (parts[0]) {
+      case 'song': return { view: 'detail', songId: parts[1] };
+      case 'setlists': return { view: 'setlists' };
+      case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
+      case 'practice':
+        if (parts[1]) return { view: 'practice-detail', personaId: parts[1] };
+        return { view: 'practice' };
+      case 'dashboard': return { view: 'dashboard' };
+      default: return { view: 'list' };
+    }
+  }
+
+  /**
+   * Navigate to a resolved route using the registry.
+   * Falls back to 'list' if no handler registered.
+   */
+  function navigateToRoute(route) {
+    if (!route) return;
+    const fn = _registry[route.view];
+    if (fn) {
+      fn(route);
+    } else if (_registry['list']) {
+      _registry['list']();
+    }
+  }
+
+  // ─── View switching ─────────────────────────────────────────
+
+  function showView(name) {
+    const popstateNav = Store.get('isPopstateNavigation');
+    const isFirstCall = !Store.get('showViewCalled');
+    const currentView = Store.get('view');
+    const alreadyActive = Store.get('showViewCalled') && currentView === name;
+    Store.set('showViewCalled', true);
+
+    const swap = () => {
+      if (!alreadyActive) {
+        // Clean up detail anchor bar when leaving detail view
+        if (currentView === 'detail' && name !== 'detail') _callHook('cleanupDetailAnchors');
+        document.querySelectorAll('.view').forEach(v => {
+          v.classList.remove('active');
+        });
+        const el = document.getElementById(`view-${name}`);
+        if (el) {
+          el.classList.add('active');
+          el.scrollTop = 0;
+          if (name === 'list') {
+            const sw = document.getElementById('song-list-scroll');
+            if (sw) sw.scrollTop = 0;
+          }
+        }
+      }
+      Store.set('view', name);
+      // Update URL hash for deep linking (don't push on popstate-driven navigation)
+      if (!popstateNav) {
+        const hash = viewToHash(name, Store.get('currentRouteParams'));
+        if (hash === '#' || hash === '') {
+          if (location.hash) {
+            try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
+          }
+        } else if (location.hash !== hash) {
+          try { history.replaceState(null, '', hash); } catch (_) {}
+        }
+      }
+      // aria-current on active nav button
+      document.querySelectorAll('.topbar-nav-btn').forEach(btn => btn.removeAttribute('aria-current'));
+      if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
+        document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
+      } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
+        document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
+      }
+    };
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (alreadyActive || isFirstCall || prefersReducedMotion) {
+      swap();
+    } else if (document.startViewTransition) {
+      try { document.startViewTransition(swap); } catch (_) { swap(); }
+    } else {
+      swap();
+    }
+  }
+
+  function setTopbar(title, showBack, isHtml, isHome) {
+    const el = document.getElementById('topbar-title');
+    if (el) {
+      if (!(isHome && el.classList.contains('title-home'))) {
+        if (isHtml) el.innerHTML = title; else el.textContent = title;
+      } else {
+        const badge = el.querySelector('#admin-version-badge');
+        const ver = Store.get('APP_VERSION');
+        if (badge && badge.textContent !== ver) badge.textContent = ver;
+      }
+      el.classList.toggle('title-home', !!isHome);
+    }
+    document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
+    document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
+    document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
+  }
+
+  function pushNav(renderFn) {
+    Store.get('navStack').push(renderFn);
+  }
+
+  function navigateBack() {
+    if (typeof Metronome !== 'undefined' && Metronome.isPlaying()) Metronome.stop();
+    Player.stopAll();
+    // Clean up live mode if active
+    if (Store.get('liveModeActive') && Store.get('exitLiveModeRef')) {
+      Store.get('exitLiveModeRef')();
+      return;
+    }
+    document.body.classList.remove('live-mode-active');
+    document.documentElement.classList.remove('live-mode-active');
+    document.body.classList.remove('practice-mode-active');
+    const navStack = Store.get('navStack');
+    if (navStack.length > 0) {
+      const prev = navStack.pop();
+      if (typeof prev === 'function') prev();
+      else if (_registry['list']) _registry['list']();
+    } else if (_registry['list']) {
+      _registry['list']();
+    }
+  }
+
+  /**
+   * Re-render the current view (e.g. after sync).
+   * Uses the registry to find the appropriate render function.
+   */
+  function rerenderCurrentView() {
+    const view = Store.get('view');
+    const fn = _registry[view];
+    if (fn) fn({ rerender: true });
+  }
+
+  // ─── Public API ─────────────────────────────────────────────
+
+  return {
+    register,
+    registerHook,
+    viewToHash,
+    resolveHash,
+    navigateToRoute,
+    showView,
+    setTopbar,
+    pushNav,
+    navigateBack,
+    rerenderCurrentView,
+  };
+
+})();
