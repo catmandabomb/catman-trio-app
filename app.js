@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.99';
+  const APP_VERSION = 'v18.00';
 
   let _songs      = [];
   let _setlists   = [];
@@ -864,6 +864,7 @@ const App = (() => {
     // Clean up live mode if active
     if (_liveModeActive && _exitLiveModeRef) { _exitLiveModeRef(); return; }
     document.body.classList.remove('live-mode-active');
+    document.documentElement.classList.remove('live-mode-active');
     // Always clear practice mode body class when navigating away
     document.body.classList.remove('practice-mode-active');
     if (_navStack.length > 0) {
@@ -933,19 +934,25 @@ const App = (() => {
     if (!force && _view === 'list' && fp === _lastListFingerprint) return;
     _lastListFingerprint = fp;
 
+    // Detect if this is a data refresh while already on list view
+    const isDataRefresh = _view === 'list' && _showViewCalled;
+
     _revokeBlobCache();
     // If not explicitly in selection mode re-render, clear selection state
     if (!_selectionMode) { _selectedSongIds = new Set(); _removeSelectionBar(); }
-    _currentRouteParams = {};
-    _navStack = [];
-    _showView('list');
-    // Two-line title: CATMAN gradient 1→6, TRIO gradient matching positions 2→5
-    const catmanGrad = _gradientText('Catman', [215,175,90], [240,220,165]);
-    const trioGrad   = _gradientText('Trio', [220,184,105], [235,211,150]);
-    _setTopbar(
-      `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}<span id="admin-version-badge" class="admin-version-badge">${esc(APP_VERSION)}</span></span>`,
-      false, true, true
-    );
+
+    // Skip nav/topbar reset on data refresh — keeps UI stable, preserves back-button history
+    if (!isDataRefresh) {
+      _currentRouteParams = {};
+      _navStack = [];
+      _showView('list');
+      const catmanGrad = _gradientText('Catman', [215,175,90], [240,220,165]);
+      const trioGrad   = _gradientText('Trio', [220,184,105], [235,211,150]);
+      _setTopbar(
+        `<span class="title-catman">${catmanGrad}</span><span class="title-trio">${trioGrad}<span id="admin-version-badge" class="admin-version-badge">${esc(APP_VERSION)}</span></span>`,
+        false, true, true
+      );
+    }
     // Sync admin bar button state
     const addBtn = document.getElementById('btn-add-song');
     if (addBtn) addBtn.classList.toggle('hidden', !Admin.isEditMode());
@@ -1014,6 +1021,14 @@ const App = (() => {
     const noResults = document.getElementById('list-no-results');
     const filtered  = _preFiltered;
 
+    // Preserve scroll position on data refresh
+    const scrollWrap = document.getElementById('song-list-scroll');
+    const savedScroll = isDataRefresh && scrollWrap ? scrollWrap.scrollTop : 0;
+
+    // Suppress card entrance animation on data refresh
+    if (isDataRefresh) container.classList.add('no-animate');
+    else container.classList.remove('no-animate');
+
     container.innerHTML = '';
     empty.classList.add('hidden');
     noResults.classList.add('hidden');
@@ -1050,7 +1065,7 @@ const App = (() => {
       const card = document.createElement('div');
       card.className  = 'song-card' + (_selectionMode && _selectedSongIds.has(song.id) ? ' song-card-selected' : '');
       card.dataset.songId = song.id;
-      card.style.animationDelay = `${i * 30}ms`;
+      if (!isDataRefresh) card.style.animationDelay = `${i * 30}ms`;
       card.innerHTML  = (_selectionMode ? _selectionCheckboxHTML(song.id) : '') + _songCardHTML(song);
 
       if (_selectionMode) {
@@ -1082,6 +1097,8 @@ const App = (() => {
       container.appendChild(card);
     });
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+    // Restore scroll position after data refresh
+    if (savedScroll && scrollWrap) scrollWrap.scrollTop = savedScroll;
     if (_selectionMode) {
       _showSelectionBar();
       // Ensure back-button can exit selection mode after any re-render
@@ -2282,6 +2299,7 @@ const App = (() => {
 
     _showView('setlist-live');
     document.body.classList.add('live-mode-active');
+    document.documentElement.classList.add('live-mode-active');
 
     // Try Fullscreen API
     const docEl = document.documentElement;
@@ -2581,6 +2599,9 @@ const App = (() => {
         _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
         _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
 
+        // Re-render center slide — it may have been rendered off-screen with stale dimensions
+        _renderPageIntoSlide(slots[1], currentPageIdx);
+
         // Pre-render the new adjacent page into the recycled slot
         if (delta > 0 && currentPageIdx < _pages.length - 1) {
           _renderPageIntoSlide(slots[2], currentPageIdx + 1);
@@ -2823,6 +2844,7 @@ const App = (() => {
       // Release wake lock
       if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; }
       document.body.classList.remove('live-mode-active');
+      document.documentElement.classList.remove('live-mode-active');
       document.removeEventListener('keydown', _onKey);
       document.removeEventListener('visibilitychange', _onVisibilityChange);
       carousel.removeEventListener('touchstart', _onDragStart);
@@ -2889,9 +2911,10 @@ const App = (() => {
       if (!_dragLocked) {
         if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
         if (Math.abs(dy) > Math.abs(dx)) {
-          // Vertical — abort carousel, let page scroll
+          // Vertical — abort carousel, block scroll (live mode is scroll-locked)
           _dragging = false;
           carousel.style.transform = 'translateX(-100%)';
+          e.preventDefault();
           return;
         }
         _dragLocked = true;
@@ -5643,15 +5666,18 @@ const App = (() => {
           ptrEl.classList.add('ptr-refreshing');
           if (ptrText) ptrText.textContent = 'Refreshing…';
           ptrEl.style.height = '40px';
-          // Trigger the actual refresh (suppress toast — PTR indicator is visible)
-          _ptrTriggered = true;
-          document.getElementById('btn-refresh').click();
-          // Safety reset: if page doesn't reload within 5s (e.g. rate-limited), clear indicator
-          setTimeout(() => {
-            ptrEl.style.height = '0';
-            ptrEl.classList.remove('ptr-pulling', 'ptr-ready', 'ptr-refreshing');
-            if (ptrText) ptrText.textContent = 'Pull down to refresh';
-          }, 5000);
+          // Data-only refresh — no page reload, UI stays stable
+          (async () => {
+            try {
+              await _syncAllFromDrive(true);
+            } catch (e) {
+              console.warn('PTR sync failed', e);
+            } finally {
+              ptrEl.style.height = '0';
+              ptrEl.classList.remove('ptr-pulling', 'ptr-ready', 'ptr-refreshing');
+              if (ptrText) ptrText.textContent = 'Pull down to refresh';
+            }
+          })();
         } else {
           // Snap back
           ptrEl.style.height = '0';

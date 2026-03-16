@@ -315,6 +315,7 @@ const PDFViewer = (() => {
         // Blit cached canvas — always use drawImage (transferToImageBitmap is destructive
         // and would empty the cached OffscreenCanvas, breaking future cache hits)
         const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(cachedCanvas, 0, 0);
 
         // Re-insert to refresh LRU position
@@ -367,6 +368,7 @@ const PDFViewer = (() => {
         canvas.style.width = displayW + 'px';
         canvas.style.height = displayH + 'px';
         const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bitmap, 0, 0);
         bitmap.close();
 
@@ -415,6 +417,9 @@ const PDFViewer = (() => {
     canvas.style.height = displayH + 'px';
 
     const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     try {
       await page.render({ canvasContext: ctx, viewport: lowVP }).promise;
     } catch (e) {
@@ -463,6 +468,7 @@ const PDFViewer = (() => {
         canvas.style.height = displayH + 'px';
 
         const swapCtx = canvas.getContext('2d');
+        swapCtx.clearRect(0, 0, canvas.width, canvas.height);
         swapCtx.drawImage(hiCanvas, 0, 0);
       }
 
