@@ -294,6 +294,10 @@ a { color: inherit; text-decoration: none; }
 .search-refresh-btn:hover {
   opacity: 1;
 }
+/* Hide refresh button on touch devices — pull-to-refresh replaces it */
+@media (pointer: coarse) {
+  .search-refresh-btn { display: none; }
+}
 
 .topbar-nav-btn {
   padding: 3px 5px;
@@ -651,6 +655,11 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Force compositing layer so iOS Safari doesn't bleed the text caret
+     through sibling flex children (tag/key pill bars below) */
+  transform: translateZ(0);
+  position: relative;
+  z-index: 1;
 }
 
 .search-input-wrap {

@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.95';
+  const APP_VERSION = 'v17.96';
 
   let _songs      = [];
   let _setlists   = [];
