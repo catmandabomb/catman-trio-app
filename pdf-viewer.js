@@ -283,10 +283,10 @@ const PDFViewer = (() => {
    * @param {HTMLElement} containerEl
    * @returns {Promise<void>}
    */
-  async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl) {
+  async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthOverride) {
     if (!pdfDoc || typeof pdfDoc.getPage !== 'function') return;
     if (!Number.isFinite(pageNum) || pageNum < 1 || pageNum > pdfDoc.numPages) return;
-    const containerWidth = containerEl.clientWidth;
+    const containerWidth = widthOverride || containerEl.clientWidth;
     if (containerWidth <= 0) return;
 
     const pdfId = _getPdfId(pdfDoc);

@@ -19,10 +19,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=17.92" as="style">
+  <link rel="preload" href="app.css?v=17.94" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
   <link rel="preload" href="app.js" as="script">
-  <link rel="stylesheet" href="app.css?v=17.92" />
+  <link rel="stylesheet" href="app.css?v=17.94" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
@@ -59,10 +59,6 @@
 
     <!-- LIST VIEW -->
     <div id="view-list" class="view active">
-      <div id="ptr-indicator" class="ptr-indicator">
-        <div class="ptr-spinner"></div>
-        <span class="ptr-text">Pull down to refresh</span>
-      </div>
       <div class="list-subheader" id="admin-bar">
         <span class="subheader-text">Repository for All<br>Catman Repertoire</span>
         <span id="admin-buttons" class="admin-buttons">
@@ -79,13 +75,10 @@
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
           <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
-          <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear search" title="Clear search">
+          <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear all filters" title="Clear all filters">
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
         </div>
-        <button id="btn-clear-filters" class="icon-btn search-clear-filters-btn hidden" title="Clear all filters" aria-label="Clear all filters">
-          <i data-lucide="filter-x" style="width:18px;height:18px;"></i>
-        </button>
         <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
           <i data-lucide="refresh-cw"></i>
         </button>
@@ -95,14 +88,20 @@
         <span>Syncing songs…</span>
       </div>
       <div id="tag-filter-bar"></div>
-      <div id="song-list"></div>
-      <div id="list-empty" class="empty-state hidden">
-        <p id="empty-title">Loading songs…</p>
-        <p id="empty-sub" class="muted">Fetching from the cloud</p>
-      </div>
-      <div id="list-no-results" class="empty-state hidden">
-        <p>No results.</p>
-        <p class="muted">Try a different search or filter.</p>
+      <div id="song-list-scroll">
+        <div id="ptr-indicator" class="ptr-indicator">
+          <div class="ptr-spinner"></div>
+          <span class="ptr-text">Pull down to refresh</span>
+        </div>
+        <div id="song-list"></div>
+        <div id="list-empty" class="empty-state hidden">
+          <p id="empty-title">Loading songs…</p>
+          <p id="empty-sub" class="muted">Fetching from the cloud</p>
+        </div>
+        <div id="list-no-results" class="empty-state hidden">
+          <p>No results.</p>
+          <p class="muted">Try a different search or filter.</p>
+        </div>
       </div>
     </div>
 

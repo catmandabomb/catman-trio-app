@@ -33,10 +33,17 @@ const Metronome = (() => {
 
   // ─── AudioWorklet initialization ─────────────────────────
 
+  // Safari/iOS AudioWorklet has bugs where process() output doesn't route to speakers.
+  // Detect WebKit-based browsers and skip worklet to use reliable OscillatorNode fallback.
+  function _isWebKit() {
+    return /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent);
+  }
+
   async function _initWorklet() {
     if (_workletInitPromise) return _workletInitPromise;
     _workletInitPromise = (async () => {
       try {
+        if (_isWebKit()) throw new Error('Safari/WebKit — skip worklet for reliable audio');
         const ctx = _getCtx();
         if (!ctx.audioWorklet) throw new Error('AudioWorklet not supported');
         await ctx.audioWorklet.addModule('metronome-processor.js');
@@ -120,11 +127,33 @@ const Metronome = (() => {
     if (gen !== _startGen) { _isPlaying = false; return; }
 
     if (_mode === 'worklet' && _workletReady && _workletNode) {
+      // Track if worklet actually responds — auto-fallback if silent
+      let gotBeat = false;
+      const origHandler = _workletNode.port.onmessage;
+      _workletNode.port.onmessage = (e) => {
+        gotBeat = true;
+        _workletNode.port.onmessage = origHandler; // restore original
+        if (origHandler) origHandler(e);
+      };
       _workletNode.port.postMessage({
         type: 'start',
         bpm: _bpm,
         beatsPerMeasure: _beatsPerMeasure,
       });
+      // If no beat arrives within 500ms, worklet is broken — switch to fallback
+      const fallbackGen = gen;
+      setTimeout(() => {
+        if (!gotBeat && fallbackGen === _startGen && _isPlaying && _mode === 'worklet') {
+          console.warn('Metronome: worklet produced no beats, switching to fallback');
+          _workletNode.port.postMessage({ type: 'stop' });
+          _mode = 'fallback';
+          _workletReady = false;
+          _workletInitPromise = null;
+          _nextNoteTime = ctx.currentTime + 0.05;
+          _scheduler();
+          _timerID = setInterval(_scheduler, LOOKAHEAD);
+        }
+      }, 500);
     } else {
       // Fallback scheduler
       _nextNoteTime = ctx.currentTime + 0.05;

@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v17.92';
+  const APP_VERSION = 'v17.94';
 
   let _songs      = [];
   let _setlists   = [];
@@ -785,12 +785,23 @@ const App = (() => {
 
   function _showView(name) {
     const popstateNav = _isPopstateNavigation; // capture before async View Transition
+    const alreadyActive = _view === name;
     const swap = () => {
-      document.querySelectorAll('.view').forEach(v => {
-        v.classList.remove('active');
-      });
-      const el = document.getElementById(`view-${name}`);
-      if (el) { el.classList.add('active'); el.scrollTop = 0; }
+      if (!alreadyActive) {
+        document.querySelectorAll('.view').forEach(v => {
+          v.classList.remove('active');
+        });
+        const el = document.getElementById(`view-${name}`);
+        if (el) {
+          el.classList.add('active');
+          el.scrollTop = 0;
+          // For list view, also reset the scroll wrapper
+          if (name === 'list') {
+            const sw = document.getElementById('song-list-scroll');
+            if (sw) sw.scrollTop = 0;
+          }
+        }
+      }
       _view = name;
       // Update URL hash for deep linking (don't push on popstate-driven navigation)
       if (!popstateNav) {
@@ -899,13 +910,18 @@ const App = (() => {
   }
 
   let _lastListFingerprint = '';
+  let _lastTagBarFP = '';
+  let _lastKeyBarFP = '';
 
   function renderList(force) {
-    // Compute fingerprint of data + filters + edit mode to detect if re-render is needed
-    const fp = _songs.length + '|' + _searchText + '|' + _activeTags.join(',') + '|' +
-      _activeKeys.join(',') + '|' + (_selectionMode ? '1' : '0') + '|' +
+    // Pre-compute filtered results so fingerprint reflects actual output, not just input.
+    // This prevents flashing when search text changes but results stay the same.
+    const _preFiltered = _filteredSongs();
+    const fp = (_selectionMode ? '1' : '0') + '|' +
       (typeof Admin !== 'undefined' && Admin.isEditMode() ? '1' : '0') + '|' +
-      (_songs.length > 0 ? _songs.map(s => s.id + s.title + (s.tags||[]).join(',')).join(';') : '');
+      _activeTags.join(',') + '|' + _activeKeys.join(',') + '|' +
+      (_searchText ? '1' : '0') + '|' +
+      _preFiltered.map(s => s.id).join(',');
 
     if (!force && _view === 'list' && fp === _lastListFingerprint) return;
     _lastListFingerprint = fp;
@@ -934,27 +950,32 @@ const App = (() => {
     const unpinned = allTags.filter(t => !_activeTags.includes(t));
     const orderedTags = [...pinned, ...unpinned];
     const hasActiveFilters = _searchText || _activeTags.length > 0 || _activeKeys.length > 0;
-    tagBar.innerHTML = orderedTags.map(t =>
-      `<button class="tag-filter-chip ${_activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`
-    ).join('');
 
-    // Show/hide clear-all-filters button in search bar
-    const clearFiltersBtn = document.getElementById('btn-clear-filters');
-    if (clearFiltersBtn) {
-      clearFiltersBtn.classList.toggle('hidden', !hasActiveFilters);
-    }
-    tagBar.querySelectorAll('.tag-filter-chip:not(.clear-chip)').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tag = btn.dataset.tag;
-        const idx = _activeTags.indexOf(tag);
-        if (idx > -1) _activeTags.splice(idx, 1);
-        else _activeTags.push(tag);
-        renderList();
+    // Fingerprint tag bar — skip rebuild if unchanged to prevent flash on refresh
+    const tagFP = orderedTags.join(',') + '|' + _activeTags.join(',');
+    if (tagFP !== _lastTagBarFP) {
+      _lastTagBarFP = tagFP;
+      tagBar.innerHTML = orderedTags.map(t =>
+        `<button class="tag-filter-chip ${_activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`
+      ).join('');
+      tagBar.querySelectorAll('.tag-filter-chip:not(.clear-chip)').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tag = btn.dataset.tag;
+          const idx = _activeTags.indexOf(tag);
+          if (idx > -1) _activeTags.splice(idx, 1);
+          else _activeTags.push(tag);
+          renderList();
+        });
       });
-    });
+    }
 
-    // Key filter chips
+    // Update search X visibility (shows when any filter is active)
+    const scBtn = document.getElementById('search-clear');
+    if (scBtn) scBtn.classList.toggle('hidden', !hasActiveFilters);
+
+    // Key filter chips — fingerprinted to prevent flash
     const allKeys = _allKeys();
+    const keyFP = allKeys.join(',') + '|' + _activeKeys.join(',');
     if (allKeys.length > 0) {
       let keyBar = document.getElementById('key-filter-bar');
       if (!keyBar) {
@@ -963,21 +984,25 @@ const App = (() => {
         keyBar.className = 'key-filter-bar';
         tagBar.parentNode.insertBefore(keyBar, tagBar.nextSibling);
       }
-      // Keep stable sort order (by usage count) — don't reorder on selection
-      // to prevent the multi-select glitch where pills shift under the user's finger
-      keyBar.innerHTML = allKeys.map(k =>
-        `<button class="kf-chip ${_activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
-      ).join('');
-      keyBar.querySelectorAll('.kf-chip').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const key = btn.dataset.key;
-          const idx = _activeKeys.indexOf(key);
-          if (idx > -1) _activeKeys.splice(idx, 1);
-          else _activeKeys.push(key);
-          renderList();
+      if (keyFP !== _lastKeyBarFP) {
+        _lastKeyBarFP = keyFP;
+        // Keep stable sort order (by usage count) — don't reorder on selection
+        // to prevent the multi-select glitch where pills shift under the user's finger
+        keyBar.innerHTML = allKeys.map(k =>
+          `<button class="kf-chip ${_activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
+        ).join('');
+        keyBar.querySelectorAll('.kf-chip').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const key = btn.dataset.key;
+            const idx = _activeKeys.indexOf(key);
+            if (idx > -1) _activeKeys.splice(idx, 1);
+            else _activeKeys.push(key);
+            renderList();
+          });
         });
-      });
+      }
     } else {
+      _lastKeyBarFP = '';
       const existing = document.getElementById('key-filter-bar');
       if (existing) existing.remove();
     }
@@ -985,7 +1010,7 @@ const App = (() => {
     const container = document.getElementById('song-list');
     const empty     = document.getElementById('list-empty');
     const noResults = document.getElementById('list-no-results');
-    const filtered  = _filteredSongs();
+    const filtered  = _preFiltered;
 
     container.innerHTML = '';
     empty.classList.add('hidden');
@@ -2268,7 +2293,11 @@ const App = (() => {
 
     // ── Build persistent DOM ──
     container.innerHTML = `
-      <div class="lm-header">
+      <div class="lm-loading-overlay">
+        <div class="lm-loading-spinner"></div>
+        <div class="lm-loading-text">Loading Live Mode…</div>
+      </div>
+      <div class="lm-header" style="opacity:0">
         <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:20px;height:20px;"></i></button>
         <span class="lm-progress"></span>
         <div class="lm-clock-group">
@@ -2280,7 +2309,7 @@ const App = (() => {
       <div class="lm-jump-overlay hidden">
         <div class="lm-jump-list"></div>
       </div>
-      <div class="lm-carousel">
+      <div class="lm-carousel" style="opacity:0">
         <div class="lm-slide" data-slot="0">
           <div class="lm-slide-chart hidden">
             <canvas class="lm-slide-canvas"></canvas>
@@ -2313,7 +2342,7 @@ const App = (() => {
         </div>
         <div class="lm-chart-overlay"></div>
       </div>
-      <div class="lm-nav">
+      <div class="lm-nav" style="opacity:0">
         <button class="lm-nav-btn lm-prev" aria-label="Previous">
           <i data-lucide="chevron-left" style="width:32px;height:32px;"></i>
         </button>
@@ -2420,9 +2449,13 @@ const App = (() => {
       if (page.type === 'chart') {
         // Force reflow after un-hiding chartArea — iOS Safari may not have
         // laid out the element yet, causing clientWidth === 0 and a blank render.
-        // This read is synchronous and triggers layout without affecting desktop.
         void chartArea.offsetWidth;
-        return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea)
+        // Off-screen slides (prev/next in carousel) may report clientWidth=0 on iOS.
+        // Use carousel width as fallback so pre-rendering always succeeds.
+        let cw = chartArea.clientWidth;
+        if (cw <= 0) cw = carousel.clientWidth || 0;
+        if (cw <= 0) return Promise.resolve(); // truly no width — skip
+        return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
           .catch(err => {
             console.error('Live mode chart render error', err);
             if (_pages[pageIdx] === page) {
@@ -2658,14 +2691,112 @@ const App = (() => {
       }
     }
 
+    // ── Loading overlay reveal logic ──
+    let _lmRevealed = false;
+    const _loadingOverlay = container.querySelector('.lm-loading-overlay');
+    const _loadingTextEl = _loadingOverlay.querySelector('.lm-loading-text');
+    const _lmHeader = container.querySelector('.lm-header');
+    const _lmCarousel = container.querySelector('.lm-carousel');
+    const _lmNav = container.querySelector('.lm-nav');
+
+    // Count total charts to load for progress display
+    let _totalCharts = 0, _loadedCharts = 0;
+    for (let si = 0; si < _songEntries.length; si++) {
+      _totalCharts += _getOrderedCharts(_songEntries[si]).length;
+    }
+
+    function _updateLoadingProgress() {
+      if (_lmRevealed || !_loadingTextEl) return;
+      if (_totalCharts > 0) {
+        _loadingTextEl.textContent = `Loading charts… ${_loadedCharts}/${_totalCharts}`;
+      }
+    }
+
+    function _revealLiveMode() {
+      if (_lmRevealed) return;
+      _lmRevealed = true;
+      // Update slots now that current page is loaded
+      _updateSlots();
+      // Fade out loading overlay, fade in content
+      if (_loadingOverlay) {
+        _loadingOverlay.style.transition = 'opacity 0.2s ease-out';
+        _loadingOverlay.style.opacity = '0';
+        setTimeout(() => _loadingOverlay.remove(), 200);
+      }
+      _lmHeader.style.transition = 'opacity 0.25s ease-in';
+      _lmCarousel.style.transition = 'opacity 0.25s ease-in';
+      _lmNav.style.transition = 'opacity 0.25s ease-in';
+      _lmHeader.style.opacity = '1';
+      _lmCarousel.style.opacity = '1';
+      _lmNav.style.opacity = '1';
+      // Clean up inline styles after transition
+      setTimeout(() => {
+        _lmHeader.style.removeProperty('transition');
+        _lmCarousel.style.removeProperty('transition');
+        _lmNav.style.removeProperty('transition');
+        // Restore carousel transition for swipe navigation
+        carousel.style.transition = 'none';
+        carousel.style.transform = 'translateX(-100%)';
+      }, 300);
+    }
+
+    // Check if current page needs loading — if not (metadata / no charts), reveal immediately
+    const _initialPage = _pages[currentPageIdx];
+    if (!_initialPage || _initialPage.type !== 'loading') {
+      requestAnimationFrame(() => _revealLiveMode());
+    } else {
+      // Safety timeout — never stay stuck on loading (5s)
+      const _revealTimeout = setTimeout(_revealLiveMode, 5000);
+      // Patch _updateSlots to detect when current page is ready
+      const _origUpdateSlots = _updateSlots;
+      _updateSlots = function() {
+        _origUpdateSlots();
+        if (!_lmRevealed) {
+          const curPage = _pages[currentPageIdx];
+          if (curPage && curPage.type !== 'loading') {
+            clearTimeout(_revealTimeout);
+            _revealLiveMode();
+          }
+        }
+      };
+    }
+
     // Fire all PDF loads in parallel
     const loadPromises = [];
     for (let si = 0; si < _songEntries.length; si++) {
       const orderedCharts = _getOrderedCharts(_songEntries[si]);
       orderedCharts.forEach(chart => {
-        loadPromises.push(_loadChartPDF(si, chart.driveId));
+        loadPromises.push(_loadChartPDF(si, chart.driveId).then(() => {
+          _loadedCharts++;
+          _updateLoadingProgress();
+        }));
       });
     }
+
+    // After all charts load, pre-render every page for instant swiping
+    Promise.all(loadPromises).then(async () => {
+      if (!_liveModeActive) return;
+      const cw = carousel.clientWidth || window.innerWidth;
+      if (cw <= 0) return;
+      // Collect unique chart pages to pre-render
+      const toRender = [];
+      const seenKeys = new Set();
+      for (const pg of _pages) {
+        if (pg.type !== 'chart' || !pg.pdfDoc) continue;
+        const key = (pg.pdfDoc.fingerprints?.[0] || pg.pdfDoc._transport?.docId || String(Math.random())) + '-' + pg.pageNum;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          toRender.push(pg);
+        }
+      }
+      // Batch pre-renders in groups of 4 to avoid memory spikes
+      for (let i = 0; i < toRender.length; i += 4) {
+        if (!_liveModeActive) return;
+        await Promise.all(toRender.slice(i, i + 4).map(pg =>
+          PDFViewer.preRenderPage(pg.pdfDoc, pg.pageNum, cw).catch(() => {})
+        ));
+      }
+    }).catch(() => {});
 
     // ── Exit Live Mode ──
     function _exitLiveMode() {
@@ -2728,7 +2859,7 @@ const App = (() => {
 
     // ── Carousel swipe navigation (drag-follow + snap) ──
     let _dragX0 = 0, _dragY0 = 0, _dragging = false, _dragLocked = false, _edgeBuzzed = false;
-    const SWIPE_THRESHOLD = 60;
+    const SWIPE_THRESHOLD = Math.max(40, Math.min(60, window.innerWidth * 0.15));
 
     function _onDragStart(e) {
       if (_isAnimating) return;
@@ -2883,18 +3014,32 @@ const App = (() => {
       }
     }
 
-    function _startTimer() {
-      _startTime = Date.now();
-      if (timerBtn) {
-        timerBtn.innerHTML = '<i data-lucide="clock" style="width:12px;height:12px;"></i> <span class="lm-timer">0:00</span>';
-        timerEl = timerBtn.querySelector('.lm-timer'); // re-acquire after innerHTML change
-        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [timerBtn] });
-        timerBtn.classList.add('lm-timer-running');
-        timerBtn.removeEventListener('click', _startTimer);
+    function _toggleTimer() {
+      if (_startTime) {
+        // Stop / reset
+        _startTime = null;
+        if (timerBtn) {
+          timerBtn.innerHTML = '<i data-lucide="play" style="width:12px;height:12px;"></i> <span class="lm-timer">Start</span>';
+          timerEl = timerBtn.querySelector('.lm-timer');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [timerBtn] });
+          timerBtn.classList.remove('lm-timer-running');
+        }
+      } else {
+        // Start
+        _startTime = Date.now();
+        if (timerBtn) {
+          timerBtn.innerHTML = '<i data-lucide="clock" style="width:12px;height:12px;"></i> <span class="lm-timer">0:00</span>';
+          timerEl = timerBtn.querySelector('.lm-timer');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [timerBtn] });
+          timerBtn.classList.add('lm-timer-running');
+          // Re-sync interval so 0:01 appears exactly 1s after start
+          if (_clockInterval) clearInterval(_clockInterval);
+          _clockInterval = setInterval(_updateClock, 1000);
+        }
       }
     }
 
-    if (timerBtn) timerBtn.addEventListener('click', _startTimer);
+    if (timerBtn) timerBtn.addEventListener('click', _toggleTimer);
 
     _updateClock();
     _clockInterval = setInterval(_updateClock, 1000);
@@ -4422,7 +4567,7 @@ const App = (() => {
                 <span class="setlist-song-meta">
                   ${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' · ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}
                 </span>
-                ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
+                ${entry.comment ? `<div class="practice-note-preview">${esc(entry.comment)}</div>` : ''}
               </div>
               <i data-lucide="chevron-right" class="file-item-arrow"></i>
             </div>`;
@@ -4498,6 +4643,13 @@ const App = (() => {
   }
 
   function _showPracticeSongPicker(persona, practiceList) {
+    // Prevent duplicate pickers — if one is already open, just scroll to it
+    const existing = document.getElementById('practice-picker-section');
+    if (existing) {
+      existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('practice-picker-search')?.focus();
+      return;
+    }
     const container = document.getElementById('practice-edit-content');
     let pickerHtml = `<div class="edit-section" id="practice-picker-section">
       <div class="edit-section-title">Add Song</div>
@@ -4510,6 +4662,9 @@ const App = (() => {
     const div = document.createElement('div');
     div.innerHTML = pickerHtml;
     container.appendChild(div.firstElementChild);
+    // Scroll the picker into view and focus search
+    document.getElementById('practice-picker-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => document.getElementById('practice-picker-search')?.focus(), 300);
 
     function renderPickerResults(search) {
       const existingIds = new Set((practiceList.songs || []).map(e => e.songId));
@@ -4709,10 +4864,7 @@ const App = (() => {
                 <span class="setlist-edit-row-title">${title}</span>
                 ${key ? `<span class="setlist-edit-row-key">${key}</span>` : ''}
               </div>
-              <div class="setlist-edit-comment-wrap">
-                <textarea class="form-input practice-comment-input" rows="3"
-                  placeholder="Practice notes, tips…" data-comment-idx="${i}" style="font-size:12px;min-height:60px;">${esc(entry.comment || '')}</textarea>
-              </div>
+              ${entry.comment ? `<div class="practice-note-preview" style="margin-top:4px">${esc(entry.comment)}</div>` : ''}
             </div>
             <div class="setlist-edit-row-actions">
               <button class="icon-btn sl-remove" data-idx="${i}" style="color:var(--red)"><i data-lucide="x"></i></button>
@@ -4742,12 +4894,6 @@ const App = (() => {
         btn.addEventListener('click', () => {
           pl.songs.splice(parseInt(btn.dataset.idx, 10), 1);
           _renderPLSongs();
-        });
-      });
-      songContainer.querySelectorAll('.practice-comment-input').forEach(input => {
-        input.addEventListener('input', () => {
-          const idx = parseInt(input.dataset.commentIdx, 10);
-          if (pl.songs[idx]) pl.songs[idx].comment = input.value;
         });
       });
     }
@@ -4852,7 +4998,7 @@ const App = (() => {
             <i data-lucide="chevron-down" class="accordion-chevron rotated" style="width:16px;height:16px;flex-shrink:0;transition:transform 0.2s;"></i>
           </div>
           <div class="practice-accordion-body">
-            ${entry.comment ? `<div class="detail-notes" style="margin-bottom:12px;font-size:13px;">${esc(entry.comment)}</div>` : ''}
+            <textarea class="practice-note-input" data-practice-note-idx="${i}" rows="2" placeholder="Add practice notes…">${esc(entry.comment || '')}</textarea>
             ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
               <div class="detail-section-label">Charts</div>
               <div class="file-list">${(a.charts || []).map(c => `
@@ -4946,8 +5092,46 @@ const App = (() => {
       });
     });
 
+    // Wire practice notes — debounced auto-save
+    let _practiceNoteTimer = null;
+    container.querySelectorAll('.practice-note-input').forEach(textarea => {
+      // Prevent accordion toggle when interacting with textarea
+      textarea.addEventListener('click', (e) => e.stopPropagation());
+      // Auto-expand textarea as user types
+      textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+      });
+      // Auto-size on initial load if there's content
+      if (textarea.value.trim()) {
+        requestAnimationFrame(() => {
+          textarea.style.height = 'auto';
+          textarea.style.height = textarea.scrollHeight + 'px';
+        });
+      }
+      // Debounced save on input
+      textarea.addEventListener('input', () => {
+        const idx = parseInt(textarea.dataset.practiceNoteIdx, 10);
+        if (isNaN(idx) || !practiceList.songs[idx]) return;
+        practiceList.songs[idx].comment = textarea.value.trim();
+        clearTimeout(_practiceNoteTimer);
+        _practiceNoteTimer = setTimeout(() => {
+          const pIdx = _practice.findIndex(p => p.id === persona.id);
+          if (pIdx > -1) _practice[pIdx] = persona;
+          savePractice();
+        }, 1500);
+      });
+    });
+
     // Wire exit
     document.getElementById('btn-exit-practice-mode')?.addEventListener('click', () => {
+      // Flush any pending note save immediately
+      if (_practiceNoteTimer) {
+        clearTimeout(_practiceNoteTimer);
+        const pIdx = _practice.findIndex(p => p.id === persona.id);
+        if (pIdx > -1) _practice[pIdx] = persona;
+        savePractice();
+      }
       _exitPracticeMode();
     });
   }
@@ -5316,17 +5500,33 @@ const App = (() => {
     let _searchTimer = null;
     const searchInput = document.getElementById('search-input');
     const searchClearBtn = document.getElementById('search-clear');
+
+    // Show/hide the X whenever any filter is active (search text, tags, or keys)
+    function _updateClearBtnVisibility() {
+      if (searchClearBtn) {
+        const hasAny = _searchText || _activeTags.length > 0 || _activeKeys.length > 0;
+        searchClearBtn.classList.toggle('hidden', !hasAny);
+      }
+    }
+
     searchInput.addEventListener('input', e => {
       _searchText = e.target.value;
-      if (searchClearBtn) searchClearBtn.classList.toggle('hidden', !_searchText);
+      _updateClearBtnVisibility();
       clearTimeout(_searchTimer);
-      _searchTimer = setTimeout(() => renderList(), 80);
+      _searchTimer = setTimeout(() => renderList(), 30);
     });
     if (searchClearBtn) {
       searchClearBtn.addEventListener('click', () => {
         _searchText = '';
+        _activeTags = [];
+        _activeKeys = [];
         searchInput.value = '';
-        searchClearBtn.classList.add('hidden');
+        // Scroll pill bars back to start
+        const tagBar = document.getElementById('tag-filter-bar');
+        const keyBar = document.getElementById('key-filter-bar');
+        if (tagBar) tagBar.scrollLeft = 0;
+        if (keyBar) keyBar.scrollLeft = 0;
+        _updateClearBtnVisibility();
         renderList();
         searchInput.focus();
       });
@@ -5345,15 +5545,7 @@ const App = (() => {
         if (Array.isArray(parsed)) _refreshTimes = parsed.filter(t => typeof t === 'number' && isFinite(t));
       }
     } catch (_) { /* corrupted or unavailable — start fresh */ }
-    document.getElementById('btn-clear-filters').addEventListener('click', () => {
-      _activeTags = []; _activeKeys = [];
-      _searchText = '';
-      const si = document.getElementById('search-input');
-      if (si) si.value = '';
-      const sc = document.getElementById('search-clear');
-      if (sc) sc.classList.add('hidden');
-      renderList();
-    });
+    // (clear-filters merged into search-clear X button above)
 
     document.getElementById('btn-refresh').addEventListener('click', async () => {
       const now = Date.now();
@@ -5389,7 +5581,7 @@ const App = (() => {
     // _ptrTriggered is declared here so the refresh handler closure above can access it
     var _ptrTriggered = false; // suppress toast when refresh comes from PTR
     {
-      const appEl = document.getElementById('app');
+      const songListScroll = document.getElementById('song-list-scroll');
       const ptrEl = document.getElementById('ptr-indicator');
       const ptrText = ptrEl?.querySelector('.ptr-text');
       let _ptrStartY = 0, _ptrActive = false, _ptrPulling = false;
@@ -5397,18 +5589,17 @@ const App = (() => {
       const PTR_MAX = 375;
 
       function _getScrollTop() {
-        const activeView = appEl.querySelector('.view.active');
-        return activeView ? activeView.scrollTop : 0;
+        return songListScroll ? songListScroll.scrollTop : 0;
       }
 
-      appEl.addEventListener('touchstart', (e) => {
+      songListScroll.addEventListener('touchstart', (e) => {
         if (_view !== 'list' || _selectionMode || _getScrollTop() > 5) return;
         _ptrStartY = e.touches[0].clientY;
         _ptrActive = true;
         _ptrPulling = false;
       }, { passive: true });
 
-      appEl.addEventListener('touchmove', (e) => {
+      songListScroll.addEventListener('touchmove', (e) => {
         if (!_ptrActive || !ptrEl) return;
         const dy = e.touches[0].clientY - _ptrStartY;
         if (dy <= 0 || _getScrollTop() > 5) {
@@ -5434,7 +5625,7 @@ const App = (() => {
         }
       }, { passive: true });
 
-      appEl.addEventListener('touchend', (e) => {
+      songListScroll.addEventListener('touchend', (e) => {
         if (!_ptrActive || !ptrEl) return;
         const wasPulling = _ptrPulling;
         _ptrActive = false;

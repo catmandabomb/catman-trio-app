@@ -17,8 +17,9 @@ const Player = (() => {
   let _audioElements = [];
 
   // Playback speed — persists across players within the session (not localStorage)
-  const _speeds = [1, 0.75, 1.25, 1.5];
-  let _speedIndex = 0; // default 1x
+  // Tap: slow down by 0.1x (min 0.5x). At 0.5x wraps back to 1x.
+  // Long-press: reset to 1x immediately.
+  let _currentSpeed = 1;
 
   // ─── Media Session (lock screen / notification controls) ───
   const _hasMediaSession = ('mediaSession' in navigator);
@@ -88,7 +89,7 @@ const Player = (() => {
             <span class="audio-duration">0:00</span>
           </div>
         </div>
-        <button class="audio-speed-btn" aria-label="Playback speed">${_speeds[_speedIndex]}x</button>
+        <button class="audio-speed-btn" aria-label="Playback speed">${_currentSpeed === 1 ? '1x' : _currentSpeed.toFixed(1) + 'x'}</button>
       </div>
     `;
 
@@ -244,20 +245,54 @@ const Player = (() => {
     const speedBtn = el.querySelector('.audio-speed-btn');
 
     // Apply session speed to new player
-    audio.playbackRate = _speeds[_speedIndex];
+    audio.playbackRate = _currentSpeed;
+    if (_currentSpeed !== 1) speedBtn.classList.add('speed-active');
 
-    // Speed button — cycle through speeds
-    speedBtn.addEventListener('click', () => {
-      _speedIndex = (_speedIndex + 1) % _speeds.length;
-      const speed = _speeds[_speedIndex];
-      audio.playbackRate = speed;
-      speedBtn.textContent = speed + 'x';
-      // Update all other players' speed buttons + rates
+    // Smooth speed ramp — avoids audio decoder choke on instant rate change
+    let _rampRaf = null;
+    function _rampRate(el, from, to, step, steps) {
+      if (step >= steps) { try { el.playbackRate = to; } catch (_) {} return; }
+      try { el.playbackRate = from + (to - from) * (step / steps); } catch (_) {}
+      _rampRaf = requestAnimationFrame(() => _rampRate(el, from, to, step + 1, steps));
+    }
+
+    function _applySpeed(speed) {
+      const prev = _currentSpeed;
+      _currentSpeed = speed;
+      const label = speed === 1 ? '1x' : speed.toFixed(1) + 'x';
+      speedBtn.textContent = label;
+      speedBtn.classList.toggle('speed-active', speed !== 1);
+      // Ramp this player's rate smoothly over ~6 frames (~100ms)
+      if (_rampRaf) cancelAnimationFrame(_rampRaf);
+      _rampRate(audio, prev, speed, 0, 6);
+      // Sync all other players
       _audioElements.forEach(a => {
-        try { a.playbackRate = speed; } catch (_) {}
+        if (a === audio) return;
+        try { _rampRate(a, prev, speed, 0, 6); } catch (_) {}
         const btn = a.parentElement?.querySelector('.audio-speed-btn');
-        if (btn) btn.textContent = speed + 'x';
+        if (btn) { btn.textContent = label; btn.classList.toggle('speed-active', speed !== 1); }
       });
+    }
+
+    // Tap: slow down by 0.1x (wraps back to 1x at 0.5x). Long-press: reset to 1x.
+    let _speedTimer = null;
+    let _speedLongPressed = false;
+    speedBtn.addEventListener('pointerdown', (e) => {
+      _speedLongPressed = false;
+      _speedTimer = setTimeout(() => {
+        _speedLongPressed = true;
+        _applySpeed(1);
+      }, 500);
+    });
+    speedBtn.addEventListener('pointerup', () => {
+      clearTimeout(_speedTimer);
+      if (_speedLongPressed) return; // already handled
+      // Tap: decrease by 0.1, wrap at 0.5 back to 1
+      const next = Math.round((_currentSpeed - 0.1) * 10) / 10;
+      _applySpeed(next < 0.5 ? 1 : next);
+    });
+    speedBtn.addEventListener('pointerleave', () => {
+      clearTimeout(_speedTimer);
     });
 
     // Duration when metadata loads
@@ -266,23 +301,46 @@ const Player = (() => {
       duration.textContent = _formatTime(audio.duration);
     });
 
-    // Time update
-    audio.addEventListener('timeupdate', () => {
-      if (!audio.seeking) {
-        progress.value = audio.currentTime;
+    // Smooth progress bar via rAF (timeupdate fires ~4Hz, too choppy)
+    let _rafId = null;
+    function _updateProgress() {
+      if (!audio.paused && !audio.ended) {
+        if (!audio.seeking) {
+          progress.value = audio.currentTime;
+        }
+        current.textContent = _formatTime(audio.currentTime);
+        if (loopActive && audio.duration) {
+          const aPct = (loopA / audio.duration) * 100;
+          const bPct = (loopB / audio.duration) * 100;
+          const curPct = (audio.currentTime / audio.duration) * 100;
+          const playPct = Math.min(curPct, bPct);
+          progress.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
+        } else {
+          const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+          progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+        }
+        _rafId = requestAnimationFrame(_updateProgress);
       }
+    }
+    function _startRaf() {
+      if (_rafId) cancelAnimationFrame(_rafId);
+      _rafId = requestAnimationFrame(_updateProgress);
+    }
+    function _stopRaf() {
+      if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+      // Sync final position
+      if (!audio.seeking) progress.value = audio.currentTime;
       current.textContent = _formatTime(audio.currentTime);
-      if (loopActive && audio.duration) {
-        const aPct = (loopA / audio.duration) * 100;
-        const bPct = (loopB / audio.duration) * 100;
-        const curPct = (audio.currentTime / audio.duration) * 100;
-        const playPct = Math.min(curPct, bPct);
-        progress.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
-      } else {
-        const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-        progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
-      }
-      progress.style.borderRadius = '4px';
+      const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+      progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+    }
+    audio.addEventListener('play', _startRaf);
+    audio.addEventListener('pause', _stopRaf);
+    audio.addEventListener('seeking', () => {
+      // Update display immediately on seek even when paused
+      current.textContent = _formatTime(audio.currentTime);
+      const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+      progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
     });
 
     // Also update duration if it wasn't available at loadedmetadata
@@ -297,6 +355,7 @@ const Player = (() => {
     audio.addEventListener('ended', () => {
       // If A/B loop is active near end, the loop handler will re-seek — skip reset
       if (loopActive && loopB >= audio.duration - 0.5) return;
+      _stopRaf();
       el.classList.remove('playing');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
@@ -405,6 +464,8 @@ const Player = (() => {
       el,
       audio,
       destroy() {
+        _stopRaf();
+        if (_rampRaf) cancelAnimationFrame(_rampRaf);
         if (_loopTimeUpdate) audio.removeEventListener('timeupdate', _loopTimeUpdate);
         if (_loopEnded) audio.removeEventListener('ended', _loopEnded);
         const wasActive = (_active === audio);
