@@ -306,16 +306,21 @@ const PDFViewer = (() => {
         // Dimensions match — blit from cache
         const cachedCanvas = cached.canvas;
 
-        // Set visible canvas dimensions to match the cached render
-        canvas.width = cachedCanvas.width;
-        canvas.height = cachedCanvas.height;
+        // Only reassign canvas dimensions if they differ — setting canvas.width/height
+        // implicitly clears the canvas (per HTML spec), which causes a visible black flash
+        // when the slide background (#000) shows through before drawImage completes.
+        const needsResize = canvas.width !== cachedCanvas.width || canvas.height !== cachedCanvas.height;
+        if (needsResize) {
+          canvas.width = cachedCanvas.width;
+          canvas.height = cachedCanvas.height;
+        }
         canvas.style.width = cached.displayW + 'px';
         canvas.style.height = cached.displayH + 'px';
 
         // Blit cached canvas — always use drawImage (transferToImageBitmap is destructive
         // and would empty the cached OffscreenCanvas, breaking future cache hits)
         const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (needsResize) ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(cachedCanvas, 0, 0);
 
         // Re-insert to refresh LRU position
@@ -697,6 +702,9 @@ const PDFViewer = (() => {
 
     function onMouseUp() { mouseDown = false; }
     function onBlur() { mouseDown = false; }
+
+    // Reset canvas transform on init — recycled slides may have stale zoom/pan transforms
+    applyTransform();
 
     containerEl.addEventListener('touchstart', onTouchStart, { passive: false });
     containerEl.addEventListener('touchmove', onTouchMove, { passive: false });

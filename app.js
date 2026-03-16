@@ -4,7 +4,7 @@
 
 const App = (() => {
 
-  const APP_VERSION = 'v18.1';
+  const APP_VERSION = 'v18.2';
 
   let _songs      = [];
   let _setlists   = [];
@@ -242,7 +242,8 @@ const App = (() => {
     const el = document.getElementById('toast');
     if (!el) return;
     haptic.tap();
-    el.textContent = msg;
+    // Sanitize: only allow <br> tags, escape everything else
+    el.innerHTML = msg.replace(/<(?!br\s*\/?>)/gi, '&lt;');
     el.classList.remove('hidden');
     el.classList.add('show');
     if (_toastTimer) clearTimeout(_toastTimer);
@@ -631,12 +632,16 @@ const App = (() => {
       const backend = _useGitHub ? 'GitHub' : 'Drive';
       console.warn(`${backend} sync failed, using local cache`, e);
       const msg = String(e.message || e || '');
+      const lastSync = parseInt(localStorage.getItem('bb_last_synced') || '0', 10);
+      const cachedLine = lastSync
+        ? 'Using cached data. Last synced ' + _timeAgo(lastSync) + '.'
+        : 'Using cached data.';
       if (msg.includes('403') || msg.includes('429') || msg.includes('rate')) {
-        showToast(`${backend} is temporarily rate-limited. Using cached data.`, 4000);
-      } else if (msg.includes('timed out')) {
-        showToast(`${backend} request timed out. Using cached data.`, 4000);
+        showToast(`Temporary rate-limiting (${backend}).<br>${cachedLine}`, 10000);
       } else if (msg.includes('Decryption failed')) {
-        showToast('Decryption failed — PAT may have changed.', 5000);
+        showToast('Decryption failed.<br>PAT may have changed.', 10000);
+      } else {
+        showToast(`Sync failed.<br>${cachedLine}`, 10000);
       }
     } finally {
       _syncing = false;
@@ -1218,6 +1223,7 @@ const App = (() => {
   }
 
   function _batchAddToSetlist() {
+    if (!Admin.isEditMode()) return;
     if (_selectedSongIds.size === 0) { showToast('No songs selected'); return; }
     var available = _setlists.filter(function(s) { return !s.archived; });
     if (!available.length) { showToast('No setlists yet'); return; }
@@ -1464,6 +1470,7 @@ const App = (() => {
   }
 
   function _showSetlistPicker(song) {
+    if (!Admin.isEditMode()) return;
     const available = _setlists.filter(s => !s.archived);
     if (!available.length) {
       showToast('No setlists yet');
@@ -1542,11 +1549,11 @@ const App = (() => {
         </div>
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
-      <div class="detail-quick-add">
+      ${Admin.isEditMode() ? `<div class="detail-quick-add">
         <button class="btn-ghost btn-add-to-setlist">
           <i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist
         </button>
-      </div>`;
+      </div>` : ''}`;
 
     if (song.notes) {
       html += `<div class="detail-section" id="detail-notes">
@@ -2773,8 +2780,13 @@ const App = (() => {
         _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
         _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
 
-        // Re-render center slide — it may have been rendered off-screen with stale dimensions
-        _renderPageIntoSlide(slots[1], currentPageIdx);
+        // Re-render center slide ONLY if its page index is stale (e.g., async PDF load spliced pages).
+        // Normally the center slide already has the correct content from its prev/next pre-render.
+        // Re-rendering unconditionally causes black flashes because renderToCanvasCached is async
+        // and setting canvas.width clears the canvas, showing the black slide background briefly.
+        if ((parseInt(slots[1].dataset.pageIdx, 10) || 0) !== currentPageIdx) {
+          _renderPageIntoSlide(slots[1], currentPageIdx);
+        }
 
         // Pre-render the new adjacent page into the recycled slot
         if (delta > 0 && currentPageIdx < _pages.length - 1) {
@@ -3070,6 +3082,9 @@ const App = (() => {
       _dragLocked = false;
       _edgeBuzzed = false;
       carousel.style.transition = 'none';
+      // Claim touch on iOS Safari — without this, touchmove may not propagate
+      // from child elements (lm-slide-chart) to the carousel parent
+      e.preventDefault();
     }
 
     function _onDragMove(e) {
@@ -3134,7 +3149,7 @@ const App = (() => {
       setTimeout(() => { carousel.style.transition = ''; }, 250);
     }
 
-    carousel.addEventListener('touchstart', _onDragStart, { passive: true });
+    carousel.addEventListener('touchstart', _onDragStart, { passive: false });
     carousel.addEventListener('touchmove', _onDragMove, { passive: false });
     carousel.addEventListener('touchend', _onDragEnd, { passive: true });
 
@@ -6827,15 +6842,7 @@ const App = (() => {
       }
 
       if (!status) {
-        const lastSync = parseInt(localStorage.getItem('bb_last_synced') || '0', 10);
-        if (lastSync && navigator.onLine) {
-          const ago = _timeAgo(lastSync);
-          badge.classList.remove('hidden');
-          badge.className = 'qi-badge qi-synced';
-          badge.innerHTML = '<span class="qi-dot"></span>Synced ' + ago;
-        } else {
-          badge.className = 'qi-badge hidden';
-        }
+        badge.className = 'qi-badge hidden';
         return;
       }
 

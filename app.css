@@ -3458,6 +3458,7 @@ html.live-mode-active { overflow: hidden; }
   overflow: hidden;
   position: relative;
   will-change: transform;
+  touch-action: none;
 }
 .lm-slide {
   flex: 0 0 100%;
