@@ -187,7 +187,7 @@ const App = (() => {
   // ─── Duplicate detection helpers ──────────────────────────
 
   let _levWorker = null;
-  try { _levWorker = new Worker('levenshtein-worker.js'); } catch (_) {}
+  try { _levWorker = new Worker('workers/levenshtein-worker.js'); } catch (_) {}
 
   function _findSimilarSongsAsync(title, excludeId) {
     if (!title) return Promise.resolve([]);

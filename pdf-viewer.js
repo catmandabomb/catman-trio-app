@@ -65,7 +65,7 @@ const PDFViewer = (() => {
   function _initRenderWorker() {
     if (_renderWorker || !_hasOffscreen) return;
     try {
-      _renderWorker = new Worker('pdf-render-worker.js');
+      _renderWorker = new Worker('workers/pdf-render-worker.js');
       _renderWorker.onmessage = (e) => {
         const { id, bitmap, displayW, displayH, error } = e.data;
 

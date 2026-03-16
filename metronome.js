@@ -46,7 +46,7 @@ const Metronome = (() => {
         if (_isWebKit()) throw new Error('Safari/WebKit — skip worklet for reliable audio');
         const ctx = _getCtx();
         if (!ctx.audioWorklet) throw new Error('AudioWorklet not supported');
-        await ctx.audioWorklet.addModule('metronome-processor.js');
+        await ctx.audioWorklet.addModule('workers/metronome-processor.js');
         _workletNode = new AudioWorkletNode(ctx, 'metronome-processor');
         _workletNode.connect(ctx.destination);
         _workletNode.port.onmessage = (e) => {

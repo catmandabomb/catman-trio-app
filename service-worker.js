@@ -23,9 +23,9 @@ const SHELL_ASSETS = [
   '/metronome.js',
   '/admin.js',
   '/lucide.min.js',
-  '/levenshtein-worker.js',
-  '/metronome-processor.js',
-  '/pdf-render-worker.js',
+  '/workers/levenshtein-worker.js',
+  '/workers/metronome-processor.js',
+  '/workers/pdf-render-worker.js',
   '/manifest.json',
 ];
 
