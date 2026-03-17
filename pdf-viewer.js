@@ -472,15 +472,17 @@ const PDFViewer = (() => {
     _rIC(async () => {
       if (!docRef || typeof docRef.getPage !== 'function') return;
 
+      // Skip hi-res pass if it would produce identical resolution to low-res
+      const hiDpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
+      const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
+      if (Math.abs(hiScale - lowScale) < 0.05) return;
+
       let hiPage;
       try {
         hiPage = await docRef.getPage(pageNum);
       } catch (e) {
         return;
       }
-
-      const hiDpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
-      const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
       const hiVP = hiPage.getViewport({ scale: hiScale });
 
       // Always use DOM canvas (OffscreenCanvas 2D + pdf.js = blank on iOS Safari)
@@ -987,6 +989,13 @@ const PDFViewer = (() => {
     });
   });
 
-  return { open, close, prevPage, nextPage, zoomIn, zoomOut, renderToCanvas, renderToCanvasCached, preRenderPage, clearRenderCache, attachZoomPan };
+  /**
+   * Register a blob URL for a PDFDocumentProxy so the worker render path can use it.
+   */
+  function registerPdfUrl(pdfDoc, url) {
+    if (pdfDoc && url) _pdfUrlMap.set(pdfDoc, url);
+  }
+
+  return { open, close, prevPage, nextPage, zoomIn, zoomOut, renderToCanvas, renderToCanvasCached, preRenderPage, clearRenderCache, attachZoomPan, registerPdfUrl };
 
 })();

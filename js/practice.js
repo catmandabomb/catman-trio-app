@@ -34,6 +34,9 @@ const Practice = (() => {
   let _practicePersona       = null;
   let _practiceList          = null;
   let _bpmHoldTimer          = null; // module-scope for cleanup on view exit
+  let _practiceNoteTimer     = null; // module-scope so exit can flush pending saves
+  let _practiceNoteFlush     = null; // callback to execute pending note save
+  const _accordionState      = new Map(); // listKey → { touched: bool, openSet: Set<songId> }
 
   // ─── Store sync helpers ───────────────────────────────────
   function _syncFromStore() {
@@ -1050,9 +1053,9 @@ const Practice = (() => {
               <span class="setlist-song-title">${esc(song.title)}</span>
               <span class="setlist-song-meta" style="display:block">${song.key ? esc(song.key) : ''}${song.key && song.bpm ? ' \u00B7 ' : ''}${song.bpm ? esc(String(song.bpm)) + ' bpm' : ''}</span>
             </div>
-            <i data-lucide="chevron-down" class="accordion-chevron rotated" style="width:16px;height:16px;flex-shrink:0;transition:transform 0.2s;"></i>
+            <i data-lucide="chevron-down" class="accordion-chevron" style="width:16px;height:16px;flex-shrink:0;transition:transform 0.2s;"></i>
           </div>
-          <div class="practice-accordion-body">
+          <div class="practice-accordion-body hidden">
             <textarea class="practice-note-input" data-practice-note-idx="${i}" rows="4" placeholder="Add practice notes\u2026">${esc(entry.comment || '')}</textarea>
             ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
               <div class="detail-section-label">Charts</div>
@@ -1084,20 +1087,47 @@ const Practice = (() => {
     // FEAT-24: Wire metronome in practice mode
     _wireMetronome();
 
+    // Per-list accordion state (persists across re-renders within session)
+    const listKey = (persona.id || '') + '/' + (practiceList.id || practiceList.name || '');
+    if (!_accordionState.has(listKey)) {
+      _accordionState.set(listKey, { touched: false, openSet: new Set() });
+    }
+    const accState = _accordionState.get(listKey);
+
+    // Prune stale songIds that no longer exist in the current practice list
+    const validSongIds = new Set(plSongs.map(e => e.songId));
+    for (const id of accState.openSet) {
+      if (!validSongIds.has(id)) accState.openSet.delete(id);
+    }
+
+    // Restore accordion state if user has previously interacted with this list
+    if (accState.touched) {
+      container.querySelectorAll('.practice-accordion-item').forEach(item => {
+        const idx = parseInt(item.dataset.practiceIdx, 10);
+        const entry = plSongs[idx];
+        if (entry && accState.openSet.has(entry.songId)) {
+          const body = item.querySelector('.practice-accordion-body');
+          const chevron = item.querySelector('.accordion-chevron');
+          if (body) body.classList.remove('hidden');
+          if (chevron) chevron.style.transform = 'rotate(180deg)';
+        }
+      });
+    }
+
     // FEAT-22: Scroll to and auto-expand the target song
     if (scrollToSongId) {
       const targetIdx = plSongs.findIndex(e => e.songId === scrollToSongId);
       if (targetIdx > -1) {
         const targetItem = container.querySelector(`.practice-accordion-item[data-practice-idx="${targetIdx}"]`);
         if (targetItem) {
-          // Ensure it's expanded
           const body = targetItem.querySelector('.practice-accordion-body');
-          if (body && body.classList.contains('hidden')) {
+          if (body) {
             body.classList.remove('hidden');
-            const chevron = targetItem.querySelector('.accordion-chevron, svg');
+            const chevron = targetItem.querySelector('.accordion-chevron');
             if (chevron) chevron.style.transform = 'rotate(180deg)';
+            accState.openSet.add(scrollToSongId);
+            accState.touched = true;
           }
-          // Scroll after a frame to let layout settle
           requestAnimationFrame(() => {
             targetItem.scrollIntoView({ behavior: 'smooth', block: 'start' });
           });
@@ -1130,7 +1160,7 @@ const Practice = (() => {
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
           Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true, songId: driveId });
-        } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
+        } catch (err) { console.error('Practice audio load failed:', driveId, err); el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
       });
 
       body.querySelectorAll('[data-open-chart]').forEach(btn => {
@@ -1141,13 +1171,13 @@ const Practice = (() => {
           try {
             const url = await App.getBlobUrl(btn.dataset.openChart);
             PDFViewer.open(url, btn.dataset.name);
-          } catch { showToast('Failed to load chart.'); }
+          } catch (err) { console.error('Practice chart load failed:', btn.dataset.openChart, err); showToast('Failed to load chart.'); }
           finally { btn.disabled = false; }
         });
       });
     }
 
-    // Load all accordion bodies immediately (auto-expanded)
+    // Pre-load all assets immediately so everything is ready when user expands
     container.querySelectorAll('.practice-accordion-body').forEach(body => {
       _loadAccordionAssets(body);
     });
@@ -1155,22 +1185,34 @@ const Practice = (() => {
     // Wire accordion toggle (collapse/expand)
     container.querySelectorAll('.practice-accordion-header').forEach(header => {
       header.addEventListener('click', () => {
+        accState.touched = true;
         const item = header.closest('.practice-accordion-item');
+        const idx = parseInt(item.dataset.practiceIdx, 10);
+        const entry = plSongs[idx];
         const body = item.querySelector('.practice-accordion-body');
-        const chevron = header.querySelector('.accordion-chevron, svg');
+        const chevron = header.querySelector('.accordion-chevron');
         const isOpen = !body.classList.contains('hidden');
         body.classList.toggle('hidden');
         if (chevron) {
           chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
         }
+        // Persist accordion state by songId
+        if (entry) {
+          if (isOpen) accState.openSet.delete(entry.songId);
+          else accState.openSet.add(entry.songId);
+        }
 
-        // Load assets when re-expanding
+        // Load assets when expanding
         if (!isOpen) _loadAccordionAssets(body);
       });
     });
 
-    // Wire practice notes -- debounced auto-save
-    let _practiceNoteTimer = null;
+    // Wire practice notes -- debounced auto-save (uses module-scope _practiceNoteTimer)
+    _practiceNoteFlush = () => {
+      const pIdx = _practice.findIndex(p => p.id === persona.id);
+      if (pIdx > -1) _practice[pIdx] = persona;
+      savePractice();
+    };
     container.querySelectorAll('.practice-note-input').forEach(textarea => {
       // Prevent accordion toggle when interacting with textarea
       textarea.addEventListener('click', (e) => e.stopPropagation());
@@ -1193,22 +1235,15 @@ const Practice = (() => {
         practiceList.songs[idx].comment = textarea.value.trim();
         clearTimeout(_practiceNoteTimer);
         _practiceNoteTimer = setTimeout(() => {
-          const pIdx = _practice.findIndex(p => p.id === persona.id);
-          if (pIdx > -1) _practice[pIdx] = persona;
-          savePractice();
+          _practiceNoteFlush();
+          _practiceNoteTimer = null;
         }, 1500);
       });
     });
 
     // Wire exit
     document.getElementById('btn-exit-practice-mode')?.addEventListener('click', () => {
-      // Flush any pending note save immediately
-      if (_practiceNoteTimer) {
-        clearTimeout(_practiceNoteTimer);
-        const pIdx = _practice.findIndex(p => p.id === persona.id);
-        if (pIdx > -1) _practice[pIdx] = persona;
-        savePractice();
-      }
+      _flushPendingNotesSave();
       _exitPracticeMode();
     });
   }
@@ -1265,14 +1300,82 @@ const Practice = (() => {
         }
 
         if (!pl.songs) pl.songs = [];
-        pl.songs.push({ songId: song.id, comment: '' });
+        pl.songs.push({ songId: song.id, comment: '', addedAt: new Date().toISOString() });
         savePractice('Added to ' + pl.name);
         handle.hide();
       });
     });
   }
 
+  function _showBatchPracticeListPicker(songIds) {
+    _syncFromStore();
+    if (!_practice.length) {
+      showToast('No practice personas yet');
+      return;
+    }
+    let rows = '';
+    _practice.forEach((persona, pi) => {
+      const lists = persona.practiceLists || [];
+      if (!lists.length) return;
+      rows += `<div class="practice-picker-persona" style="font-size:11px;color:var(--text-3);font-weight:600;padding:8px 0 4px;border-top:1px solid var(--border);">${esc(persona.name)}</div>`;
+      lists.forEach((pl, li) => {
+        const count = (pl.songs || []).length;
+        rows += `<div class="setlist-pick-row" data-persona-idx="${pi}" data-list-idx="${li}">
+          <span class="setlist-pick-name">${esc(pl.name)}</span>
+          <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
+        </div>`;
+      });
+    });
+    if (!rows) {
+      showToast('No practice lists yet');
+      return;
+    }
+    const selCount = songIds.size || songIds.length;
+    const handle = Modal.create({
+      id: 'practice-list-picker-overlay',
+      cls: 'setlist-picker',
+      content: `<h3>Add ${selCount} song${selCount !== 1 ? 's' : ''} to Practice List</h3>${rows}<button class="setlist-picker-cancel">Cancel</button>`,
+    });
+    if (!handle) return;
+    handle.overlay.querySelector('.setlist-picker-cancel').addEventListener('click', () => handle.hide());
+    handle.overlay.querySelectorAll('.setlist-pick-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const pi = parseInt(row.dataset.personaIdx, 10);
+        const li = parseInt(row.dataset.listIdx, 10);
+        const persona = _practice[pi];
+        if (!persona) return;
+        const pl = (persona.practiceLists || [])[li];
+        if (!pl) return;
+        if (!pl.songs) pl.songs = [];
+        const existingIds = new Set(pl.songs.map(e => e.songId));
+        let added = 0;
+        songIds.forEach(songId => {
+          if (!existingIds.has(songId)) {
+            pl.songs.push({ songId, comment: '', addedAt: new Date().toISOString() });
+            added++;
+          }
+        });
+        if (added === 0) {
+          showToast('All songs already in ' + pl.name);
+        } else {
+          savePractice('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + pl.name);
+        }
+        handle.hide();
+      });
+    });
+  }
+
+  /** Flush any pending debounced practice-note save immediately */
+  function _flushPendingNotesSave() {
+    if (_practiceNoteTimer) {
+      clearTimeout(_practiceNoteTimer);
+      _practiceNoteTimer = null;
+      if (_practiceNoteFlush) _practiceNoteFlush();
+    }
+  }
+
   function _exitPracticeMode() {
+    _flushPendingNotesSave();
     document.body.classList.remove('practice-mode-active');
     _practicePersona = null;
     _practiceList = null;
@@ -1297,6 +1400,7 @@ const Practice = (() => {
     migratePracticeData,
     enterPracticeMode: _enterPracticeMode,
     showPracticeListPicker: _showPracticeListPicker,
+    showBatchPracticeListPicker: _showBatchPracticeListPicker,
     // Allow app.js to sync local _practice after external refresh
     syncFromStore: _syncFromStore,
   };

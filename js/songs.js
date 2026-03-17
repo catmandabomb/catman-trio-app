@@ -318,9 +318,14 @@ const Songs = (() => {
       }
 
       if (needsContent) {
-        card.className = 'song-card' + (selectionMode && selectedSongIds.has(song.id) ? ' song-card-selected' : '');
-        card.innerHTML = (selectionMode ? _selectionCheckboxHTML(song.id) : '') + _songCardHTML(song);
-        card.dataset.cfp = cfp;
+        // Clone-replace to drop stale event listeners from previous renders
+        const fresh = document.createElement('div');
+        fresh.dataset.songId = song.id;
+        fresh.dataset.cfp = cfp;
+        fresh.className = 'song-card' + (selectionMode && selectedSongIds.has(song.id) ? ' song-card-selected' : '');
+        fresh.innerHTML = (selectionMode ? _selectionCheckboxHTML(song.id) : '') + _songCardHTML(song);
+        if (card.parentNode) card.parentNode.replaceChild(fresh, card);
+        card = fresh;
         _wireCardEvents(card, song, selectionMode, editMode);
       }
 
@@ -425,7 +430,7 @@ const Songs = (() => {
 
     return `
       <div class="song-card-title-row"><span class="song-card-title">${highlight(song.title, q) || '<em style="color:var(--text-3)">Untitled</em>'}</span>${editIcon}</div>
-      <span class="song-card-subtitle">${highlight(song.subtitle, q)}</span>
+      ${song.subtitle ? `<span class="song-card-subtitle">${highlight(song.subtitle, q)}</span>` : ''}
       <div class="song-card-meta">
         <span class="song-card-key">${highlight(song.key, q)}</span>
         ${bpmHtml}
@@ -447,18 +452,17 @@ const Songs = (() => {
       });
     } else {
       card.addEventListener('click', () => { haptic.tap(); renderDetail(song); });
-      if (editMode) {
-        let lpTimer = null;
-        card.addEventListener('pointerdown', (e) => {
-          if (e.button !== 0) return;
-          lpTimer = setTimeout(() => { lpTimer = null; e.preventDefault(); _enterSelectionMode(song.id); }, 500);
-        });
-        const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
-        card.addEventListener('pointerup', cancelLp);
-        card.addEventListener('pointercancel', cancelLp);
-        card.addEventListener('pointermove', (e) => { if (lpTimer && (Math.abs(e.movementX) > 5 || Math.abs(e.movementY) > 5)) cancelLp(); });
-        card.addEventListener('contextmenu', (e) => e.preventDefault());
-      }
+      // Long-press to enter selection mode — available to all users (admin: Add to Setlist, non-admin: Add to Practice List)
+      let lpTimer = null;
+      card.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        lpTimer = setTimeout(() => { lpTimer = null; e.preventDefault(); _enterSelectionMode(song.id); }, 500);
+      });
+      const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+      card.addEventListener('pointerup', cancelLp);
+      card.addEventListener('pointercancel', cancelLp);
+      card.addEventListener('pointermove', (e) => { if (lpTimer && (Math.abs(e.movementX) > 5 || Math.abs(e.movementY) > 5)) cancelLp(); });
+      card.addEventListener('contextmenu', (e) => e.preventDefault());
     }
     if (!selectionMode && editMode) {
       card.querySelector('.song-card-edit-btn')?.addEventListener('click', (e) => {
@@ -480,10 +484,10 @@ const Songs = (() => {
     Store.set('selectionMode', true);
     Store.set('selectedSongIds', new Set([firstSongId]));
     haptic.medium();
-    renderList();
     const navStack = Store.get('navStack');
     navStack.push(function() { _exitSelectionMode(); });
     Store.set('navStack', navStack);
+    renderList(); // render AFTER navStack push so renderList's guard sees it
   }
 
   function _exitSelectionMode() {
@@ -515,15 +519,24 @@ const Songs = (() => {
   function _showSelectionBar() {
     _removeSelectionBar();
     const selectedSongIds = Store.get('selectedSongIds');
+    const isAdmin = Admin.isEditMode();
     var bar = document.createElement('div');
     bar.id = 'batch-selection-bar';
     bar.className = 'batch-selection-bar';
     bar.innerHTML = '<span class="batch-sel-count">' + selectedSongIds.size + ' selected</span>' +
-      '<button class="batch-sel-add-btn">Add to Setlist</button>' +
+      (isAdmin
+        ? '<button class="batch-sel-add-btn">Add to Setlist</button>'
+        : '<button class="batch-sel-add-btn">Add to Practice List</button>') +
       '<button class="batch-sel-cancel" aria-label="Cancel selection"><i data-lucide="x"></i></button>';
     document.body.appendChild(bar);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bar] });
-    bar.querySelector('.batch-sel-add-btn').addEventListener('click', function() { _batchAddToSetlist(); });
+    bar.querySelector('.batch-sel-add-btn').addEventListener('click', function() {
+      if (isAdmin) {
+        _batchAddToSetlist();
+      } else {
+        _batchAddToPractice();
+      }
+    });
     bar.querySelector('.batch-sel-cancel').addEventListener('click', function() { _exitSelectionMode(); });
     var escHandler = function(e) { if (e.key === 'Escape' && Store.get('selectionMode')) _exitSelectionMode(); };
     document.addEventListener('keydown', escHandler);
@@ -599,6 +612,18 @@ const Songs = (() => {
         _exitSelectionMode();
       });
     });
+  }
+
+  function _batchAddToPractice() {
+    if (Admin.isEditMode()) return; // safety guard — non-admin function only
+    const selectedSongIds = Store.get('selectedSongIds');
+    if (selectedSongIds.size === 0) { showToast('No songs selected'); return; }
+    if (typeof Practice !== 'undefined' && Practice.showBatchPracticeListPicker) {
+      Practice.showBatchPracticeListPicker(selectedSongIds);
+      _exitSelectionMode();
+    } else {
+      showToast('Practice module not loaded');
+    }
   }
 
   // ─── DETAIL VIEW ────────────────────────────────────────────
@@ -788,7 +813,8 @@ const Songs = (() => {
           el.innerHTML = '';
           const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', songId: driveId });
           App.trackPlayerRef(ref);
-        } catch {
+        } catch (err) {
+          console.error('Audio load failed:', driveId, err);
           el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
         }
       });
@@ -870,12 +896,11 @@ const Songs = (() => {
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
       <div class="detail-quick-add">
-        ${Admin.isEditMode() ? `<button class="btn-ghost btn-add-to-setlist">
+        ${Admin.isEditMode() ? `<button class="btn-ghost btn-add-to-setlist detail-quick-add-btn">
           <i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist
-        </button>` : ''}
-        <button class="btn-ghost btn-add-to-practice-list">
+        </button>` : `<button class="btn-ghost btn-add-to-practice-list detail-quick-add-btn">
           <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Practice List
-        </button>
+        </button>`}
       </div>`;
 
     if (song.notes) {
@@ -1417,6 +1442,9 @@ const Songs = (() => {
 
   // Register cleanup hook
   Router.registerHook('cleanupDetailAnchors', cleanupDetailAnchors);
+  Router.registerHook('cleanupSelection', () => {
+    if (Store.get('selectionMode')) _exitSelectionMode();
+  });
 
   // ─── Public API ─────────────────────────────────────────────
 

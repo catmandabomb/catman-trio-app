@@ -1324,6 +1324,16 @@ const Setlists = (() => {
     const _renderErrorSongs = new Set(); // B6: track songs that failed to render (toast once per song)
     const _failedCharts = []; // B7: track failed chart loads for retry
 
+    // ─── Diagnostic logging (FIX 5) ─────────────────────────────
+    const _lmDiag = [];
+    const _LM_DIAG_MAX = 50;
+    function _diagLog(msg, data) {
+      const entry = { t: Date.now(), msg, ...data };
+      _lmDiag.push(entry);
+      if (_lmDiag.length > _LM_DIAG_MAX) _lmDiag.shift();
+      console.log('[LM]', msg, data || '');
+    }
+
     function _renderPageIntoSlide(slide, pageIdx) {
       const page = _pages[pageIdx];
       const chartArea = slide.querySelector('.lm-slide-chart');
@@ -1346,34 +1356,24 @@ const Setlists = (() => {
         return Promise.resolve();
       }
 
-      chartArea.classList.toggle('hidden', page.type !== 'chart');
-      metaArea.classList.toggle('hidden', page.type !== 'metadata');
-      loadArea.classList.toggle('hidden', page.type !== 'loading');
+      // For chart pages: DON'T toggle visibility yet — render first, reveal after (ForScore pattern).
+      // For metadata/loading: toggle synchronously (no async render gap).
+      if (page.type !== 'chart') {
+        chartArea.classList.toggle('hidden', page.type !== 'chart');
+        metaArea.classList.toggle('hidden', page.type !== 'metadata');
+        loadArea.classList.toggle('hidden', page.type !== 'loading');
+      }
 
       if (page.type === 'chart') {
-        // Force visibility chain — belt and suspenders for iOS compositing
-        chartArea.style.display = '';
+        _diagLog('render', { slot: Array.prototype.indexOf.call(slide.parentNode?.children || [], slide), pageIdx, type: 'chart', gen });
+        const renderStart = Date.now();
+
+        // Set canvas to block but keep chart area as-is until render completes.
+        // If chart area is currently hidden (first render), the loading area stays visible.
+        // If chart area is already visible (re-render), previous content stays visible.
         canvas.style.display = 'block';
-        canvas.style.visibility = 'visible';
-        canvas.style.opacity = '1';
-        if (loadArea) loadArea.classList.add('hidden');
 
-        // B12: Only clear canvas if rendering a DIFFERENT page than what's currently displayed.
-        // Unconditional clearRect was causing the "black flash" — canvas goes black during the
-        // async gap between clear and PDF paint. When _updateSlots() is called multiple times
-        // (e.g. as PDFs load), re-clearing an already-correct canvas produces visible black flashes.
-        if (isNaN(prevPageIdx) || prevPageIdx !== pageIdx) {
-          const ctx = canvas.getContext('2d');
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-
-        // CLASSIC 4 NUCLEAR FIX: Use window.innerWidth directly as primary width.
-        // In Live Mode the carousel is ALWAYS 100% viewport width, so reading
-        // clientWidth (which depends on CSS layout being computed, view.active being
-        // set, and visibility/opacity tricks) is fragile and the root cause of ALL
-        // Classic 4 bugs. window.innerWidth is always valid and always correct here.
         let cw = window.innerWidth;
-        // Ultra-paranoid fallback — should never trigger on any device with a screen
         if (cw <= 0) {
           const retry = () => {
             if (parseInt(slide.dataset.renderGen, 10) === gen) {
@@ -1384,24 +1384,33 @@ const Setlists = (() => {
           setTimeout(retry, 200);
           return Promise.resolve();
         }
-        // Half-page mode: set alignment class on chart area for top/bottom clipping
+
+        // Half-page mode: safe to set before reveal
         chartArea.classList.remove('half-top', 'half-bottom');
         if (page.half === 'top') chartArea.classList.add('half-top');
         else if (page.half === 'bottom') chartArea.classList.add('half-bottom');
-        // BUG-09/23: Null guard — if PDF not yet loaded, leave as loading state (don't toast error)
+
+        // Null guard — if PDF not yet loaded, leave as loading state
         if (!page.pdfDoc) return Promise.resolve();
+
         return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
           .then(() => {
             // B1: verify this render is still current (not stale from rapid navigation)
             if (parseInt(slide.dataset.renderGen, 10) !== gen) return;
-            // Force compositing on iOS Safari — ensures canvas is painted to screen
-            void canvas.offsetHeight;
+            // REVEAL: Now that canvas has content, show it atomically
+            chartArea.classList.remove('hidden');
+            chartArea.style.display = '';
+            canvas.style.visibility = 'visible';
+            canvas.style.opacity = '1';
+            metaArea.classList.add('hidden');
+            loadArea.classList.add('hidden');
+            void canvas.offsetHeight; // force iOS compositing
+            _diagLog('rendered', { pageIdx, gen, ms: Date.now() - renderStart });
           })
           .catch(err => {
             console.error('Live mode chart render error', err);
-            // B1: don't apply stale error fallback
             if (parseInt(slide.dataset.renderGen, 10) !== gen) return;
-            // B6: toast once per song on render failure
+            _diagLog('render-fail', { pageIdx, gen, err: err.message });
             const songKey = page.song?.title || `song-${page.songIdx}`;
             if (!_renderErrorSongs.has(songKey)) {
               _renderErrorSongs.add(songKey);
@@ -1490,10 +1499,12 @@ const Setlists = (() => {
     }
 
     function _goPage(delta, animate) {
+      _diagLog('goPage', { delta, from: currentPageIdx });
       // Clear snap-back timer to prevent it from killing our transition
       if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
       // B4: deterministic stuck detection — no more unreliable transitionend
       if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1000)) {
+        _diagLog('anim-stuck-reset');
         console.warn('Live mode: animation stuck, force-clearing');
         _isAnimating = false;
       }
@@ -1652,7 +1663,10 @@ const Setlists = (() => {
           }, 10000))
         ]);
         if (!_liveModeActive) { pdfDoc.destroy(); return; } // exited during load
+        // Register URL so PDFViewer can use worker path (non-iOS) and render cache keying
+        PDFViewer.registerPdfUrl(pdfDoc, blobUrl);
         const numPages = pdfDoc.numPages;
+        _diagLog('chart-loaded', { songIdx, pages: numPages });
 
         // Zero-page PDFs -- fall back to metadata
         if (numPages === 0) {
@@ -1720,6 +1734,7 @@ const Setlists = (() => {
         }).catch(e => console.warn('Splice lock error', e));
       } catch (err) {
         console.error('Failed to load chart for song', songIdx, err);
+        _diagLog('chart-load-fail', { songIdx, err: err.message, retry: _retryCount });
         // B2: retry once on network/timeout errors (not corrupt PDF)
         const isNetworkError = err.message && (err.message.includes('timeout') || err.message.includes('fetch') || err.message.includes('network') || err.message.includes('NetworkError'));
         if (_retryCount < 1 && isNetworkError && _liveModeActive) {
@@ -1766,6 +1781,7 @@ const Setlists = (() => {
     function _revealLiveMode() {
       if (_lmRevealed) return;
       _lmRevealed = true;
+      _diagLog('reveal');
       // CLASSIC 4 FIX: Make carousel visible BEFORE rendering so iOS Safari
       // composites canvas content. The loading overlay (z-index above) hides
       // the carousel visually, so there's no flash. Without this, iOS can
@@ -2085,6 +2101,7 @@ const Setlists = (() => {
       // CLASSIC 4 FIX: Safety reset — if _isAnimating stuck >1500ms, force-clear.
       // transitionend can fail to fire on iOS if compositing layers are recycled.
       if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1500)) {
+        _diagLog('anim-stuck-reset');
         _isAnimating = false;
       }
       if (_isAnimating) return;
@@ -2272,6 +2289,26 @@ const Setlists = (() => {
     const clockEl = container.querySelector('.lm-clock');
     let timerEl = container.querySelector('.lm-timer');
     const timerBtn = container.querySelector('.lm-timer-btn');
+
+    // Triple-tap clock → dump diagnostics
+    let _clockTapCount = 0;
+    let _clockTapTimer = null;
+    if (clockEl) {
+      clockEl.addEventListener('click', () => {
+        _clockTapCount++;
+        if (_clockTapTimer) clearTimeout(_clockTapTimer);
+        if (_clockTapCount >= 3) {
+          _clockTapCount = 0;
+          console.log('[LM] Diagnostic dump:', JSON.stringify(_lmDiag, null, 2));
+          const renders = _lmDiag.filter(e => e.msg === 'rendered');
+          const fails = _lmDiag.filter(e => e.msg === 'render-fail');
+          const avgMs = renders.length ? Math.round(renders.reduce((s, e) => s + (e.ms || 0), 0) / renders.length) : 0;
+          showToast(`LM diag: ${renders.length} renders (avg ${avgMs}ms), ${fails.length} fails`);
+        } else {
+          _clockTapTimer = setTimeout(() => { _clockTapCount = 0; }, 600);
+        }
+      });
+    }
 
     function _updateClock() {
       const now = new Date();

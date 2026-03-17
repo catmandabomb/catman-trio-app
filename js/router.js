@@ -98,6 +98,7 @@ const Router = (() => {
       if (!alreadyActive) {
         // Clean up detail anchor bar when leaving detail view
         if (currentView === 'detail' && name !== 'detail') _callHook('cleanupDetailAnchors');
+        if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
         if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
         if ((currentView === 'practice-detail' || currentView === 'practice-edit') && !name.startsWith('practice')) _callHook('cleanupPractice');
         _viewEls.forEach(v => v.classList.remove('active'));

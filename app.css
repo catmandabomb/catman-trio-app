@@ -574,6 +574,7 @@ body.is-mobile .search-refresh-btn { display: none; }
   padding: 4px 10px;
   letter-spacing: 0.03em;
   white-space: nowrap;
+  margin-bottom: 8px;
 }
 @media (max-width: 360px) {
   .dash-exit-admin {
@@ -969,12 +970,12 @@ body.is-mobile .search-refresh-btn { display: none; }
 }
 
 .song-card-key {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--accent-bright);
   background: rgba(232,195,115,0.15);
   border: 1px solid rgba(232,195,115,0.2);
-  padding: 4px 12px;
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
@@ -1152,8 +1153,8 @@ body.is-mobile .search-refresh-btn { display: none; }
 }
 
 .detail-meta-value {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--accent-bright);
 }
 
@@ -3649,8 +3650,6 @@ html.live-mode-active { overflow: hidden; }
 .lm-slide-canvas {
   display: block;
   transform-origin: 0 0;
-  will-change: transform;
-  contain: layout paint;
 }
 .lm-slide-meta {
   flex: 1;
@@ -3742,12 +3741,8 @@ html.live-mode-active { overflow: hidden; }
   margin-top: 8px;
   margin-bottom: 24px;
 }
-.btn-add-to-setlist {
+.detail-quick-add-btn {
   font-size: 13px;
-  color: var(--text-2);
-}
-.btn-add-to-setlist:hover {
-  color: var(--accent);
 }
 #setlist-picker-overlay {
   z-index: 1000;
@@ -4163,12 +4158,12 @@ html.live-mode-active { overflow: hidden; }
 /* Selection checkbox on song cards */
 .sel-checkbox {
   position: absolute;
-  left: -4px;
+  left: 8px;
   top: 50%;
   transform: translateY(-50%);
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
   border: 2px solid var(--border-light);
   background: var(--bg-3);
   display: flex;
@@ -4188,8 +4183,8 @@ html.live-mode-active { overflow: hidden; }
   }
 }
 .sel-checkbox svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   color: var(--bg);
 }
 .sel-checked {
@@ -4214,7 +4209,7 @@ html.live-mode-active { overflow: hidden; }
 }
 /* Shift card content right to make room for checkbox */
 .song-card:has(.sel-checkbox) {
-  padding-left: 36px;
+  padding-left: 38px;
 }
 
 /* Floating action bar */
@@ -4316,7 +4311,7 @@ html.live-mode-active { overflow: hidden; }
    LIST FOOTER
 ═══════════════════════════════════════════ */
 .list-footer {
-  padding: 32px 16px 48px;
+  padding: 32px 16px 16px;
   text-align: center;
 }
 @media (min-width: 768px) {
@@ -4324,7 +4319,7 @@ html.live-mode-active { overflow: hidden; }
 }
 .list-footer.hidden { display: none; }
 .footer-divider {
-  width: 60px;
+  width: 120px;
   height: 1px;
   background: rgba(255,255,255,0.08);
   margin: 0 auto 24px;

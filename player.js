@@ -133,8 +133,8 @@ const Player = (() => {
               audio.src = url;
             }
           }
-        } catch (_) {
-          // Fallback already set — no action needed
+        } catch (e) {
+          console.warn('iOS audio proxy failed, using direct blob URL:', e?.message || e);
         }
       })();
     }
@@ -304,7 +304,7 @@ const Player = (() => {
           audio.currentTime = loopA;
           loopCount++;
           _updateLoopUI();
-          audio.play().catch(() => {});
+          audio.play().catch(e => console.warn('Loop replay failed:', e?.message || e));
         }
       };
       audio.addEventListener('timeupdate', _loopTimeUpdate);
@@ -508,6 +508,8 @@ const Player = (() => {
 
     // Error recovery — reset UI on audio errors with user feedback
     audio.addEventListener('error', () => {
+      const err = audio.error;
+      console.error('Audio error:', name, '| code:', err?.code, '| message:', err?.message, '| src:', audio.src?.substring(0, 80));
       el.classList.remove('playing', 'buffering');
       playBtn.innerHTML = playIcon();
       if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
@@ -539,8 +541,8 @@ const Player = (() => {
             _playPending = false;
             el.classList.remove('buffering');
             _setMediaSession(mediaTitle, 'Catman Trio');
-          }).catch(() => {
-            // Play rejected (autoplay policy / audio not ready) — reset UI
+          }).catch(err => {
+            console.warn('Audio play rejected:', name, err?.message || err);
             _playPending = false;
             el.classList.remove('playing', 'buffering');
             playBtn.innerHTML = playIcon();
