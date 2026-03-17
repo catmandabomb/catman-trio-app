@@ -404,7 +404,7 @@ const Setlists = (() => {
     let html = `<div class="detail-header">
       ${isAdmin ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
-      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button>' : ''}</div>
+      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>' : ''}</div>
     </div>`;
 
     if (songs.length === 0) {
@@ -572,6 +572,11 @@ const Setlists = (() => {
     container.querySelector('.btn-print-setlist')?.addEventListener('click', () => {
       _printSetlist(setlist, _songs);
     });
+
+    // Wire Share Setlist button
+    container.querySelector('.btn-share-setlist')?.addEventListener('click', () => {
+      _shareSetlist(setlist, _songs);
+    });
   }
 
   // ─── PRINT SETLIST ──────────────────────────────────────────
@@ -705,6 +710,85 @@ const Setlists = (() => {
     overlay.querySelector('#print-fallback-print').addEventListener('click', () => {
       window.print();
     });
+  }
+
+  // ─── SHARE SETLIST (Web Share API + fallback) ────────────────
+
+  function _shareSetlist(setlist, allSongs) {
+    const songs = setlist.songs || [];
+    if (!songs.length) return;
+
+    // Build shareable text
+    const lines = [];
+    lines.push((setlist.name || 'Setlist').toUpperCase());
+    if (setlist.gigDate) lines.push(setlist.gigDate);
+    lines.push('─'.repeat(30));
+    lines.push('');
+
+    let totalSecs = 0;
+    songs.forEach((entry, i) => {
+      if (entry.freetext) {
+        let line = (i + 1) + '. ' + (entry.title || 'Untitled');
+        const meta = [];
+        if (entry.key) meta.push(entry.key);
+        if (entry.bpm) meta.push(entry.bpm + ' BPM');
+        if (meta.length) line += '  (' + meta.join(' · ') + ')';
+        lines.push(line);
+        if (entry.notes) lines.push('   ' + entry.notes);
+        return;
+      }
+      const song = allSongs.find(s => s.id === entry.id);
+      if (!song) return;
+      let line = (i + 1) + '. ' + (song.title || 'Untitled');
+      const meta = [];
+      if (song.key) meta.push(song.key);
+      if (song.bpm) meta.push(song.bpm + ' BPM');
+      if (song.timeSig) meta.push(song.timeSig);
+      if (meta.length) line += '  (' + meta.join(' · ') + ')';
+      lines.push(line);
+      if (entry.comment) lines.push('   → ' + entry.comment);
+      if (song.duration && song.duration > 0) totalSecs += song.duration;
+    });
+
+    lines.push('');
+    lines.push('─'.repeat(30));
+    const countLine = songs.length + ' song' + (songs.length !== 1 ? 's' : '');
+    if (totalSecs > 0) {
+      const mins = Math.floor(totalSecs / 60);
+      const secs = Math.floor(totalSecs % 60);
+      lines.push(countLine + ' · ' + mins + ':' + String(secs).padStart(2, '0') + ' total');
+    } else {
+      lines.push(countLine);
+    }
+
+    const text = lines.join('\n');
+    const title = setlist.name || 'Setlist';
+
+    // Try Web Share API first (native share sheet — AirDrop, Messages, Mail, etc.)
+    if (navigator.share) {
+      navigator.share({ title, text }).catch(err => {
+        // User cancelled share — not an error
+        if (err.name !== 'AbortError') {
+          // Fallback to clipboard
+          _copyToClipboard(text);
+        }
+      });
+    } else {
+      // No Share API — copy to clipboard
+      _copyToClipboard(text);
+    }
+  }
+
+  function _copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Setlist copied to clipboard');
+      }).catch(() => {
+        _fallbackCopy(text);
+      });
+    } else {
+      _fallbackCopy(text);
+    }
   }
 
   // ─── SETLIST LIVE MODE (ForScore-style charts + pedal support) ──

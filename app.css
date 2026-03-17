@@ -389,6 +389,17 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--text-2);
   transition: background 0.15s, color 0.15s;
   flex-shrink: 0;
+  position: relative;
+}
+/* 44px HIG touch target on touch devices — invisible expansion via pseudo-element */
+@media (pointer: coarse) {
+  .icon-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 .icon-btn:hover, .icon-btn:active { background: var(--bg-3); color: var(--text); }
 
@@ -1009,6 +1020,16 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--accent);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
+  position: relative;
+}
+@media (pointer: coarse) {
+  .song-card-edit-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 .song-card-edit-btn:hover {
   background: var(--accent-bg);
@@ -1817,6 +1838,16 @@ textarea.form-input {
   padding: 0;
   font-size: 0;
   opacity: 1;
+  position: relative;
+}
+@media (pointer: coarse) {
+  .asset-delete-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 .asset-delete-btn:hover {
   background: rgba(255,107,107,0.25);
@@ -2110,6 +2141,16 @@ textarea.form-input {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+@media (pointer: coarse) {
+  .pdf-zoom-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 
 .pdf-zoom-btn svg { width: 14px; height: 14px; }
@@ -3358,6 +3399,7 @@ html.live-mode-active { overflow: hidden; }
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
+  position: relative;
 }
 .lm-close-btn:hover { color: var(--accent); background: rgba(255,255,255,0.12); }
 .lm-close-btn:focus-visible { box-shadow: 0 0 0 3px var(--accent); outline: none; }
@@ -3377,6 +3419,7 @@ html.live-mode-active { overflow: hidden; }
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
+  position: relative;
 }
 .lm-jump-btn:hover { color: #fff; background: rgba(255,255,255,0.15); }
 .lm-jump-btn:focus-visible { box-shadow: 0 0 0 3px var(--accent); outline: none; }
@@ -3805,6 +3848,26 @@ html.live-mode-active { overflow: hidden; }
   border-color: var(--border-light);
   background: var(--bg-4);
 }
+.btn-share-setlist {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 12px;
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: all 0.15s;
+}
+.btn-share-setlist:hover {
+  color: var(--text-bright);
+  border-color: var(--border-light);
+  background: var(--bg-4);
+}
 
 /* ═══════════════════════════════════════════
    LIVE MODE CLOCK + TIMER
@@ -3831,6 +3894,7 @@ html.live-mode-active { overflow: hidden; }
   gap: 3px;
   color: var(--accent);
   transition: border-color 0.15s;
+  position: relative;
 }
 .lm-timer-btn:hover { border-color: var(--accent); }
 .lm-timer-btn.lm-timer-running {
@@ -3912,6 +3976,22 @@ html.live-mode-active { overflow: hidden; }
 @keyframes lm-pulse-ring {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240,204,128,0); }
   50% { box-shadow: 0 0 0 4px rgba(240,204,128,0.2); }
+}
+
+/* 44px HIG touch targets on touch devices — invisible expansion */
+@media (pointer: coarse) {
+  .lm-dark-toggle::before,
+  .lm-half-toggle::before,
+  .lm-auto-toggle::before,
+  .lm-close-btn::before,
+  .lm-jump-btn::before,
+  .lm-timer-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 
 /* Dark Mode — invert canvas colors */
@@ -4047,6 +4127,16 @@ html.live-mode-active { overflow: hidden; }
   transition: all 0.12s;
   flex-shrink: 0;
   padding: 0;
+  position: relative;
+}
+@media (pointer: coarse) {
+  .tag-mgr-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 .tag-mgr-btn:hover { color: var(--text-bright); background: var(--bg-4); }
 .tag-mgr-delete:hover { color: #e87c6a; border-color: rgba(232,100,80,0.3); }
@@ -4078,6 +4168,15 @@ html.live-mode-active { overflow: hidden; }
   transition: all 0.15s ease;
   z-index: 2;
   animation: selCheckIn 0.2s ease-out both;
+}
+@media (pointer: coarse) {
+  .sel-checkbox::before {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px; min-height: 44px;
+  }
 }
 .sel-checkbox svg {
   width: 14px;
@@ -4647,6 +4746,30 @@ html.live-mode-active { overflow: hidden; }
 @media (min-width: 900px) {
   .detail-anchor-bar {
     right: calc(15vw - 40px);
+  }
+}
+
+/* ═══════════════════════════════════════════
+   ACCESSIBILITY — UTILITIES
+═══════════════════════════════════════════ */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: more) {
+  :root {
+    --accent: #ffd700;
+    --text: #ffffff;
+    --text-2: #e0e0e0;
+    --border: #666;
+    --border-light: #888;
   }
 }
 

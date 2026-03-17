@@ -69,10 +69,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=19.1" as="style">
+  <link rel="preload" href="app.css?v=19.2" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="preload" href="app.js?v=19.1" as="script">
-  <link rel="stylesheet" href="app.css?v=19.1" />
+  <link rel="preload" href="app.js?v=19.2" as="script">
+  <link rel="stylesheet" href="app.css?v=19.2" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
@@ -88,17 +88,17 @@
 
   <a href="#app" class="skip-link">Skip to content</a>
 
-  <header id="topbar">
+  <header id="topbar" aria-label="Main navigation">
     <div class="topbar-row-top">
       <button id="btn-back" class="icon-btn hidden" aria-label="Back" title="Go back">
         <i data-lucide="chevron-left"></i>
       </button>
       <div id="topbar-title"><span class="title-catman"><span style="color:rgb(215,175,90)">C</span><span style="color:rgb(220,184,105)">a</span><span style="color:rgb(225,193,120)">t</span><span style="color:rgb(230,202,135)">m</span><span style="color:rgb(235,211,150)">a</span><span style="color:rgb(240,220,165)">n</span></span><span class="title-trio"><span style="color:rgb(220,184,105)">T</span><span style="color:rgb(225,193,120)">r</span><span style="color:rgb(230,202,135)">i</span><span style="color:rgb(235,211,150)">o</span><span id="admin-version-badge" class="admin-version-badge hidden"></span></span></div>
       <div class="topbar-right">
-        <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists">
+        <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists" aria-label="Practice lists">
           <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
         </button>
-        <button id="btn-setlists" class="btn-ghost topbar-nav-btn" title="Setlists">
+        <button id="btn-setlists" class="btn-ghost topbar-nav-btn" title="Setlists" aria-label="Setlists">
           <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
         </button>
         <button id="btn-topbar-refresh" class="icon-btn topbar-refresh-btn hidden" title="Sync" aria-label="Refresh">
@@ -115,29 +115,29 @@
     </div>
   </header>
 
-  <main id="app" role="main">
+  <main id="app">
 
     <!-- LIST VIEW -->
     <div id="view-list" class="view active">
       <div class="list-subheader" id="admin-bar">
         <span class="subheader-text">Repository for All<br>Catman Repertoire</span>
         <span id="admin-buttons" class="admin-buttons">
-          <button id="btn-install-app" class="btn-ghost topbar-nav-btn btn-install-app hidden" title="Install app">
+          <button id="btn-install-app" class="btn-ghost topbar-nav-btn btn-install-app hidden" title="Install app" aria-label="Install app">
             <i data-lucide="download" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Install
           </button>
-          <button id="btn-edit-mode" class="text-btn admin-toggle-btn" title="Toggle admin mode">Admin</button>
+          <button id="btn-edit-mode" class="text-btn admin-toggle-btn" title="Toggle admin mode" aria-label="Toggle admin mode">Admin</button>
           <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
             <i data-lucide="plus"></i>
           </button>
           <div id="admin-dashboard-bar" class="admin-dashboard-bar hidden">
-            <button id="btn-admin-dashboard" class="text-btn admin-dashboard-btn">Admin Dashboard</button>
+            <button id="btn-admin-dashboard" class="text-btn admin-dashboard-btn" aria-label="Admin Dashboard">Admin Dashboard</button>
           </div>
         </span>
       </div>
       <div id="search-bar">
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
-          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" />
+          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" />
           <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear all filters" title="Clear all filters">
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
@@ -226,7 +226,8 @@
     <div class="modal">
       <h2 id="modal-password-title">Admin Access</h2>
       <p class="muted">Enter password to enable edit mode.</p>
-      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" />
+      <label for="password-input" class="sr-only">Admin password</label>
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" aria-label="Admin password" />
       <div id="password-error" class="error-msg hidden">Incorrect password.</div>
       <div class="modal-actions">
         <button id="btn-password-cancel" class="btn-secondary" title="Cancel">Cancel</button>
@@ -256,7 +257,7 @@
           <button id="pdf-prev" class="icon-btn" aria-label="Prev page" title="Previous page">
             <i data-lucide="chevron-left"></i>
           </button>
-          <span id="pdf-page-info">1 / 1</span>
+          <span id="pdf-page-info" role="status" aria-live="polite">1 / 1</span>
           <button id="pdf-next" class="icon-btn" aria-label="Next page" title="Next page">
             <i data-lucide="chevron-right"></i>
           </button>
@@ -338,21 +339,21 @@
 
   <script src="lucide.min.js"></script>
   <script src="idb.js"></script>
-  <script src="js/store.js?v=19.1"></script>
-  <script src="js/utils.js?v=19.1"></script>
-  <script src="js/modal.js?v=19.1"></script>
-  <script src="js/router.js?v=19.1"></script>
+  <script src="js/store.js?v=19.2"></script>
+  <script src="js/utils.js?v=19.2"></script>
+  <script src="js/modal.js?v=19.2"></script>
+  <script src="js/router.js?v=19.2"></script>
   <script src="drive.js"></script>
   <script src="github.js"></script>
-  <script src="js/sync.js?v=19.1"></script>
+  <script src="js/sync.js?v=19.2"></script>
   <script src="pdf-viewer.js"></script>
   <script src="player.js"></script>
   <script src="metronome.js"></script>
   <script src="admin.js"></script>
-  <script src="js/dashboard.js?v=19.1"></script>
-  <script src="js/practice.js?v=19.1"></script>
-  <script src="js/setlists.js?v=19.1"></script>
-  <script src="js/songs.js?v=19.1"></script>
-  <script src="app.js?v=19.1"></script>
+  <script src="js/dashboard.js?v=19.2"></script>
+  <script src="js/practice.js?v=19.2"></script>
+  <script src="js/setlists.js?v=19.2"></script>
+  <script src="js/songs.js?v=19.2"></script>
+  <script src="app.js?v=19.2"></script>
 </body>
 </html>
