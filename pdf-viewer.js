@@ -68,15 +68,19 @@ const PDFViewer = (() => {
         if (c.dataset.renderKey) activeKeys.add(c.dataset.renderKey);
       });
     }
-    // Evict oldest non-active entry
+    // Evict oldest non-active entry (zero canvas dimensions to free iOS GPU memory)
     for (const key of _renderCache.keys()) {
       if (!activeKeys.has(key)) {
+        const entry = _renderCache.get(key);
+        if (entry?.canvas) { entry.canvas.width = 0; entry.canvas.height = 0; }
         _renderCache.delete(key);
         return;
       }
     }
     // All entries are active — evict oldest anyway to prevent unbounded growth
     const oldestKey = _renderCache.keys().next().value;
+    const oldestEntry = _renderCache.get(oldestKey);
+    if (oldestEntry?.canvas) { oldestEntry.canvas.width = 0; oldestEntry.canvas.height = 0; }
     _renderCache.delete(oldestKey);
   }
 
@@ -498,6 +502,8 @@ const PDFViewer = (() => {
 
       if (_renderCache.size >= MAX_RENDER_CACHE) {
         const oldestKey = _renderCache.keys().next().value;
+        const oldest = _renderCache.get(oldestKey);
+        if (oldest?.canvas) { oldest.canvas.width = 0; oldest.canvas.height = 0; }
         _renderCache.delete(oldestKey);
       }
       _renderCache.delete(cacheKey);
@@ -519,10 +525,16 @@ const PDFViewer = (() => {
       const prefix = `${pdfId}-`;
       for (const key of [..._renderCache.keys()]) {
         if (key.startsWith(prefix)) {
+          const entry = _renderCache.get(key);
+          if (entry?.canvas) { entry.canvas.width = 0; entry.canvas.height = 0; }
           _renderCache.delete(key);
         }
       }
     } else {
+      // Zero all cached canvases to free iOS GPU memory immediately
+      for (const entry of _renderCache.values()) {
+        if (entry?.canvas) { entry.canvas.width = 0; entry.canvas.height = 0; }
+      }
       _renderCache.clear();
     }
   }
@@ -542,6 +554,8 @@ const PDFViewer = (() => {
         const toRemove = keys.length - targetSize;
         for (let i = 0; i < keys.length && removed < toRemove; i++) {
           if (!activeKeys.has(keys[i])) {
+            const entry = _renderCache.get(keys[i]);
+            if (entry?.canvas) { entry.canvas.width = 0; entry.canvas.height = 0; }
             _renderCache.delete(keys[i]);
             removed++;
           }
@@ -580,6 +594,7 @@ const PDFViewer = (() => {
     }
 
     function clampPan() {
+      if (!containerEl) return; // guard against stale/detached reference
       const cw = parseFloat(canvas.style.width) || canvas.width;
       const ch = parseFloat(canvas.style.height) || canvas.height;
       const scaledW = cw * zoom;
@@ -781,6 +796,8 @@ const PDFViewer = (() => {
      */
     function retarget(newCanvas, newContainerEl) {
       if (_destroyed) return;
+      // Guard: don't retarget during active gesture — state would corrupt
+      if (isPinching || isDragging || mouseDown) return;
       // Move listeners from old container to new one
       containerEl.removeEventListener('touchstart', onTouchStart);
       containerEl.removeEventListener('touchmove', onTouchMove);

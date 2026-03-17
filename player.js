@@ -285,7 +285,8 @@ const Player = (() => {
         _updateLoopUI();
       });
 
-      // Hook into timeupdate — add loop logic
+      // Loop enforcement now runs in the rAF loop (_updateProgress) for ~16ms precision.
+      // Keep a lightweight timeupdate fallback for when rAF is throttled (e.g. background tab).
       _loopTimeUpdate = () => {
         if (loopActive && !audio.seeking && audio.currentTime >= loopB) {
           audio.currentTime = loopA;
@@ -318,7 +319,7 @@ const Player = (() => {
     if (songId) {
       try {
         const saved = parseFloat(localStorage.getItem(`bb_audio_speed_${songId}`));
-        if (saved && _speedSteps.includes(saved)) _playerSpeed = saved;
+        if (!isNaN(saved) && saved > 0 && saved <= 1 && _speedSteps.includes(saved)) _playerSpeed = saved;
       } catch (_) {}
     }
 
@@ -351,6 +352,10 @@ const Player = (() => {
         speedBtn.textContent = label;
         speedBtn.classList.toggle('speed-active', speed !== 1);
       }
+      // Ensure pitch is preserved across all browsers when changing speed
+      try { audio.preservesPitch = true; } catch (_) {}
+      try { audio.mozPreservesPitch = true; } catch (_) {}
+      try { audio.webkitPreservesPitch = true; } catch (_) {}
       // Ramp this player's rate smoothly over ~6 frames (~100ms)
       if (_rampRaf) cancelAnimationFrame(_rampRaf);
       _rampRate(audio, prev, speed, 0, 6);
@@ -408,9 +413,16 @@ const Player = (() => {
     });
 
     // Smooth progress bar via rAF (timeupdate fires ~4Hz, too choppy)
+    // A/B loop check also runs here (~60fps precision vs ~250ms on timeupdate)
     let _rafId = null;
     function _updateProgress() {
       if (!audio.paused && !audio.ended) {
+        // A/B loop enforcement at rAF precision (~16ms vs ~250ms on timeupdate)
+        if (loopActive && !audio.seeking && audio.currentTime >= loopB) {
+          audio.currentTime = loopA;
+          loopCount++;
+          _updateLoopUI();
+        }
         if (!audio.seeking) {
           progress.value = audio.currentTime;
         }
@@ -447,6 +459,13 @@ const Player = (() => {
       current.textContent = _formatTime(audio.currentTime);
       const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
       progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+    });
+
+    // Safari can reset playbackRate to 1.0 after a seek — re-apply our speed
+    audio.addEventListener('seeked', () => {
+      if (_playerSpeed !== 1 && audio.playbackRate !== _playerSpeed) {
+        try { audio.playbackRate = _playerSpeed; } catch (_) {}
+      }
     });
 
     // Also update duration if it wasn't available at loadedmetadata

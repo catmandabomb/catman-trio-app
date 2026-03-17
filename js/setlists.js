@@ -784,7 +784,9 @@ const Setlists = (() => {
     }
     function _onVisibilityChange() {
       if (document.visibilityState === 'visible' && _liveModeActive) {
-        if (!_wakeLock) _requestWakeLock();
+        // Clear stale ref — OS releases wake lock on background, ref may linger
+        _wakeLock = null;
+        _requestWakeLock();
         // B7: retry failed charts when app becomes visible again (e.g. after network restore)
         if (_failedCharts && _failedCharts.length > 0) {
           setTimeout(() => { if (_liveModeActive) _retryFailedCharts(); }, 500);
@@ -1347,10 +1349,14 @@ const Setlists = (() => {
       // 3B: retarget zoom/pan to the new center slide (avoids destroy/create churn)
       _currentChartArea = slots[1].querySelector('.lm-slide-chart');
       _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
-      if (_zpHandle && _zpHandle.retarget) {
-        _zpHandle.retarget(_currentCanvas, _currentChartArea);
-      } else {
-        if (_zpHandle) _zpHandle.destroy();
+      try {
+        if (_zpHandle && typeof _zpHandle.retarget === 'function') {
+          _zpHandle.retarget(_currentCanvas, _currentChartArea);
+        } else {
+          throw new Error('retarget unavailable');
+        }
+      } catch (_) {
+        if (_zpHandle) try { _zpHandle.destroy(); } catch (__) {}
         _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
       }
 
@@ -1435,10 +1441,14 @@ const Setlists = (() => {
           // 3B: retarget zoom/pan to the new center slide (avoids destroy/create churn)
           _currentChartArea = slots[1].querySelector('.lm-slide-chart');
           _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
-          if (_zpHandle && _zpHandle.retarget) {
-            _zpHandle.retarget(_currentCanvas, _currentChartArea);
-          } else {
-            if (_zpHandle) _zpHandle.destroy();
+          try {
+            if (_zpHandle && typeof _zpHandle.retarget === 'function') {
+              _zpHandle.retarget(_currentCanvas, _currentChartArea);
+            } else {
+              throw new Error('retarget unavailable');
+            }
+          } catch (_) {
+            if (_zpHandle) try { _zpHandle.destroy(); } catch (__) {}
             _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
           }
 
