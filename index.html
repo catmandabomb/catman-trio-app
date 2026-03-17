@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Catman Trio" />
   <meta name="theme-color" content="#0e0e10" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://catman-api.catmandabomb.workers.dev https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
   <title>Catman Trio</title>
 
   <!-- Splash screen: inline CSS so it renders BEFORE any external stylesheet loads.
@@ -69,10 +69,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=19.6" as="style">
+  <link rel="preload" href="app.css?v=19.7" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="preload" href="app.js?v=19.6" as="script">
-  <link rel="stylesheet" href="app.css?v=19.6" />
+  <link rel="preload" href="app.js?v=19.7" as="script">
+  <link rel="stylesheet" href="app.css?v=19.7" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
@@ -367,21 +367,22 @@
 
   <script src="lucide.min.js"></script>
   <script src="idb.js"></script>
-  <script src="js/store.js?v=19.6"></script>
-  <script src="js/utils.js?v=19.6"></script>
-  <script src="js/modal.js?v=19.6"></script>
-  <script src="js/router.js?v=19.6"></script>
-  <script src="drive.js?v=19.6"></script>
-  <script src="github.js?v=19.6"></script>
-  <script src="js/sync.js?v=19.6"></script>
-  <script src="pdf-viewer.js?v=19.6"></script>
-  <script src="player.js?v=19.6"></script>
-  <script src="metronome.js?v=19.6"></script>
-  <script src="admin.js?v=19.6"></script>
-  <script src="js/dashboard.js?v=19.6"></script>
-  <script src="js/practice.js?v=19.6"></script>
-  <script src="js/setlists.js?v=19.6"></script>
-  <script src="js/songs.js?v=19.6"></script>
-  <script src="app.js?v=19.6"></script>
+  <script src="js/store.js?v=19.7"></script>
+  <script src="js/utils.js?v=19.7"></script>
+  <script src="js/modal.js?v=19.7"></script>
+  <script src="js/router.js?v=19.7"></script>
+  <script src="drive.js?v=19.7"></script>
+  <script src="github.js?v=19.7"></script>
+  <script src="js/sync.js?v=19.7"></script>
+  <script src="pdf-viewer.js?v=19.7"></script>
+  <script src="player.js?v=19.7"></script>
+  <script src="metronome.js?v=19.7"></script>
+  <script src="admin.js?v=19.7"></script>
+  <script src="js/dashboard.js?v=19.7"></script>
+  <script src="js/practice.js?v=19.7"></script>
+  <script src="js/setlists.js?v=19.7"></script>
+  <script src="js/migrate.js?v=19.7"></script>
+  <script src="js/songs.js?v=19.7"></script>
+  <script src="app.js?v=19.7"></script>
 </body>
 </html>

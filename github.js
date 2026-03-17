@@ -10,12 +10,22 @@
  *  - Migration from Drive to GitHub
  *
  * Config stored in localStorage:
- *   bb_github_pat, bb_github_repo, bb_github_owner
+ *   ct_github_pat, ct_github_repo, ct_github_owner
  *
  * File format on GitHub: { "iv": "<base64>", "data": "<base64>" }
  */
 
 const GitHub = (() => {
+
+  // ─── Worker Proxy ─────────────────────────────────────────
+  //
+  // When USE_WORKER is true, all GitHub API calls route through the
+  // Cloudflare Worker instead of calling api.github.com directly.
+  // The Worker holds the PAT as a server-side secret.
+  // Set USE_WORKER = false to fall back to direct PAT-based access.
+
+  const WORKER_URL = 'https://catman-api.catmandabomb.workers.dev';
+  const USE_WORKER = true;
 
   // ─── Constants ────────────────────────────────────────────
 
@@ -40,6 +50,7 @@ const GitHub = (() => {
   // ─── State ────────────────────────────────────────────────
 
   let _cryptoKey = null;
+  let _keySeed = null; // Cached encryption key seed from Worker (memory only)
   let _shaCache = { songs: null, setlists: null, practice: null };
   let _pending  = { songs: null, setlists: null, practice: null };
   let _deletions = { songs: new Set(), setlists: new Set(), practice: new Set() };
@@ -92,32 +103,35 @@ const GitHub = (() => {
   function getConfig() {
     return {
       pat:   '***', // Never expose PAT publicly
-      owner: localStorage.getItem('bb_github_owner') || DEFAULT_OWNER,
-      repo:  localStorage.getItem('bb_github_repo')  || DEFAULT_REPO,
+      owner: localStorage.getItem('ct_github_owner') || DEFAULT_OWNER,
+      repo:  localStorage.getItem('ct_github_repo')  || DEFAULT_REPO,
     };
   }
 
   function _getPat() {
-    return localStorage.getItem('bb_github_pat') || '';
+    return localStorage.getItem('ct_github_pat') || '';
   }
 
   function saveConfig({ pat, owner, repo }) {
-    localStorage.setItem('bb_github_pat',   pat.trim());
-    localStorage.setItem('bb_github_owner', (owner || DEFAULT_OWNER).trim());
-    localStorage.setItem('bb_github_repo',  (repo || DEFAULT_REPO).trim());
+    localStorage.setItem('ct_github_pat',   pat.trim());
+    localStorage.setItem('ct_github_owner', (owner || DEFAULT_OWNER).trim());
+    localStorage.setItem('ct_github_repo',  (repo || DEFAULT_REPO).trim());
     _cryptoKey = null; // Force re-derive on next use
+    _keySeed = null;
     _shaCache = { songs: null, setlists: null, practice: null };
   }
 
   function clearConfig() {
-    localStorage.removeItem('bb_github_pat');
-    localStorage.removeItem('bb_github_owner');
-    localStorage.removeItem('bb_github_repo');
+    localStorage.removeItem('ct_github_pat');
+    localStorage.removeItem('ct_github_owner');
+    localStorage.removeItem('ct_github_repo');
     _cryptoKey = null;
+    _keySeed = null;
     _shaCache = { songs: null, setlists: null, practice: null };
   }
 
   function isConfigured() {
+    if (USE_WORKER) return true; // Worker holds PAT server-side
     return !!_getPat(); // Owner/repo have defaults — only PAT needed
   }
 
@@ -145,8 +159,10 @@ const GitHub = (() => {
    * Encrypt the PAT with app-level key and save to Drive.
    * Called when GitHub is configured + Drive write is available.
    * Other devices auto-load this file at boot — no password prompt needed.
+   * No-op when USE_WORKER — PAT is server-side.
    */
   async function publishPat() {
+    if (USE_WORKER) return; // PAT is server-side, no need to propagate
     const pat = _getPat();
     if (!pat || typeof Drive === 'undefined' || !Drive.isWriteConfigured()) return;
     try {
@@ -168,8 +184,10 @@ const GitHub = (() => {
   /**
    * Load encrypted PAT from Drive and decrypt. No password needed.
    * Returns the PAT string on success, null on failure.
+   * No-op when USE_WORKER — PAT is server-side.
    */
   async function loadPublishedPat() {
+    if (USE_WORKER) return null; // PAT is server-side
     if (typeof Drive === 'undefined' || !Drive.isConfigured()) return null;
     try {
       const file = await Drive.findFilePublic(SYNC_CONFIG_FILENAME);
@@ -196,11 +214,30 @@ const GitHub = (() => {
 
   async function _ensureCryptoKey() {
     if (_cryptoKey) return _cryptoKey;
-    const pat = _getPat();
-    if (!pat) throw new Error('GitHub PAT not configured');
+
+    let keySource;
+    if (USE_WORKER) {
+      // Fetch key seed from Worker (cached in memory only — never localStorage)
+      if (!_keySeed) {
+        const adminHash = _getAdminHash();
+        if (!adminHash) throw new Error('Admin hash not found — log in first');
+        const resp = await fetch(`${WORKER_URL}/auth/key`, {
+          headers: { 'X-Admin-Hash': adminHash },
+        });
+        if (!resp.ok) throw new Error(`Key fetch failed: ${resp.status}`);
+        const data = await resp.json();
+        _keySeed = data.seed;
+      }
+      keySource = _keySeed;
+    } else {
+      // Legacy: derive key from PAT directly
+      keySource = _getPat();
+      if (!keySource) throw new Error('GitHub PAT not configured');
+    }
+
     const rawKey = await crypto.subtle.digest(
       'SHA-256',
-      new TextEncoder().encode(pat)
+      new TextEncoder().encode(keySource)
     );
     _cryptoKey = await crypto.subtle.importKey(
       'raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']
@@ -278,43 +315,76 @@ const GitHub = (() => {
     return DEBOUNCE_BASE_MS;
   }
 
-  function _owner() { return localStorage.getItem('bb_github_owner') || DEFAULT_OWNER; }
-  function _repo()  { return localStorage.getItem('bb_github_repo')  || DEFAULT_REPO; }
+  function _owner() { return localStorage.getItem('ct_github_owner') || DEFAULT_OWNER; }
+  function _repo()  { return localStorage.getItem('ct_github_repo')  || DEFAULT_REPO; }
+
+  /**
+   * Get the admin hash for Worker authentication.
+   * Returns the stored PBKDF2 hash from localStorage.
+   */
+  function _getAdminHash() {
+    return localStorage.getItem('ct_pw_hash') || '';
+  }
 
   async function _ghRequest(path, options = {}, _retryCount = 0) {
     const MAX_RETRIES = 5;
-    const pat = _getPat();
-    if (!pat) throw new Error('GitHub PAT not configured');
     _trackApiCall();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const owner = encodeURIComponent(_owner());
-      const repo  = encodeURIComponent(_repo());
-      const safePath = path
-        .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
+      let resp;
 
-      const resp = await fetch(`https://api.github.com${safePath}`, {
-        ...options,
-        signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${pat}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          ...(options.headers || {}),
-        },
-      });
+      if (USE_WORKER) {
+        // ─── Worker proxy path ─────────────────────────
+        const adminHash = _getAdminHash();
+        if (!adminHash) throw new Error('Admin hash not found — log in first');
+
+        const owner = encodeURIComponent(_owner());
+        const repo  = encodeURIComponent(_repo());
+        const safePath = path
+          .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
+
+        resp = await fetch(`${WORKER_URL}/github${safePath}`, {
+          ...options,
+          signal: controller.signal,
+          headers: {
+            'X-Admin-Hash': adminHash,
+            'Accept': 'application/vnd.github+json',
+            ...(options.headers || {}),
+          },
+        });
+      } else {
+        // ─── Direct GitHub API path (fallback) ──────────
+        const pat = _getPat();
+        if (!pat) throw new Error('GitHub PAT not configured');
+
+        const owner = encodeURIComponent(_owner());
+        const repo  = encodeURIComponent(_repo());
+        const safePath = path
+          .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
+
+        resp = await fetch(`https://api.github.com${safePath}`, {
+          ...options,
+          signal: controller.signal,
+          headers: {
+            'Authorization': `Bearer ${pat}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            ...(options.headers || {}),
+          },
+        });
+      }
 
       // Handle rate limiting with Retry-After header
       if (resp.status === 429 || (resp.status === 403 && resp.headers.get('retry-after'))) {
         if (_retryCount >= MAX_RETRIES) {
-          throw new Error('GitHub rate limit: too many retries');
+          throw new Error('Rate limit: too many retries');
         }
         const retryAfter = parseInt(resp.headers.get('retry-after') || '60', 10);
         const waitMs = Math.max(1000, Math.min(retryAfter * 1000, 120000));
-        console.warn(`GitHub rate limited, retry ${_retryCount + 1}/${MAX_RETRIES} after ${Math.round(waitMs / 1000)}s`);
+        console.warn(`Rate limited, retry ${_retryCount + 1}/${MAX_RETRIES} after ${Math.round(waitMs / 1000)}s`);
         if (_onRateLimitWarning) _onRateLimitWarning(`Rate limited — waiting ${Math.round(waitMs / 1000)}s`);
         clearTimeout(timeout);
         await new Promise(r => setTimeout(r, waitMs));
@@ -324,7 +394,7 @@ const GitHub = (() => {
       return resp;
     } catch (e) {
       if (e.name === 'AbortError') {
-        throw new Error('GitHub API request timed out (30s)');
+        throw new Error('API request timed out (30s)');
       }
       throw e;
     } finally {
@@ -675,8 +745,8 @@ const GitHub = (() => {
       for (const [k, v] of Object.entries(_deletions)) {
         deletionsSerialized[k] = Array.from(v);
       }
-      localStorage.setItem('bb_github_pending', JSON.stringify(serializable));
-      localStorage.setItem('bb_github_deletions', JSON.stringify(deletionsSerialized));
+      localStorage.setItem('ct_github_pending', JSON.stringify(serializable));
+      localStorage.setItem('ct_github_deletions', JSON.stringify(deletionsSerialized));
     } catch (e) {
       console.warn('GitHub: could not persist pending writes for crash recovery', e);
     }
@@ -684,7 +754,7 @@ const GitHub = (() => {
 
   function _restorePending() {
     try {
-      const raw = localStorage.getItem('bb_github_pending');
+      const raw = localStorage.getItem('ct_github_pending');
       if (raw) {
         const parsed = JSON.parse(raw);
         let hasPending = false;
@@ -699,7 +769,7 @@ const GitHub = (() => {
         }
       }
       // Restore deletions
-      const delRaw = localStorage.getItem('bb_github_deletions');
+      const delRaw = localStorage.getItem('ct_github_deletions');
       if (delRaw) {
         const delParsed = JSON.parse(delRaw);
         for (const type of ['songs', 'setlists', 'practice']) {
@@ -897,6 +967,10 @@ const GitHub = (() => {
     // PAT auto-propagation
     publishPat,
     loadPublishedPat,
+
+    // Worker proxy
+    get useWorker() { return USE_WORKER; },
+    get workerUrl() { return WORKER_URL; },
 
     // Status
     getRateLimitStatus,

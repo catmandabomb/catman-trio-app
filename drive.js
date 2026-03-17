@@ -8,7 +8,7 @@
  *  - File upload (PDF/audio) to the configured folder
  *
  * Config stored in localStorage:
- *   bb_api_key, bb_client_id, bb_folder_id
+ *   ct_api_key, ct_client_id, ct_folder_id
  *
  * After sign-in, access token stored in memory only (never persisted).
  */
@@ -29,15 +29,15 @@ const Drive = (() => {
     _accessToken = token;
     _tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
     try {
-      localStorage.setItem('bb_access_token', token);
-      localStorage.setItem('bb_token_expiry', String(_tokenExpiry));
+      localStorage.setItem('ct_access_token', token);
+      localStorage.setItem('ct_token_expiry', String(_tokenExpiry));
     } catch (_) {}
   }
 
   function _loadPersistedToken() {
     try {
-      const token = localStorage.getItem('bb_access_token');
-      const expiry = parseInt(localStorage.getItem('bb_token_expiry') || '0', 10);
+      const token = localStorage.getItem('ct_access_token');
+      const expiry = parseInt(localStorage.getItem('ct_token_expiry') || '0', 10);
       if (token && expiry > Date.now()) {
         _accessToken = token;
         _tokenExpiry = expiry;
@@ -49,8 +49,8 @@ const Drive = (() => {
     _accessToken = null;
     _tokenExpiry = 0;
     try {
-      localStorage.removeItem('bb_access_token');
-      localStorage.removeItem('bb_token_expiry');
+      localStorage.removeItem('ct_access_token');
+      localStorage.removeItem('ct_token_expiry');
     } catch (_) {}
   }
 
@@ -65,16 +65,16 @@ const Drive = (() => {
 
   function getConfig() {
     return {
-      apiKey:   localStorage.getItem('bb_api_key')   || DEFAULT_API_KEY,
-      clientId: localStorage.getItem('bb_client_id') || '',
-      folderId: localStorage.getItem('bb_folder_id') || DEFAULT_FOLDER_ID,
+      apiKey:   localStorage.getItem('ct_api_key')   || DEFAULT_API_KEY,
+      clientId: localStorage.getItem('ct_client_id') || '',
+      folderId: localStorage.getItem('ct_folder_id') || DEFAULT_FOLDER_ID,
     };
   }
 
   function saveConfig({ apiKey, clientId, folderId }) {
-    localStorage.setItem('bb_api_key',   apiKey.trim());
-    localStorage.setItem('bb_client_id', clientId.trim());
-    localStorage.setItem('bb_folder_id', folderId.trim());
+    localStorage.setItem('ct_api_key',   apiKey.trim());
+    localStorage.setItem('ct_client_id', clientId.trim());
+    localStorage.setItem('ct_folder_id', folderId.trim());
   }
 
   function isConfigured() {

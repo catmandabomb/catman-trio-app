@@ -1,7 +1,7 @@
 /**
  * admin.js — Edit mode, password gate, CRUD operations
  *
- * Password is stored as a SHA-256 hex hash in localStorage (bb_pw_hash).
+ * Password is stored as a SHA-256 hex hash in localStorage (ct_pw_hash).
  * Default password on first run: see DEFAULT_HASH — change it in the app.
  *
  * Generates 4-digit hex IDs for new songs (e.g. "3f9a").
@@ -72,7 +72,7 @@ const Admin = (() => {
     // Brute force protection
     if (_isLockedOut()) return false;
 
-    const stored = localStorage.getItem('bb_pw_hash') || DEFAULT_HASH;
+    const stored = localStorage.getItem('ct_pw_hash') || DEFAULT_HASH;
     let ok = false;
 
     if (stored.startsWith('pbkdf2:')) {
@@ -90,7 +90,7 @@ const Admin = (() => {
       if (ok) {
         const salt = _randomSalt();
         const newHash = await _pbkdf2Hash(input, salt);
-        localStorage.setItem('bb_pw_hash', newHash);
+        localStorage.setItem('ct_pw_hash', newHash);
       }
     }
 
@@ -110,7 +110,7 @@ const Admin = (() => {
   async function setPassword(newPassword) {
     const salt = _randomSalt();
     const hash = await _pbkdf2Hash(newPassword, salt);
-    localStorage.setItem('bb_pw_hash', hash);
+    localStorage.setItem('ct_pw_hash', hash);
   }
 
   // ─── Edit mode ────────────────────────────────────────────
@@ -119,20 +119,20 @@ const Admin = (() => {
 
   function enterEditMode() {
     _editMode = true;
-    try { sessionStorage.setItem('bb_admin_active', '1'); } catch (_) {}
+    try { sessionStorage.setItem('ct_admin_active', '1'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.remove('hidden');
   }
 
   function exitEditMode() {
     _editMode = false;
-    try { sessionStorage.removeItem('bb_admin_active'); } catch (_) {}
+    try { sessionStorage.removeItem('ct_admin_active'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.add('hidden');
   }
 
   /** Restore admin mode from sessionStorage (survives refresh, not tab close) */
   function restoreEditMode() {
     try {
-      if (sessionStorage.getItem('bb_admin_active') === '1') {
+      if (sessionStorage.getItem('ct_admin_active') === '1') {
         enterEditMode();
         return true;
       }
@@ -392,21 +392,33 @@ const Admin = (() => {
     const testBtn    = document.getElementById('btn-github-test');
     const resultEl   = document.getElementById('github-test-result');
 
+    // When Worker proxy is active, hide PAT field and show status
+    const patField = patInput.closest('.github-field');
+    if (GitHub.useWorker) {
+      if (patField) patField.style.display = 'none';
+      resultEl.className = 'github-test-result success';
+      resultEl.textContent = 'Connected via secure Worker proxy — no PAT needed on this device.';
+    } else {
+      if (patField) patField.style.display = '';
+    }
+
     // Snapshot original config to restore on cancel
-    const origPat   = localStorage.getItem('bb_github_pat')   || '';
-    const origOwner = localStorage.getItem('bb_github_owner') || '';
-    const origRepo  = localStorage.getItem('bb_github_repo')  || '';
+    const origPat   = localStorage.getItem('ct_github_pat')   || '';
+    const origOwner = localStorage.getItem('ct_github_owner') || '';
+    const origRepo  = localStorage.getItem('ct_github_repo')  || '';
 
     patInput.value   = origPat;
     // Pre-fill owner/repo with defaults from GitHub module (user only needs PAT)
     const ghConfig = GitHub.getConfig();
     ownerInput.value = origOwner || ghConfig.owner;
     repoInput.value  = origRepo || ghConfig.repo;
-    resultEl.className = 'github-test-result hidden';
-    resultEl.textContent = '';
+    if (!GitHub.useWorker) {
+      resultEl.className = 'github-test-result hidden';
+      resultEl.textContent = '';
+    }
     overlay.classList.remove('hidden');
     const _ft = _trapFocus(overlay);
-    setTimeout(() => patInput.focus(), 50);
+    if (!GitHub.useWorker) setTimeout(() => patInput.focus(), 50);
 
     let _testing = false;
 

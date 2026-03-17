@@ -247,7 +247,7 @@ const Practice = (() => {
   function renderPractice(skipNavReset) {
     _syncFromStore();
     _setRouteParams({});
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     if (!skipNavReset) {
       _pushNav(() => App.renderList());
     }
@@ -362,7 +362,7 @@ const Practice = (() => {
   function renderPracticeDetail(persona, skipNavPush) {
     _syncFromStore();
     _setRouteParams({ personaId: persona?.id });
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     _activePersona = persona;
     Store.set('activePersona', persona);
@@ -564,7 +564,7 @@ const Practice = (() => {
 
   function renderPracticeListDetail(persona, practiceList, skipNavPush) {
     _syncFromStore();
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     _activePersona = persona;
     Store.set('activePersona', persona);
@@ -770,7 +770,7 @@ const Practice = (() => {
 
   function renderPracticeEdit(persona, isNew) {
     _syncFromStore();
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     _editPersona = deepClone(persona);
     _editPersonaIsNew = isNew;
@@ -863,7 +863,7 @@ const Practice = (() => {
   // ─── PRACTICE -- Practice List Edit ───────────────────────
 
   function _renderPracticeListEdit(persona, practiceList, isNew) {
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     _editPracticeList = deepClone(practiceList);
     _editPracticeListIsNew = isNew;
@@ -1015,7 +1015,7 @@ const Practice = (() => {
   function _enterPracticeMode(persona, practiceList, scrollToSongId) {
     _practicePersona = persona;
     _practiceList = practiceList;
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     _pushNav(() => renderPracticeListDetail(persona, practiceList));
     _showView('practice-detail');

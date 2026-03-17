@@ -124,7 +124,7 @@ const Router = (() => {
             try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
           }
         } else if (location.hash !== hash) {
-          try { history.replaceState(null, '', hash); } catch (_) {}
+          try { history.pushState(null, '', hash); } catch (_) {}
         }
       }
       // aria-current on active nav button

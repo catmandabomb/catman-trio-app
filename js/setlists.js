@@ -70,7 +70,7 @@ const Setlists = (() => {
   }
 
   function _revokeBlobCache() {
-    if (typeof App !== 'undefined' && App.revokeBlobCache) App.revokeBlobCache();
+    if (typeof App !== 'undefined' && App.cleanupPlayers) App.cleanupPlayers();
   }
 
   function _getBlobUrl(driveId) {
@@ -830,11 +830,11 @@ const Setlists = (() => {
 
     // Feature: Dark/Inverted Score Mode
     let _darkMode = false;
-    try { _darkMode = sessionStorage.getItem('bb_live_dark_mode') === '1'; } catch (_) {}
+    try { _darkMode = sessionStorage.getItem('ct_live_dark_mode') === '1'; } catch (_) {}
 
     // Feature: Half-Page Turns
     let _halfPageMode = false;
-    try { _halfPageMode = sessionStorage.getItem('bb_live_half_page') === '1'; } catch (_) {}
+    try { _halfPageMode = sessionStorage.getItem('ct_live_half_page') === '1'; } catch (_) {}
 
     // Feature: Auto-Advance
     let _autoAdvance = false;
@@ -843,7 +843,7 @@ const Setlists = (() => {
     let _autoAdvanceStart = 0; // timestamp for progress bar
     let _autoAdvanceRaf = null;
     try {
-      const savedSecs = parseInt(sessionStorage.getItem('bb_live_auto_secs'), 10);
+      const savedSecs = parseInt(sessionStorage.getItem('ct_live_auto_secs'), 10);
       if (savedSecs > 0) _autoAdvanceSecs = savedSecs;
     } catch (_) {}
 
@@ -917,7 +917,7 @@ const Setlists = (() => {
     // -- Session restore --
     let currentPageIdx = 0;
     try {
-      const saved = JSON.parse(sessionStorage.getItem('bb_live_state') || 'null');
+      const saved = JSON.parse(sessionStorage.getItem('ct_live_state') || 'null');
       if (saved && saved.setlistId === setlist.id && typeof saved.pageIdx === 'number') {
         currentPageIdx = Math.max(0, Math.min(saved.pageIdx, _pages.length - 1));
       } else if (saved && saved.setlistId === setlist.id && typeof saved.idx === 'number') {
@@ -928,7 +928,7 @@ const Setlists = (() => {
     } catch (_) {}
 
     function _persistPage() {
-      try { sessionStorage.setItem('bb_live_state', JSON.stringify({ setlistId: setlist.id, pageIdx: currentPageIdx })); } catch (_) {}
+      try { sessionStorage.setItem('ct_live_state', JSON.stringify({ setlistId: setlist.id, pageIdx: currentPageIdx })); } catch (_) {}
     }
 
     // CLASSIC 4 FIX: Skip View Transition API for live mode entry.
@@ -1108,7 +1108,7 @@ const Setlists = (() => {
       darkToggleBtn.setAttribute('aria-pressed', String(_darkMode));
       darkToggleBtn.innerHTML = `<i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:18px;height:18px;"></i>`;
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [darkToggleBtn] });
-      try { sessionStorage.setItem('bb_live_dark_mode', _darkMode ? '1' : '0'); } catch (_) {}
+      try { sessionStorage.setItem('ct_live_dark_mode', _darkMode ? '1' : '0'); } catch (_) {}
       haptic.tap();
     }
     darkToggleBtn.addEventListener('click', _toggleDarkMode);
@@ -1160,7 +1160,7 @@ const Setlists = (() => {
       _halfPageMode = !_halfPageMode;
       halfToggleBtn.classList.toggle('active', _halfPageMode);
       halfToggleBtn.setAttribute('aria-pressed', String(_halfPageMode));
-      try { sessionStorage.setItem('bb_live_half_page', _halfPageMode ? '1' : '0'); } catch (_) {}
+      try { sessionStorage.setItem('ct_live_half_page', _halfPageMode ? '1' : '0'); } catch (_) {}
       // B8: reset zoom when entering half-page mode (zoom breaks clipping)
       if (_halfPageMode && _zpHandle) _zpHandle.resetZoom();
       _rebuildPagesForHalfMode();
@@ -1224,7 +1224,7 @@ const Setlists = (() => {
     function _setAutoAdvanceInterval(secs) {
       _autoAdvanceSecs = secs;
       if (autoLabel) autoLabel.textContent = secs + 's';
-      try { sessionStorage.setItem('bb_live_auto_secs', String(secs)); } catch (_) {}
+      try { sessionStorage.setItem('ct_live_auto_secs', String(secs)); } catch (_) {}
       if (_autoAdvance) {
         _stopAutoAdvance();
         _startAutoAdvance();
@@ -1919,7 +1919,7 @@ const Setlists = (() => {
       _exitLiveModeRef = null;
       Store.set('exitLiveModeRef', null);
       _isAnimating = false;
-      try { sessionStorage.removeItem('bb_live_state'); } catch (_) {}
+      try { sessionStorage.removeItem('ct_live_state'); } catch (_) {}
       if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
       if (_overlayTimer) { clearTimeout(_overlayTimer); _overlayTimer = null; }
       if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }

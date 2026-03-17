@@ -1,0 +1,16 @@
+name = "catman-api"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+# KV namespace for rate limiting
+[[kv_namespaces]]
+binding = "CATMAN_RATE"
+id = ""  # Fill after `wrangler kv:namespace create CATMAN_RATE`
+
+# Secrets (set via `wrangler secret put <NAME>`):
+#   GITHUB_PAT          — GitHub Personal Access Token
+#   ADMIN_HASH          — PBKDF2 admin password hash (from localStorage ct_pw_hash)
+#   ENCRYPTION_KEY_SEED — 64-char hex string for AES key derivation
+
+# [vars]
+# ALLOWED_ORIGIN = "https://catmandabomb.github.io"

@@ -47,6 +47,15 @@ const App = (() => {
     Object.values(_blobCache).forEach(u => URL.revokeObjectURL(u));
     _blobCache = {};
     _blobCacheOrder = [];
+    _cleanupPlayers();
+  }
+
+  /**
+   * Destroy player instances and stop audio WITHOUT revoking the blob cache.
+   * Use this on view transitions — the LRU cache handles memory management.
+   * Only use _revokeBlobCache() for hard resets (e.g., leaving live mode).
+   */
+  function _cleanupPlayers() {
     _playerRefs.forEach(p => { try { p.destroy(); } catch(e) {} });
     _playerRefs = [];
     Player.stopAll();
@@ -94,8 +103,15 @@ const App = (() => {
       return url;
     }
 
-    // Fetch from Drive
-    const url = await Drive.fetchFileAsBlob(driveId);
+    // Fetch from Drive with 1 retry after 2s delay
+    let url;
+    try {
+      url = await Drive.fetchFileAsBlob(driveId);
+    } catch (firstErr) {
+      console.warn('Drive fetch failed, retrying in 2s:', driveId, firstErr);
+      await new Promise(r => setTimeout(r, 2000));
+      url = await Drive.fetchFileAsBlob(driveId);
+    }
     _blobCache[driveId] = url;
     _blobCacheOrder.push(driveId);
     _evictBlobCache();
@@ -407,7 +423,7 @@ const App = (() => {
   let _deferredInstallPrompt = null;
 
   function _showInstallBanner() {
-    if (localStorage.getItem('bb_install_dismissed')) return;
+    if (localStorage.getItem('ct_install_dismissed')) return;
     if (_isPWAInstalled()) return;
     if (document.querySelector('.install-banner')) return;
     const searchBar = document.getElementById('search-bar');
@@ -432,13 +448,13 @@ const App = (() => {
       banner.remove();
     });
     banner.querySelector('.install-banner-dismiss').addEventListener('click', () => {
-      localStorage.setItem('bb_install_dismissed', '1');
+      localStorage.setItem('ct_install_dismissed', '1');
       banner.remove();
     });
   }
 
   function _showIOSInstallHint() {
-    if (localStorage.getItem('bb_install_dismissed')) return;
+    if (localStorage.getItem('ct_install_dismissed')) return;
     if (document.querySelector('.install-banner')) return;
     const searchBar = document.getElementById('search-bar');
     if (!searchBar) return;
@@ -452,7 +468,7 @@ const App = (() => {
     searchBar.insertAdjacentElement('afterend', banner);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [banner] });
     banner.querySelector('.install-banner-dismiss').addEventListener('click', () => {
-      localStorage.setItem('bb_install_dismissed', '1');
+      localStorage.setItem('ct_install_dismissed', '1');
       banner.remove();
     });
   }
@@ -487,12 +503,12 @@ const App = (() => {
     `;
     document.body.appendChild(overlay);
     overlay.querySelector('#welcome-start').addEventListener('click', () => {
-      localStorage.setItem('bb_welcome_seen', '1');
+      localStorage.setItem('ct_welcome_seen', '1');
       overlay.remove();
       Admin.showGitHubModal(() => { _syncAllFromDrive(true); });
     });
     overlay.querySelector('#welcome-skip').addEventListener('click', () => {
-      localStorage.setItem('bb_welcome_seen', '1');
+      localStorage.setItem('ct_welcome_seen', '1');
       overlay.remove();
     });
   }
@@ -500,6 +516,8 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
+    if (typeof Migrate !== 'undefined') Migrate.runAll();
     const _splashStart = Date.now();
     // Safety: dismiss splash screen after 6s no matter what (don't strand user)
     const _splashSafety = setTimeout(() => {
@@ -736,7 +754,7 @@ const App = (() => {
     const REFRESH_MAX = 2;
     let _refreshTimes = [];
     try {
-      const raw = sessionStorage.getItem('bb_refresh_times');
+      const raw = sessionStorage.getItem('ct_refresh_times');
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) _refreshTimes = parsed.filter(t => typeof t === 'number' && isFinite(t));
@@ -752,7 +770,7 @@ const App = (() => {
         return;
       }
       _refreshTimes.push(now);
-      try { sessionStorage.setItem('bb_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
+      try { sessionStorage.setItem('ct_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
 
       const wasPtr = _ptrTriggered;
       _ptrTriggered = false;
@@ -851,7 +869,7 @@ const App = (() => {
     }
 
     // Feature 8: PTR first-use hint for mobile
-    if (_isMobile() && !localStorage.getItem('bb_ptr_seen')) {
+    if (_isMobile() && !localStorage.getItem('ct_ptr_seen')) {
       setTimeout(() => {
         const ptrEl = document.getElementById('ptr-indicator');
         if (!ptrEl || _view !== 'list') return;
@@ -862,7 +880,7 @@ const App = (() => {
         setTimeout(() => {
           ptrEl.style.height = '0';
           ptrEl.classList.remove('ptr-hint');
-          localStorage.setItem('bb_ptr_seen', '1');
+          localStorage.setItem('ct_ptr_seen', '1');
         }, 2500);
       }, 4000);
     }
@@ -1016,7 +1034,7 @@ const App = (() => {
     _migratePracticeData();
 
     // Feature 9: Welcome overlay for brand-new users
-    if (_songs.length === 0 && !GitHub.isConfigured() && !Drive.isConfigured() && !localStorage.getItem('bb_welcome_seen')) {
+    if (_songs.length === 0 && !GitHub.isConfigured() && !Drive.isConfigured() && !localStorage.getItem('ct_welcome_seen')) {
       _showWelcomeOverlay();
     }
 
@@ -1235,6 +1253,7 @@ const App = (() => {
     renderDashboard, runDiagnostics,
     hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap,
     revokeBlobCache: _revokeBlobCache,
+    cleanupPlayers: _cleanupPlayers,
     getBlobUrl: _getBlobUrl,
     trackPlayerRef(ref) { _playerRefs.push(ref); },
     downloadFile: _downloadFile,
@@ -1259,7 +1278,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Wire GitHub callbacks and init crash recovery
   if (typeof GitHub !== 'undefined') {
     GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
-    GitHub.onFlushSuccess = () => { localStorage.setItem('bb_last_synced', Date.now().toString()); };
+    GitHub.onFlushSuccess = () => { localStorage.setItem('ct_last_synced', Date.now().toString()); };
     GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
     GitHub.onDataChanged = (types) => {
       App.showToast('Data synced from another tab — pull down to refresh', 3000);

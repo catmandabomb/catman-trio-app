@@ -17,7 +17,7 @@ const Dashboard = (() => {
 
   function renderDashboard() {
     Store.set('currentRouteParams', {});
-    if (typeof App !== 'undefined' && App.revokeBlobCache) App.revokeBlobCache();
+    if (typeof App !== 'undefined' && App.cleanupPlayers) App.cleanupPlayers();
     Store.set('navStack', []);
     Router.pushNav(() => App.renderList());
     Router.showView('dashboard');
@@ -130,7 +130,7 @@ const Dashboard = (() => {
       });
     }
 
-    const _migrated = localStorage.getItem('bb_migrated_to_github') === '1';
+    const _migrated = localStorage.getItem('ct_migrated_to_github') === '1';
     if (!Drive.isConfigured() && !_migrated) {
       warnOrange.push({
         code: 2401,
@@ -298,7 +298,7 @@ const Dashboard = (() => {
     if (GitHub.isConfigured()) {
       const rl = GitHub.getRateLimitStatus();
       const wq = GitHub.getWriteQueueStatus();
-      const migrated = localStorage.getItem('bb_migrated_to_github') === '1';
+      const migrated = localStorage.getItem('ct_migrated_to_github') === '1';
       const fillClass = rl.warnLevel === 'critical' ? 'critical' : rl.warnLevel === 'warning' ? 'warning' : '';
       html += `
           <div class="dash-alert info">
@@ -334,7 +334,7 @@ const Dashboard = (() => {
     html += `</div>`;
 
     // Drive sync diagnostic
-    const _driveSectionTitle = (GitHub.isConfigured() && localStorage.getItem('bb_migrated_to_github') === '1')
+    const _driveSectionTitle = (GitHub.isConfigured() && localStorage.getItem('ct_migrated_to_github') === '1')
       ? 'Drive Status (Legacy — PDFs/Audio only)' : 'Drive Sync Status';
     html += `
       <div class="dash-section">
@@ -554,7 +554,7 @@ const Dashboard = (() => {
             songs: curSongs, setlists: curSetlists, practice: curPractice,
           }));
           await GitHub.migrateData({ songs: curSongs, setlists: curSetlists, practice: curPractice });
-          localStorage.setItem('bb_migrated_to_github', '1');
+          localStorage.setItem('ct_migrated_to_github', '1');
           localStorage.removeItem('_migration_backup');
           GitHub.publishPat().catch(e => console.warn('Could not publish PAT to Drive', e));
           showToast('Migration complete! Data is now syncing via GitHub.');
@@ -578,7 +578,7 @@ const Dashboard = (() => {
     (async () => {
       const el = document.getElementById('dash-drive-sync');
       if (!el) return;
-      const _isMigrated = localStorage.getItem('bb_migrated_to_github') === '1';
+      const _isMigrated = localStorage.getItem('ct_migrated_to_github') === '1';
 
       if (!Drive.isConfigured()) {
         el.style.borderLeftColor = _isMigrated ? 'var(--accent-dim)' : '#f59e0b';
@@ -853,11 +853,11 @@ const Dashboard = (() => {
     });
 
     await _test(SEC2, 'Songs data integrity', async () => {
-      const raw = localStorage.getItem('bb_songs');
+      const raw = localStorage.getItem('ct_songs');
       if (!raw) return { status: 'warn', detail: 'No songs in localStorage' };
       try {
         const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_songs is not an array' };
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'ct_songs is not an array' };
         const withId = arr.filter(s => s.id);
         const withTitle = arr.filter(s => s.title);
         return { status: 'pass', detail: `${arr.length} songs, ${withId.length} have IDs, ${withTitle.length} have titles, ~${(raw.length / 1024).toFixed(1)} KB` };
@@ -867,11 +867,11 @@ const Dashboard = (() => {
     });
 
     await _test(SEC2, 'Setlists data integrity', async () => {
-      const raw = localStorage.getItem('bb_setlists');
+      const raw = localStorage.getItem('ct_setlists');
       if (!raw) return { status: 'warn', detail: 'No setlists in localStorage' };
       try {
         const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_setlists is not an array' };
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'ct_setlists is not an array' };
         return { status: 'pass', detail: `${arr.length} setlists, ~${(raw.length / 1024).toFixed(1)} KB` };
       } catch (e) {
         return { status: 'fail', detail: `Corrupt JSON: ${e.message}` };
@@ -879,11 +879,11 @@ const Dashboard = (() => {
     });
 
     await _test(SEC2, 'Practice data integrity', async () => {
-      const raw = localStorage.getItem('bb_practice');
+      const raw = localStorage.getItem('ct_practice');
       if (!raw) return { status: 'warn', detail: 'No practice data in localStorage' };
       try {
         const arr = JSON.parse(raw);
-        if (!Array.isArray(arr)) return { status: 'fail', detail: 'bb_practice is not an array' };
+        if (!Array.isArray(arr)) return { status: 'fail', detail: 'ct_practice is not an array' };
         const totalLists = arr.reduce((s, p) => s + (p.practiceLists || []).length, 0);
         return { status: 'pass', detail: `${arr.length} personas, ${totalLists} practice lists, ~${(raw.length / 1024).toFixed(1)} KB` };
       } catch (e) {
@@ -892,8 +892,8 @@ const Dashboard = (() => {
     });
 
     await _test(SEC2, 'Migration flag status', async () => {
-      const migrated = localStorage.getItem('bb_migrated_to_github');
-      const pending = localStorage.getItem('bb_github_pending');
+      const migrated = localStorage.getItem('ct_migrated_to_github');
+      const pending = localStorage.getItem('ct_github_pending');
       let pendingInfo = 'none';
       if (pending) {
         try {
@@ -1014,7 +1014,7 @@ const Dashboard = (() => {
       ];
       try {
         const json = JSON.stringify(testData);
-        const pat = localStorage.getItem('bb_github_pat') || '';
+        const pat = localStorage.getItem('ct_github_pat') || '';
         const rawKey = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pat));
         const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
         const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -1181,8 +1181,8 @@ const Dashboard = (() => {
     });
 
     await _test(SEC8, 'Crash recovery data', async () => {
-      const raw = localStorage.getItem('bb_github_pending');
-      const delRaw = localStorage.getItem('bb_github_deletions');
+      const raw = localStorage.getItem('ct_github_pending');
+      const delRaw = localStorage.getItem('ct_github_deletions');
       if (!raw && !delRaw) return { status: 'pass', detail: 'No crash recovery data (clean state)' };
       let pendingTypes = [];
       let deletionCount = 0;

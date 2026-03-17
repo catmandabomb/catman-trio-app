@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v19.6';
+const CACHE_NAME = 'catmantrio-v19.7';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -23,6 +23,7 @@ const SHELL_ASSETS = [
   '/js/dashboard.js',
   '/js/practice.js',
   '/js/setlists.js',
+  '/js/migrate.js',
   '/js/songs.js',
   '/app.js',
   '/drive.js',
@@ -323,7 +324,8 @@ self.addEventListener('fetch', (e) => {
   if (e.request.url.includes('googleapis.com') ||
       e.request.url.includes('gstatic.com') ||
       e.request.url.includes('accounts.google.com') ||
-      e.request.url.includes('api.github.com')) {
+      e.request.url.includes('api.github.com') ||
+      e.request.url.includes('catman-api.catmandabomb.workers.dev')) {
     return;
   }
 

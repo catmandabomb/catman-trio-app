@@ -152,7 +152,7 @@ const Songs = (() => {
 
     const isDataRefresh = view === 'list' && showViewCalled;
 
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     // Clear loading skeleton cards (they have no data-song-id)
     const songListEl = document.getElementById('song-list');
     if (songListEl) songListEl.querySelectorAll('.skeleton-card').forEach(el => el.remove());
@@ -699,7 +699,7 @@ const Songs = (() => {
   }
 
   function renderDetail(song, skipNavPush) {
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     cleanupDetailAnchors();
     Store.set('activeSong', song);
@@ -788,37 +788,35 @@ const Songs = (() => {
       });
     });
 
-    // Audio players
-    setTimeout(() => {
-      container.querySelectorAll('[data-audio-container]').forEach(async el => {
-        const driveId = el.dataset.audioContainer;
-        if (!driveId) { el.innerHTML = ''; return; }
-        el.innerHTML = `
-          <div class="audio-player audio-skeleton">
-            <div class="skeleton-text" style="width:40%;height:13px"></div>
-            <div class="audio-controls">
-              <div class="skeleton-circle"></div>
-              <div class="audio-progress-wrap">
-                <div class="skeleton-bar"></div>
-                <div style="display:flex;justify-content:space-between">
-                  <div class="skeleton-text" style="width:28px;height:10px"></div>
-                  <div class="skeleton-text" style="width:28px;height:10px"></div>
-                </div>
+    // Audio players — load synchronously (no setTimeout) to avoid race with blob cache
+    container.querySelectorAll('[data-audio-container]').forEach(async el => {
+      const driveId = el.dataset.audioContainer;
+      if (!driveId) { el.innerHTML = ''; return; }
+      el.innerHTML = `
+        <div class="audio-player audio-skeleton">
+          <div class="skeleton-text" style="width:40%;height:13px"></div>
+          <div class="audio-controls">
+            <div class="skeleton-circle"></div>
+            <div class="audio-progress-wrap">
+              <div class="skeleton-bar"></div>
+              <div style="display:flex;justify-content:space-between">
+                <div class="skeleton-text" style="width:28px;height:10px"></div>
+                <div class="skeleton-text" style="width:28px;height:10px"></div>
               </div>
             </div>
-          </div>`;
-        try {
-          const url = _isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
-          if (!url) throw new Error('No audio URL');
-          el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', songId: driveId });
-          App.trackPlayerRef(ref);
-        } catch (err) {
-          console.error('Audio load failed:', driveId, err);
-          el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
-        }
-      });
-    }, 0);
+          </div>
+        </div>`;
+      try {
+        const url = _isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
+        if (!url) throw new Error('No audio URL');
+        el.innerHTML = '';
+        const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', songId: driveId });
+        App.trackPlayerRef(ref);
+      } catch (err) {
+        console.error('Audio load failed:', driveId, err);
+        el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
+      }
+    });
 
     // Download buttons
     container.querySelectorAll('.dl-btn').forEach(btn => {
@@ -1010,7 +1008,7 @@ const Songs = (() => {
   // ─── EDIT VIEW ──────────────────────────────────────────────
 
   function renderEdit(song, isNew) {
-    App.revokeBlobCache();
+    App.cleanupPlayers();
     Player.stopAll();
     const editSong = deepClone(song);
     Store.set('editSong', editSong);

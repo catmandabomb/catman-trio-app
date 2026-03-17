@@ -12,7 +12,7 @@
 const Player = (() => {
 
   let _active = null; // currently playing HTMLAudioElement
-  let _volume = parseFloat(localStorage.getItem('bb_volume') ?? 1);
+  let _volume = parseFloat(localStorage.getItem('ct_volume') ?? 1);
   if (isNaN(_volume) || _volume < 0 || _volume > 1) _volume = 1;
   let _audioElements = [];
 
@@ -322,7 +322,7 @@ const Player = (() => {
     let _playerSpeed = 1;
     if (songId) {
       try {
-        const saved = parseFloat(localStorage.getItem(`bb_audio_speed_${songId}`));
+        const saved = parseFloat(localStorage.getItem(`ct_audio_speed_${songId}`));
         if (!isNaN(saved) && saved > 0 && saved <= 1 && _speedSteps.includes(saved)) _playerSpeed = saved;
       } catch (_) {}
     }
@@ -342,8 +342,8 @@ const Player = (() => {
       if (_speedSaveTimer) clearTimeout(_speedSaveTimer);
       _speedSaveTimer = setTimeout(() => {
         try {
-          if (speed === 1) localStorage.removeItem(`bb_audio_speed_${songId}`);
-          else localStorage.setItem(`bb_audio_speed_${songId}`, speed);
+          if (speed === 1) localStorage.removeItem(`ct_audio_speed_${songId}`);
+          else localStorage.setItem(`ct_audio_speed_${songId}`, speed);
         } catch (_) {}
       }, 500);
     }
@@ -663,7 +663,7 @@ const Player = (() => {
 
   function setVolume(val) {
     _volume = Math.max(0, Math.min(1, val));
-    try { localStorage.setItem('bb_volume', _volume); } catch (_) {}
+    try { localStorage.setItem('ct_volume', _volume); } catch (_) {}
     _audioElements.forEach(a => { try { a.volume = _volume; } catch (_) {} });
   }
 

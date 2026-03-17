@@ -17,21 +17,21 @@ const Sync = (() => {
 
   function migrateSchema(data, type) {
     const schemaVer = Store.get('DATA_SCHEMA_VERSION');
-    const ver = parseInt(localStorage.getItem(`bb_schema_${type}`) || '0', 10);
+    const ver = parseInt(localStorage.getItem(`ct_schema_${type}`) || '0', 10);
     if (ver >= schemaVer) return data;
-    try { localStorage.setItem(`bb_schema_${type}`, String(schemaVer)); } catch (_) {}
+    try { localStorage.setItem(`ct_schema_${type}`, String(schemaVer)); } catch (_) {}
     return data;
   }
 
   // ─── Songs: local storage helpers ──────────────────────────
 
   function _loadLocal() {
-    try { return migrateSchema(JSON.parse(localStorage.getItem('bb_songs') || '[]'), 'songs'); }
+    try { return migrateSchema(JSON.parse(localStorage.getItem('ct_songs') || '[]'), 'songs'); }
     catch { return []; }
   }
 
   function _saveLocal(songs) {
-    try { localStorage.setItem('bb_songs', JSON.stringify(songs)); }
+    try { localStorage.setItem('ct_songs', JSON.stringify(songs)); }
     catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
     if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
       IDB.saveSongs(songs).catch(e => console.warn('IDB save songs failed', e));
@@ -85,12 +85,12 @@ const Sync = (() => {
   // ─── Setlists: local storage helpers ───────────────────────
 
   function _loadSetlistsLocal() {
-    try { return migrateSchema(JSON.parse(localStorage.getItem('bb_setlists') || '[]'), 'setlists'); }
+    try { return migrateSchema(JSON.parse(localStorage.getItem('ct_setlists') || '[]'), 'setlists'); }
     catch { return []; }
   }
 
   function _saveSetlistsLocal(setlists) {
-    try { localStorage.setItem('bb_setlists', JSON.stringify(setlists)); }
+    try { localStorage.setItem('ct_setlists', JSON.stringify(setlists)); }
     catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
     if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
       IDB.saveSetlists(setlists).catch(e => console.warn('IDB save setlists failed', e));
@@ -144,12 +144,12 @@ const Sync = (() => {
   // ─── Practice: local storage helpers ───────────────────────
 
   function _loadPracticeLocal() {
-    try { return migrateSchema(JSON.parse(localStorage.getItem('bb_practice') || '[]'), 'practice'); }
+    try { return migrateSchema(JSON.parse(localStorage.getItem('ct_practice') || '[]'), 'practice'); }
     catch { return []; }
   }
 
   function _savePracticeLocal(data) {
-    try { localStorage.setItem('bb_practice', JSON.stringify(data)); }
+    try { localStorage.setItem('ct_practice', JSON.stringify(data)); }
     catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
     if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
       IDB.savePractice(data).catch(e => console.warn('IDB save practice failed', e));
@@ -243,12 +243,12 @@ const Sync = (() => {
   // ─── Sync helpers ──────────────────────────────────────────
 
   function _shouldSync() {
-    const last = parseInt(localStorage.getItem('bb_last_sync') || '0', 10);
+    const last = parseInt(localStorage.getItem('ct_last_sync') || '0', 10);
     return Date.now() - last > Store.get('SYNC_COOLDOWN_MS');
   }
 
   function _markSynced() {
-    localStorage.setItem('bb_last_sync', String(Date.now()));
+    localStorage.setItem('ct_last_sync', String(Date.now()));
   }
 
   function _syncDone() {
@@ -266,6 +266,8 @@ const Sync = (() => {
   async function tryAutoConfigureGitHub() {
     if (Store.get('autoConfigAttempted')) return;
     Store.set('autoConfigAttempted', true);
+    // When Worker proxy is active, GitHub is always configured server-side
+    if (GitHub.useWorker) return;
     try {
       const pat = await GitHub.loadPublishedPat();
       if (!pat) return;
@@ -340,8 +342,8 @@ const Sync = (() => {
       }
 
       if (_useGitHub && (songs !== null || setlists !== null || practice !== null)) {
-        if (localStorage.getItem('bb_migrated_to_github') !== '1') {
-          localStorage.setItem('bb_migrated_to_github', '1');
+        if (localStorage.getItem('ct_migrated_to_github') !== '1') {
+          localStorage.setItem('ct_migrated_to_github', '1');
         }
       }
 
@@ -354,7 +356,7 @@ const Sync = (() => {
       const backend = _useGitHub ? 'GitHub' : 'Drive';
       console.warn(`${backend} sync failed, using local cache`, e);
       const msg = String(e.message || e || '');
-      const lastSync = parseInt(localStorage.getItem('bb_last_synced') || '0', 10);
+      const lastSync = parseInt(localStorage.getItem('ct_last_synced') || '0', 10);
       const cachedLine = lastSync
         ? 'Using cached data. Last synced ' + timeAgo(lastSync) + '.'
         : 'Using cached data.';
