@@ -9,12 +9,34 @@
 
 const Admin = (() => {
 
-  // Default password hash — SHA-256 of "Administraitor1!"
+  // Default password hash — SHA-256 of "Administraitor1!" (legacy, for migration)
   const DEFAULT_HASH = 'e5c128a06031c45577c71b9a49a5fffa3a93e077354ce609bd616b5cf70d32f4';
 
   let _editMode = false;
 
-  // ─── Password ─────────────────────────────────────────────
+  // ─── Brute Force Protection ─────────────────────────────────
+  let _failedAttempts = 0;
+  let _lockoutUntil = 0;
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_DURATIONS = [0, 0, 0, 0, 0, 15000, 30000, 60000, 120000, 300000]; // ms
+
+  function _getLockoutDuration() {
+    const idx = Math.min(_failedAttempts, LOCKOUT_DURATIONS.length - 1);
+    return LOCKOUT_DURATIONS[idx];
+  }
+
+  function _isLockedOut() {
+    if (_lockoutUntil > 0 && Date.now() < _lockoutUntil) return true;
+    if (_lockoutUntil > 0 && Date.now() >= _lockoutUntil) { _lockoutUntil = 0; }
+    return false;
+  }
+
+  function _getRemainingLockout() {
+    if (!_isLockedOut()) return 0;
+    return Math.ceil((_lockoutUntil - Date.now()) / 1000);
+  }
+
+  // ─── Password (PBKDF2 with salt, legacy SHA-256 fallback) ───
 
   async function _sha256(str) {
     const buf = await crypto.subtle.digest(
@@ -26,14 +48,68 @@ const Admin = (() => {
       .join('');
   }
 
+  function _randomSalt() {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function _pbkdf2Hash(password, saltHex) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']
+    );
+    const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial, 256
+    );
+    const hashHex = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return 'pbkdf2:' + saltHex + ':' + hashHex;
+  }
+
   async function checkPassword(input) {
-    const hash = await _sha256(input);
+    // Brute force protection
+    if (_isLockedOut()) return false;
+
     const stored = localStorage.getItem('bb_pw_hash') || DEFAULT_HASH;
-    return hash === stored;
+    let ok = false;
+
+    if (stored.startsWith('pbkdf2:')) {
+      // New PBKDF2 format: "pbkdf2:<salt>:<hash>"
+      const parts = stored.split(':');
+      if (parts.length === 3) {
+        const computed = await _pbkdf2Hash(input, parts[1]);
+        ok = computed === stored;
+      }
+    } else {
+      // Legacy SHA-256 format (unsalted)
+      const hash = await _sha256(input);
+      ok = hash === stored;
+      // Auto-migrate to PBKDF2 on successful legacy login
+      if (ok) {
+        const salt = _randomSalt();
+        const newHash = await _pbkdf2Hash(input, salt);
+        localStorage.setItem('bb_pw_hash', newHash);
+      }
+    }
+
+    if (ok) {
+      _failedAttempts = 0;
+      _lockoutUntil = 0;
+    } else {
+      _failedAttempts++;
+      if (_failedAttempts >= MAX_ATTEMPTS) {
+        _lockoutUntil = Date.now() + _getLockoutDuration();
+      }
+    }
+
+    return ok;
   }
 
   async function setPassword(newPassword) {
-    const hash = await _sha256(newPassword);
+    const salt = _randomSalt();
+    const hash = await _pbkdf2Hash(newPassword, salt);
     localStorage.setItem('bb_pw_hash', hash);
   }
 
@@ -138,9 +214,31 @@ const Admin = (() => {
     overlay.classList.remove('hidden');
     const _ft = _trapFocus(overlay);
 
+    // Show lockout message if already locked out
+    if (_isLockedOut()) {
+      const secs = _getRemainingLockout();
+      error.textContent = `Too many attempts. Try again in ${secs}s.`;
+      error.classList.remove('hidden');
+      input.disabled = true;
+      document.getElementById('btn-password-confirm').disabled = true;
+      const _lockTimer = setInterval(() => {
+        if (!_isLockedOut()) {
+          clearInterval(_lockTimer);
+          error.classList.add('hidden');
+          error.textContent = 'Incorrect password.';
+          input.disabled = false;
+          document.getElementById('btn-password-confirm').disabled = false;
+          input.focus();
+        } else {
+          error.textContent = `Too many attempts. Try again in ${_getRemainingLockout()}s.`;
+        }
+      }, 1000);
+    }
+
     let _confirming = false;
     const confirm = async () => {
       if (_confirming) return;
+      if (_isLockedOut()) return;
       _confirming = true;
       try {
         const ok = await checkPassword(input.value);
@@ -150,6 +248,25 @@ const Admin = (() => {
           cleanup();
           onSuccess();
         } else {
+          if (_isLockedOut()) {
+            const secs = _getRemainingLockout();
+            error.textContent = `Too many attempts. Try again in ${secs}s.`;
+            input.disabled = true;
+            document.getElementById('btn-password-confirm').disabled = true;
+            const _lockTimer = setInterval(() => {
+              if (!_isLockedOut()) {
+                clearInterval(_lockTimer);
+                error.textContent = 'Incorrect password.';
+                input.disabled = false;
+                document.getElementById('btn-password-confirm').disabled = false;
+                input.focus();
+              } else {
+                error.textContent = `Too many attempts. Try again in ${_getRemainingLockout()}s.`;
+              }
+            }, 1000);
+          } else {
+            error.textContent = 'Incorrect password.';
+          }
           error.classList.remove('hidden');
           input.value = '';
           input.focus();

@@ -69,10 +69,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=19.2" as="style">
+  <link rel="preload" href="app.css?v=19.3" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="preload" href="app.js?v=19.2" as="script">
-  <link rel="stylesheet" href="app.css?v=19.2" />
+  <link rel="preload" href="app.js?v=19.3" as="script">
+  <link rel="stylesheet" href="app.css?v=19.3" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
@@ -137,7 +137,7 @@
       <div id="search-bar">
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
-          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" />
+          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" maxlength="100" />
           <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear all filters" title="Clear all filters">
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
@@ -227,7 +227,7 @@
       <h2 id="modal-password-title">Admin Access</h2>
       <p class="muted">Enter password to enable edit mode.</p>
       <label for="password-input" class="sr-only">Admin password</label>
-      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" />
+      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" maxlength="128" />
       <div id="password-error" class="error-msg hidden">Incorrect password.</div>
       <div class="modal-actions">
         <button id="btn-password-cancel" class="btn-secondary" title="Cancel">Cancel</button>
@@ -339,21 +339,21 @@
 
   <script src="lucide.min.js"></script>
   <script src="idb.js"></script>
-  <script src="js/store.js?v=19.2"></script>
-  <script src="js/utils.js?v=19.2"></script>
-  <script src="js/modal.js?v=19.2"></script>
-  <script src="js/router.js?v=19.2"></script>
+  <script src="js/store.js?v=19.3"></script>
+  <script src="js/utils.js?v=19.3"></script>
+  <script src="js/modal.js?v=19.3"></script>
+  <script src="js/router.js?v=19.3"></script>
   <script src="drive.js"></script>
   <script src="github.js"></script>
-  <script src="js/sync.js?v=19.2"></script>
+  <script src="js/sync.js?v=19.3"></script>
   <script src="pdf-viewer.js"></script>
   <script src="player.js"></script>
   <script src="metronome.js"></script>
   <script src="admin.js"></script>
-  <script src="js/dashboard.js?v=19.2"></script>
-  <script src="js/practice.js?v=19.2"></script>
-  <script src="js/setlists.js?v=19.2"></script>
-  <script src="js/songs.js?v=19.2"></script>
-  <script src="app.js?v=19.2"></script>
+  <script src="js/dashboard.js?v=19.3"></script>
+  <script src="js/practice.js?v=19.3"></script>
+  <script src="js/setlists.js?v=19.3"></script>
+  <script src="js/songs.js?v=19.3"></script>
+  <script src="app.js?v=19.3"></script>
 </body>
 </html>
