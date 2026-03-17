@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v18.8';
+const CACHE_NAME = 'catmantrio-v18.9';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -61,10 +61,37 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
+// ─── 2A: Audio proxy for iOS Safari ─────────────────────
+// iOS Safari has issues with blob: URLs for audio elements.
+// The app registers audio blobs here, and the fetch handler serves them
+// via a real URL path that iOS Safari can handle.
+// Safety: entries auto-expire after 30 minutes to prevent unbounded growth
+// if RELEASE_AUDIO is never called (page crash, tab close).
+const _audioProxyMap = new Map(); // id -> { blob, expires }
+const AUDIO_PROXY_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
 // Listen for messages from the app to cache/retrieve songs
 self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+
+  // 2A: Audio proxy registration/release
+  if (e.data && e.data.type === 'REGISTER_AUDIO') {
+    const { id, blob } = e.data;
+    if (id && blob) {
+      _audioProxyMap.set(id, { blob, expires: Date.now() + AUDIO_PROXY_TTL_MS });
+      // Lazy cleanup of expired entries
+      for (const [key, entry] of _audioProxyMap) {
+        if (entry.expires < Date.now()) _audioProxyMap.delete(key);
+      }
+    }
+    return;
+  }
+  if (e.data && e.data.type === 'RELEASE_AUDIO') {
+    const { id } = e.data;
+    if (id) _audioProxyMap.delete(id);
     return;
   }
 
@@ -226,6 +253,54 @@ self.addEventListener('message', (e) => {
 // - Shell assets (JS/CSS): cache-first with ignoreSearch for offline resilience
 // - External APIs: bypass SW entirely
 self.addEventListener('fetch', (e) => {
+  // 2A: Audio proxy — serve registered blobs via real URL for iOS Safari.
+  // Supports Range requests (required for iOS Safari audio seeking).
+  if (e.request.url.includes('/audio-proxy/')) {
+    const match = e.request.url.match(/audio-proxy\/(.+)$/);
+    if (match) {
+      const id = match[1];
+      const entry = _audioProxyMap.get(id);
+      if (entry && entry.expires > Date.now()) {
+        const blob = entry.blob;
+        const rangeHeader = e.request.headers.get('Range');
+        if (rangeHeader) {
+          // Parse Range: bytes=START-END
+          const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+          if (rangeMatch) {
+            const start = parseInt(rangeMatch[1], 10);
+            const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : blob.size - 1;
+            const chunk = blob.slice(start, end + 1);
+            e.respondWith(new Response(chunk, {
+              status: 206,
+              statusText: 'Partial Content',
+              headers: {
+                'Content-Type': blob.type || 'audio/mpeg',
+                'Content-Length': chunk.size,
+                'Content-Range': `bytes ${start}-${end}/${blob.size}`,
+                'Accept-Ranges': 'bytes',
+              }
+            }));
+            return;
+          }
+        }
+        // Full response (no Range header)
+        e.respondWith(new Response(blob, {
+          headers: {
+            'Content-Type': blob.type || 'audio/mpeg',
+            'Content-Length': blob.size,
+            'Accept-Ranges': 'bytes',
+          }
+        }));
+        return;
+      } else if (entry) {
+        // Expired — clean up
+        _audioProxyMap.delete(id);
+      }
+    }
+    // No blob found — let it 404
+    return;
+  }
+
   // CDN scripts (pdf.js, SortableJS): cache-first for offline support
   if (e.request.url.includes('cdnjs.cloudflare.com') ||
       e.request.url.includes('cdn.jsdelivr.net')) {

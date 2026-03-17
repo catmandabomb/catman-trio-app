@@ -37,6 +37,9 @@ const PDFViewer = (() => {
   // Cache stores pre-rendered canvases keyed by `${pdfId}-${pageNum}`
   const _renderCache = new Map(); // key: `${pdfId}-${pageNum}` → { canvas, displayW, displayH }
   const _isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  // DPR cap: high-density mobile devices (3x, 4x) waste canvas memory rendering
+  // at full DPR. Cap at 3 on mobile to stay within iOS ~256MB canvas budget.
+  const _maxDPR = _isMobileDevice ? 3 : 4;
   // B3: adaptive cache sizing based on device memory (when available)
   const _deviceMemGB = navigator.deviceMemory || (_isMobileDevice ? 2 : 8);
   const MAX_RENDER_CACHE = _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : _deviceMemGB >= 8 ? 40 : 20;
@@ -207,7 +210,7 @@ const PDFViewer = (() => {
 
     const viewport = page.getViewport({ scale: 1 });
     const fitScale = containerWidth / viewport.width;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
     const renderScale = Math.min(fitScale * Math.max(dpr, 2), 6);
     const scaled = page.getViewport({ scale: renderScale });
 
@@ -255,7 +258,7 @@ const PDFViewer = (() => {
 
     const viewport = page.getViewport({ scale: 1 });
     const fitScale = containerWidth / viewport.width;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
     const renderScale = Math.min(fitScale * Math.max(dpr, 2), 6);
     const scaled = page.getViewport({ scale: renderScale });
 
@@ -382,7 +385,7 @@ const PDFViewer = (() => {
     const pdfUrl = _pdfUrlMap.get(pdfDoc);
     if (_renderWorker && pdfUrl) {
       try {
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
         const { bitmap, displayW, displayH } = await _workerRender(pdfUrl, pageNum, containerWidth, dpr);
         // Draw ImageBitmap to visible canvas (canvas.width assignment already clears)
         canvas.width = bitmap.width;
@@ -424,7 +427,7 @@ const PDFViewer = (() => {
     const displayH = viewport.height * fitScale;
 
     // Step 1: Fast 1x render (visible immediately)
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
     const lowScale = Math.min(fitScale * dpr, 4);
     const lowVP = page.getViewport({ scale: lowScale });
 
@@ -462,7 +465,7 @@ const PDFViewer = (() => {
         return;
       }
 
-      const hiDpr = window.devicePixelRatio || 1;
+      const hiDpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
       const hiScale = Math.min(fitScale * Math.max(hiDpr, 2), 6);
       const hiVP = hiPage.getViewport({ scale: hiScale });
 
@@ -771,7 +774,37 @@ const PDFViewer = (() => {
     function zoomInFn()  { if (!_destroyed) setZoom(zoom * 1.25); }
     function zoomOutFn() { if (!_destroyed) setZoom(zoom / 1.25); }
 
-    return { destroy, resetZoom: () => { if (!_destroyed) resetZoom(); }, getZoom: () => zoom, zoomIn: zoomInFn, zoomOut: zoomOutFn };
+    /**
+     * 3B: Retarget zoom/pan to a new canvas+container without destroying/recreating
+     * event listeners. Resets zoom/pan state and updates closure references.
+     * Eliminates 8 removeEventListener + 8 addEventListener calls per page turn.
+     */
+    function retarget(newCanvas, newContainerEl) {
+      if (_destroyed) return;
+      // Move listeners from old container to new one
+      containerEl.removeEventListener('touchstart', onTouchStart);
+      containerEl.removeEventListener('touchmove', onTouchMove);
+      containerEl.removeEventListener('touchend', onTouchEnd);
+      containerEl.removeEventListener('wheel', onWheel);
+      containerEl.removeEventListener('mousedown', onMouseDown);
+      // Update closure references
+      canvas = newCanvas;
+      containerEl = newContainerEl;
+      // Reset state
+      zoom = 1; panX = 0; panY = 0;
+      isPinching = false; isDragging = false; mouseDown = false;
+      lastTap = 0; lastPinchEnd = 0;
+      _rafPending = false;
+      applyTransform();
+      // Attach to new container
+      newContainerEl.addEventListener('touchstart', onTouchStart, { passive: false });
+      newContainerEl.addEventListener('touchmove', onTouchMove, { passive: false });
+      newContainerEl.addEventListener('touchend', onTouchEnd, { passive: true });
+      newContainerEl.addEventListener('wheel', onWheel, { passive: false });
+      newContainerEl.addEventListener('mousedown', onMouseDown);
+    }
+
+    return { destroy, resetZoom: () => { if (!_destroyed) resetZoom(); }, getZoom: () => zoom, zoomIn: zoomInFn, zoomOut: zoomOutFn, retarget };
   }
 
   // ─── Modal-specific render (uses renderToCanvas + pending page) ──

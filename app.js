@@ -500,9 +500,21 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
-    // Initialize IndexedDB (before loading data)
+    // Show loading skeleton immediately so the user sees activity on cold start
+    // (must happen before any await to avoid black-screen perception)
+    const songList = document.getElementById('song-list');
+    if (songList && !songList.children.length) {
+      songList.innerHTML = Array(6).fill('<div class="skeleton-card"></div>').join('');
+    }
+
+    // Initialize IndexedDB (before loading data) — with timeout to prevent hanging
     if (typeof IDB !== 'undefined') {
-      try { await IDB.open(); } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
+      try {
+        await Promise.race([
+          IDB.open(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('IDB timeout')), 5000))
+        ]);
+      } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
     }
 
     // Register SW early so the install prompt can work
@@ -598,10 +610,6 @@ const App = (() => {
     if (navigator.storage && navigator.storage.persist) {
       navigator.storage.persist().catch(() => {});
     }
-
-    // Show loading skeleton
-    const songList = document.getElementById('song-list');
-    if (songList) songList.innerHTML = Array(6).fill('<div class="skeleton-card"></div>').join('');
 
     // PWA install gate — mobile browsers only
     if (_isMobile() && !_isPWAInstalled()) {
@@ -1015,9 +1023,8 @@ const App = (() => {
       });
     }
 
-    await loadSongsInstant();
-    await loadSetlistsInstant();
-    await loadPracticeInstant();
+    // Load all data sources in parallel for faster cold start
+    await Promise.all([loadSongsInstant(), loadSetlistsInstant(), loadPracticeInstant()]);
     _migratePracticeData();
 
     // Feature 9: Welcome overlay for brand-new users

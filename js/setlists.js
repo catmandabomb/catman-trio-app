@@ -1344,11 +1344,15 @@ const Setlists = (() => {
         _renderPageIntoSlide(slots[2], -1);
       }
 
-      // Re-attach zoom/pan to the current center slide
-      if (_zpHandle) _zpHandle.destroy();
+      // 3B: retarget zoom/pan to the new center slide (avoids destroy/create churn)
       _currentChartArea = slots[1].querySelector('.lm-slide-chart');
       _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
-      _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+      if (_zpHandle && _zpHandle.retarget) {
+        _zpHandle.retarget(_currentCanvas, _currentChartArea);
+      } else {
+        if (_zpHandle) _zpHandle.destroy();
+        _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+      }
 
       _updateProgress();
     }
@@ -1401,7 +1405,8 @@ const Setlists = (() => {
 
       // Set transition first, force reflow, THEN change transform.
       // Without the reflow, some browsers batch both changes and skip the animation.
-      carousel.style.transition = 'transform 0.25s ease-out';
+      // 3A: 150ms transition for near-instant page turns (was 250ms)
+      carousel.style.transition = 'transform 150ms cubic-bezier(0.25, 0.1, 0.25, 1)';
       void carousel.offsetWidth; // force style recalc so transition is registered
       carousel.style.transform = `translateX(${targetX})`;
 
@@ -1427,11 +1432,15 @@ const Setlists = (() => {
           carousel.style.transition = 'none';
           carousel.style.transform = 'translateX(-100%)';
 
-          // Re-attach zoom/pan to the new center slide
-          if (_zpHandle) _zpHandle.destroy();
+          // 3B: retarget zoom/pan to the new center slide (avoids destroy/create churn)
           _currentChartArea = slots[1].querySelector('.lm-slide-chart');
           _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
-          _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+          if (_zpHandle && _zpHandle.retarget) {
+            _zpHandle.retarget(_currentCanvas, _currentChartArea);
+          } else {
+            if (_zpHandle) _zpHandle.destroy();
+            _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
+          }
 
           // A3: ALWAYS re-render center slot after page turn — guarantees correctness.
           // The render cache makes this near-instant for already-cached pages.
@@ -1473,11 +1482,11 @@ const Setlists = (() => {
         _afterSnap();
       }
       carousel.addEventListener('transitionend', _onTransitionEnd);
-      // 400ms = 250ms anim + 150ms margin for slow devices / CPU load
+      // 350ms = 150ms anim + 200ms margin for slow devices / CPU load
       setTimeout(() => {
         carousel.removeEventListener('transitionend', _onTransitionEnd);
         _afterSnap();
-      }, 400);
+      }, 350);
     }
 
     function _checkSongBoundary() {
@@ -1690,20 +1699,43 @@ const Setlists = (() => {
       };
     }
 
-    // Fire all PDF loads in parallel
-    const loadPromises = [];
+    // 3C: Priority-queue PDF loading — current song first, then adjacent, then rest.
+    // This ensures _revealLiveMode fires as soon as the current song is ready,
+    // not blocked by a distant song's large PDF.
+    const _currentSongIdx = _pages[currentPageIdx]?.songIdx ?? 0;
+    const _p0 = []; // P0: current song (load immediately, await before reveal)
+    const _p1 = []; // P1: adjacent songs (±3)
+    const _p2 = []; // P2: remaining songs (load during idle)
     for (let si = 0; si < _songEntries.length; si++) {
+      const dist = Math.abs(si - _currentSongIdx);
       const orderedCharts = _getOrderedCharts(_songEntries[si]);
       orderedCharts.forEach(chart => {
-        loadPromises.push(_loadChartPDF(si, chart.driveId).then(() => {
-          _loadedCharts++;
-          _updateLoadingProgress();
-        }));
+        const entry = { si, driveId: chart.driveId };
+        if (dist === 0) _p0.push(entry);
+        else if (dist <= 3) _p1.push(entry);
+        else _p2.push(entry);
       });
     }
+    // Sort P1 by proximity
+    _p1.sort((a, b) => Math.abs(a.si - _currentSongIdx) - Math.abs(b.si - _currentSongIdx));
+
+    const _trackLoad = (entry) => _loadChartPDF(entry.si, entry.driveId).then(() => {
+      _loadedCharts++;
+      _updateLoadingProgress();
+    });
+
+    // Load P0 first (await all), then P1 in parallel, then P2 in parallel.
+    // _allChartsLoaded rejects if live mode exits during loading (prevents post-exit work).
+    const _allChartsLoaded = (async () => {
+      await Promise.all(_p0.map(_trackLoad)).catch(() => {});
+      if (!_liveModeActive) throw new Error('exited');
+      await Promise.all(_p1.map(_trackLoad)).catch(() => {});
+      if (!_liveModeActive) throw new Error('exited');
+      await Promise.all(_p2.map(_trackLoad)).catch(() => {});
+    })();
 
     // After all charts load, pre-render every page for instant swiping
-    Promise.all(loadPromises).then(async () => {
+    _allChartsLoaded.then(async () => {
       if (!_liveModeActive) return;
       const cw = carousel.clientWidth || window.innerWidth;
       if (cw <= 0) return;
@@ -1779,6 +1811,8 @@ const Setlists = (() => {
       carousel.removeEventListener('click', _onClickTapZone);
       document.removeEventListener('fullscreenchange', _onFullscreenChange);
       window.removeEventListener('popstate', _onPopState);
+      window.removeEventListener('resize', _onResize);
+      if (_resizeTimer) { clearTimeout(_resizeTimer); _resizeTimer = null; }
       if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -1797,11 +1831,12 @@ const Setlists = (() => {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
       // Close jump picker on any navigation key
       if (!jumpOverlay.classList.contains('hidden')) _closeJumpPicker();
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+      // 4C: Enter/Backspace added for BT page turner compatibility
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' || e.key === 'Enter') {
         e.preventDefault();
         if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } // reset timer on manual nav
         _goPage(1);
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Backspace') {
         e.preventDefault();
         if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); }
         _goPage(-1);
@@ -1836,6 +1871,22 @@ const Setlists = (() => {
       }
     }
     document.addEventListener('keydown', _onKey);
+
+    // -- Orientation/resize handler — re-render on viewport change --
+    let _resizeTimer = null;
+    function _onResize() {
+      if (!_liveModeActive || _isAnimating) return;
+      // Debounce to avoid thrashing during resize drag or orientation animation
+      if (_resizeTimer) clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(() => {
+        _resizeTimer = null;
+        if (!_liveModeActive) return;
+        // Clear render cache (dimensions changed) and re-render visible slots
+        PDFViewer.clearRenderCache();
+        _updateSlots();
+      }, 300);
+    }
+    window.addEventListener('resize', _onResize);
 
     // -- B5: Auto-hide chrome (header + nav fade after 4s of no interaction) --
     let _chromeHideTimer = null;

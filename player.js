@@ -16,6 +16,14 @@ const Player = (() => {
   if (isNaN(_volume) || _volume < 0 || _volume > 1) _volume = 1;
   let _audioElements = [];
 
+  // 2A: iOS Safari detection — blob URLs can fail silently on iOS Safari.
+  // Use service worker audio proxy as a workaround.
+  // Excludes: standalone PWA mode (doesn't need proxy), Chrome/Firefox/Edge on iOS
+  const _isIOSSafari = !navigator.standalone
+    && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
+    && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|OPiOS|EdgiOS/.test(navigator.userAgent);
+  let _audioProxyCounter = 0;
+
   // Playback speed steps — per-player (each audio file has independent speed)
   // Tap cycles: 1.0 → 0.9 → 0.8 → 0.7 → 0.6 → 0.5 → 1.0
   // Long-press: reset to 1x immediately.
@@ -74,21 +82,63 @@ const Player = (() => {
   }
 
   /**
+   * 2A: Register a blob with the service worker for iOS Safari audio proxy.
+   * Returns a proxy URL that the SW will intercept and serve the blob from.
+   */
+  async function _registerAudioProxy(blob) {
+    if (!navigator.serviceWorker?.controller) return null;
+    const proxyId = `audio-proxy-${++_audioProxyCounter}-${Date.now()}`;
+    const proxyUrl = `/audio-proxy/${proxyId}`;
+    navigator.serviceWorker.controller.postMessage({
+      type: 'REGISTER_AUDIO', id: proxyId, blob
+    });
+    // Small delay to ensure SW processes the message before fetch
+    await new Promise(r => setTimeout(r, 50));
+    return proxyUrl;
+  }
+
+  /**
    * Create and mount an audio player into `container`.
    * @param {HTMLElement} container
    * @param {Object}      opts
    * @param {string}      opts.name      — display name (audio file name)
    * @param {string}      opts.blobUrl   — blob URL for the audio
    * @param {string}      [opts.songTitle] — song title for lock screen / Media Session
+   * @param {string}      [opts.songId]  — song ID for persisting audio preferences
    */
-  function create(container, { name, blobUrl, songTitle, loopMode }) {
+  function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
     if (!container) throw new Error('Player.create: container is null');
     const audio = document.createElement('audio');
     audio.preload = 'auto';
     audio.setAttribute('playsinline', '');
     audio.setAttribute('webkit-playsinline', '');
     try { audio.volume = _volume; } catch (_) {} // iOS: volume is read-only
-    audio.src = blobUrl;
+
+    // 2A: iOS Safari audio proxy — blob: URLs can fail silently on some iOS versions.
+    // Convert blob URL to a service-worker-proxied URL for reliable playback.
+    // Only applies to blob: URLs — direct https: URLs already work fine on iOS.
+    // IMPORTANT: Set audio.src immediately as fallback so play() never finds an empty source.
+    let _proxyUrl = null;
+    audio.src = blobUrl; // set immediately — proxy will update if available
+    if (_isIOSSafari && blobUrl && blobUrl.startsWith('blob:') && navigator.serviceWorker?.controller) {
+      (async () => {
+        try {
+          const resp = await fetch(blobUrl);
+          const blob = await resp.blob();
+          const url = await _registerAudioProxy(blob);
+          if (url) {
+            _proxyUrl = url;
+            // Only update src if audio isn't currently playing (avoid interrupting playback)
+            if (audio.paused) {
+              audio.src = url;
+            }
+          }
+        } catch (_) {
+          // Fallback already set — no action needed
+        }
+      })();
+    }
+
     audio.style.display = 'none';
     _audioElements.push(audio);
 
@@ -263,7 +313,14 @@ const Player = (() => {
     const speedBtn = el.querySelector('.audio-speed-btn');
 
     // Per-player speed (independent per audio file)
+    // 2C: Restore saved speed for this song if available
     let _playerSpeed = 1;
+    if (songId) {
+      try {
+        const saved = parseFloat(localStorage.getItem(`bb_audio_speed_${songId}`));
+        if (saved && _speedSteps.includes(saved)) _playerSpeed = saved;
+      } catch (_) {}
+    }
 
     // Smooth speed ramp — avoids audio decoder choke on instant rate change
     let _rampRaf = null;
@@ -271,6 +328,19 @@ const Player = (() => {
       if (step >= steps) { try { targetAudio.playbackRate = to; } catch (_) {} return; }
       try { targetAudio.playbackRate = from + (to - from) * (step / steps); } catch (_) {}
       _rampRaf = requestAnimationFrame(() => _rampRate(targetAudio, from, to, step + 1, steps));
+    }
+
+    // 2C: debounce speed persistence to avoid localStorage thrash
+    let _speedSaveTimer = null;
+    function _persistSpeed(speed) {
+      if (!songId) return;
+      if (_speedSaveTimer) clearTimeout(_speedSaveTimer);
+      _speedSaveTimer = setTimeout(() => {
+        try {
+          if (speed === 1) localStorage.removeItem(`bb_audio_speed_${songId}`);
+          else localStorage.setItem(`bb_audio_speed_${songId}`, speed);
+        } catch (_) {}
+      }, 500);
     }
 
     function _applySpeed(speed) {
@@ -284,6 +354,8 @@ const Player = (() => {
       // Ramp this player's rate smoothly over ~6 frames (~100ms)
       if (_rampRaf) cancelAnimationFrame(_rampRaf);
       _rampRate(audio, prev, speed, 0, 6);
+      // 2C: persist speed preference
+      _persistSpeed(speed);
     }
 
     // Tap: cycle 1.0→0.9→0.8→0.75→0.5→1.0. Long-press: reset to 1x.
@@ -324,6 +396,15 @@ const Player = (() => {
       duration.textContent = _formatTime(audio.duration);
       // Auto-populate duration in edit form if song has no duration set
       _tryAutoPopulateDuration(audio.duration);
+      // 2C: apply restored speed after metadata loads (playbackRate ignored before this)
+      if (_playerSpeed !== 1) {
+        try { audio.playbackRate = _playerSpeed; } catch (_) {}
+        const label = _playerSpeed.toFixed(1) + 'x';
+        if (speedBtn) {
+          speedBtn.textContent = label;
+          speedBtn.classList.toggle('speed-active', true);
+        }
+      }
     });
 
     // Smooth progress bar via rAF (timeupdate fires ~4Hz, too choppy)
@@ -509,6 +590,7 @@ const Player = (() => {
       destroy() {
         _stopRaf();
         if (_rampRaf) cancelAnimationFrame(_rampRaf);
+        if (_speedSaveTimer) clearTimeout(_speedSaveTimer);
         if (_loopTimeUpdate) audio.removeEventListener('timeupdate', _loopTimeUpdate);
         if (_loopEnded) audio.removeEventListener('ended', _loopEnded);
         const wasActive = (_active === audio);
@@ -517,6 +599,11 @@ const Player = (() => {
           audio.removeAttribute('src');
           audio.load(); // Release resources
         } catch (_) {}
+        // 2A: tell SW to release the audio proxy blob
+        if (_proxyUrl && navigator.serviceWorker?.controller) {
+          const proxyId = _proxyUrl.replace('/audio-proxy/', '');
+          navigator.serviceWorker.controller.postMessage({ type: 'RELEASE_AUDIO', id: proxyId });
+        }
         try { audio.remove(); } catch (_) {}
         try { el.remove(); } catch (_) {}
         if (wasActive) { _active = null; _clearMediaSession(); }

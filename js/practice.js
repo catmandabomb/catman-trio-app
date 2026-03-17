@@ -1103,7 +1103,7 @@ const Practice = (() => {
           const url = isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true });
+          Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true, songId: driveId });
         } catch { el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
       });
 

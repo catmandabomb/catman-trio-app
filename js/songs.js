@@ -727,7 +727,7 @@ const Songs = (() => {
           const url = _isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
           if (!url) throw new Error('No audio URL');
           el.innerHTML = '';
-          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '' });
+          const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', songId: driveId });
           App.trackPlayerRef(ref);
         } catch {
           el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`;
