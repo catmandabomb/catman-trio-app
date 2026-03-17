@@ -772,14 +772,37 @@ const Setlists = (() => {
       try {
         if ('wakeLock' in navigator && _liveModeActive) {
           _wakeLock = await navigator.wakeLock.request('screen');
+          // Check if live mode exited during the async await — release if so
+          if (!_liveModeActive) {
+            try { _wakeLock.release(); } catch (_) {}
+            _wakeLock = null;
+            return;
+          }
           _updateWakeLockIndicator(true);
         }
       } catch (_) { _updateWakeLockIndicator(false); }
     }
     function _onVisibilityChange() {
-      if (document.visibilityState === 'visible' && _liveModeActive && !_wakeLock) _requestWakeLock();
+      if (document.visibilityState === 'visible' && _liveModeActive) {
+        if (!_wakeLock) _requestWakeLock();
+        // B7: retry failed charts when app becomes visible again (e.g. after network restore)
+        if (_failedCharts && _failedCharts.length > 0) {
+          setTimeout(() => { if (_liveModeActive) _retryFailedCharts(); }, 500);
+        }
+      }
     }
     document.addEventListener('visibilitychange', _onVisibilityChange);
+    // Re-acquire wake lock after fullscreen toggle (Android Chrome releases it)
+    function _onFullscreenChange() {
+      if (_liveModeActive && !_wakeLock) _requestWakeLock();
+    }
+    document.addEventListener('fullscreenchange', _onFullscreenChange);
+    // Android back button support — push history state so back exits Live Mode
+    history.pushState({ liveMode: true }, '');
+    function _onPopState() {
+      if (_liveModeActive) _exitLiveMode();
+    }
+    window.addEventListener('popstate', _onPopState);
     _requestWakeLock();
 
     // -- Build flat page list --
@@ -958,6 +981,7 @@ const Setlists = (() => {
       if (!item) return;
       const targetSongIdx = parseInt(item.dataset.songIdx, 10);
       if (isNaN(targetSongIdx)) return;
+      if (_isAnimating) return; // prevent jump during slide animation
       haptic.tap();
       const targetPageIdx = _pages.findIndex(p => p.songIdx === targetSongIdx);
       if (targetPageIdx >= 0 && targetPageIdx !== currentPageIdx) {
@@ -1031,10 +1055,13 @@ const Setlists = (() => {
     }
 
     function _toggleHalfPage() {
+      if (_isAnimating) return; // prevent toggle during slide animation — corrupts slot state
       _halfPageMode = !_halfPageMode;
       halfToggleBtn.classList.toggle('active', _halfPageMode);
       halfToggleBtn.setAttribute('aria-pressed', String(_halfPageMode));
       try { sessionStorage.setItem('bb_live_half_page', _halfPageMode ? '1' : '0'); } catch (_) {}
+      // B8: reset zoom when entering half-page mode (zoom breaks clipping)
+      if (_halfPageMode && _zpHandle) _zpHandle.resetZoom();
       _rebuildPagesForHalfMode();
       haptic.tap();
     }
@@ -1052,8 +1079,9 @@ const Setlists = (() => {
       autoToggleBtn.setAttribute('aria-pressed', 'true');
       _autoAdvanceTimer = setInterval(() => {
         if (!_isAnimating && currentPageIdx < _pages.length - 1) {
-          _goPage(1);
+          // B9: set timestamp BEFORE _goPage for atomicity (progress bar stays in sync)
           _autoAdvanceStart = Date.now();
+          _goPage(1);
           _updateAutoProgress();
         } else if (currentPageIdx >= _pages.length - 1) {
           _stopAutoAdvance();
@@ -1103,9 +1131,15 @@ const Setlists = (() => {
     }
 
     let _autoPickerDelayTimer = null;
+    let _autoPickerClickHandler = null; // B10: explicit handler ref to prevent zombie listeners
 
     function _showAutoIntervalPicker() {
       if (_autoIntervalPickerOpen) return;
+      // B10: remove any orphaned listener from a previous open/close cycle
+      if (_autoPickerClickHandler) {
+        document.removeEventListener('click', _autoPickerClickHandler);
+        _autoPickerClickHandler = null;
+      }
       _autoIntervalPickerOpen = true;
       const intervals = [10, 15, 20, 30, 45, 60];
       const pickerEl = document.createElement('div');
@@ -1124,18 +1158,19 @@ const Setlists = (() => {
         _closeAutoIntervalPicker();
       });
 
+      // B10: create a new handler ref each time, store it for explicit cleanup
+      _autoPickerClickHandler = function _outsideClick(e) {
+        const picker = container.querySelector('.lm-auto-picker');
+        if (picker && !picker.contains(e.target) && !autoToggleBtn.contains(e.target)) {
+          _closeAutoIntervalPicker();
+        }
+      };
+
       // Close on outside click (delayed to avoid capturing the open click)
       _autoPickerDelayTimer = setTimeout(() => {
         _autoPickerDelayTimer = null;
-        document.addEventListener('click', _autoPickerOutsideClick, { once: true });
+        document.addEventListener('click', _autoPickerClickHandler, { once: true });
       }, 50);
-    }
-
-    function _autoPickerOutsideClick(e) {
-      const picker = container.querySelector('.lm-auto-picker');
-      if (picker && !picker.contains(e.target) && !autoToggleBtn.contains(e.target)) {
-        _closeAutoIntervalPicker();
-      }
     }
 
     function _closeAutoIntervalPicker() {
@@ -1143,7 +1178,11 @@ const Setlists = (() => {
       _autoIntervalPickerOpen = false;
       const picker = container.querySelector('.lm-auto-picker');
       if (picker) picker.remove();
-      document.removeEventListener('click', _autoPickerOutsideClick);
+      // B10: explicitly remove the tracked handler reference
+      if (_autoPickerClickHandler) {
+        document.removeEventListener('click', _autoPickerClickHandler);
+        _autoPickerClickHandler = null;
+      }
     }
 
     // Tap = toggle, long-press = open interval picker
@@ -1179,6 +1218,10 @@ const Setlists = (() => {
     let _lastRenderedSongIdx = -1;
     let _isAnimating = false;
     let _animStartTime = 0; // timestamp when animation started — for stuck detection
+    let _renderGen = 0; // B1: generation counter to detect stale renders
+    let _queuedDelta = 0; // B1: queued swipe delta during animation
+    const _renderErrorSongs = new Set(); // B6: track songs that failed to render (toast once per song)
+    const _failedCharts = []; // B7: track failed chart loads for retry
 
     function _renderPageIntoSlide(slide, pageIdx) {
       const page = _pages[pageIdx];
@@ -1188,6 +1231,9 @@ const Setlists = (() => {
       const loadArea = slide.querySelector('.lm-slide-loading');
 
       slide.dataset.pageIdx = pageIdx;
+      // B1: stamp render generation for stale-render detection
+      const gen = ++_renderGen;
+      slide.dataset.renderGen = gen;
 
       if (!page) {
         // No page (edge) -- show empty black
@@ -1202,20 +1248,48 @@ const Setlists = (() => {
       loadArea.classList.toggle('hidden', page.type !== 'loading');
 
       if (page.type === 'chart') {
+        // B12: clear canvas before render to avoid stale partial content
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
         // Force reflow after un-hiding chartArea
         void chartArea.offsetWidth;
         let cw = chartArea.clientWidth;
         if (cw <= 0) cw = carousel.clientWidth || 0;
         // Retry: if width is still 0, try window width as last resort
         if (cw <= 0) cw = window.innerWidth || 0;
-        if (cw <= 0) return Promise.resolve();
+        // A1: if still zero, schedule retry instead of silently aborting.
+        // Use both rAF and setTimeout — iOS Safari throttles rAF when backgrounded.
+        // The renderGen guard prevents double-render if both fire.
+        if (cw <= 0) {
+          const retry = () => {
+            if (parseInt(slide.dataset.renderGen, 10) === gen) {
+              _renderPageIntoSlide(slide, pageIdx);
+            }
+          };
+          requestAnimationFrame(retry);
+          setTimeout(retry, 200); // fallback if rAF is throttled
+          return Promise.resolve();
+        }
         // Half-page mode: set alignment class on chart area for top/bottom clipping
         chartArea.classList.remove('half-top', 'half-bottom');
         if (page.half === 'top') chartArea.classList.add('half-top');
         else if (page.half === 'bottom') chartArea.classList.add('half-bottom');
         return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
+          .then(() => {
+            // B1: verify this render is still current (not stale from rapid navigation)
+            if (parseInt(slide.dataset.renderGen, 10) !== gen) return;
+          })
           .catch(err => {
             console.error('Live mode chart render error', err);
+            // B1: don't apply stale error fallback
+            if (parseInt(slide.dataset.renderGen, 10) !== gen) return;
+            // B6: toast once per song on render failure
+            const songKey = page.song?.title || `song-${page.songIdx}`;
+            if (!_renderErrorSongs.has(songKey)) {
+              _renderErrorSongs.add(songKey);
+              showToast(`Chart failed to load: ${page.song?.title || 'Unknown'}`);
+            }
             if (_pages[pageIdx] === page) {
               _pages[pageIdx] = { type: 'metadata', songIdx: page.songIdx, song: page.song };
               _renderPageIntoSlide(slide, pageIdx);
@@ -1241,6 +1315,14 @@ const Setlists = (() => {
     }
 
     function _updateSlots() {
+      // A1: Force carousel to have layout dimensions before rendering.
+      // The carousel starts at opacity:0 for fade-in, but we need non-zero
+      // clientWidth for PDF rendering. Use visibility:hidden so it takes layout
+      // space while remaining invisible, then force a reflow.
+      if (carousel.style.opacity === '0' && !carousel.style.visibility) {
+        carousel.style.visibility = 'hidden';
+        void carousel.offsetWidth; // force reflow — now clientWidth > 0
+      }
       // Carousel always shows the middle slot (index 1)
       carousel.style.transition = 'none';
       carousel.style.transform = 'translateX(-100%)';
@@ -1287,16 +1369,21 @@ const Setlists = (() => {
     }
 
     function _goPage(delta, animate) {
-      // Safety: if _isAnimating has been stuck for >1s, force-clear it
+      // Clear snap-back timer to prevent it from killing our transition
+      if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
+      // B4: deterministic stuck detection — no more unreliable transitionend
       if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1000)) {
         console.warn('Live mode: animation stuck, force-clearing');
         _isAnimating = false;
       }
-      if (_isAnimating) return;
+      // B1: if animating, queue the delta for processing after animation completes
+      if (_isAnimating) { _queuedDelta = delta; return; }
       if (_zpHandle && _zpHandle.getZoom() > 1.05) _zpHandle.resetZoom();
       const newIdx = currentPageIdx + delta;
       if (newIdx < 0 || newIdx >= _pages.length) return;
       haptic.light();
+      // B9: set auto-advance timestamp BEFORE page change for atomicity
+      if (_autoAdvance) _autoAdvanceStart = Date.now();
 
       if (animate === false) {
         currentPageIdx = newIdx;
@@ -1309,6 +1396,7 @@ const Setlists = (() => {
       // Animated transition using the pre-rendered adjacent slide
       _isAnimating = true;
       _animStartTime = Date.now();
+      _queuedDelta = 0; // clear any queued delta
       const targetX = delta > 0 ? '-200%' : '0%'; // slide left or right
 
       // Set transition first, force reflow, THEN change transform.
@@ -1318,7 +1406,9 @@ const Setlists = (() => {
       carousel.style.transform = `translateX(${targetX})`;
 
       function _afterSnap() {
-        carousel.removeEventListener('transitionend', _afterSnap);
+        // B4: prevent double-fire (both transitionend and setTimeout)
+        if (!_isAnimating) return;
+        carousel.removeEventListener('transitionend', _onTransitionEnd);
         try {
           // Recycle slides
           if (delta > 0) {
@@ -1343,10 +1433,9 @@ const Setlists = (() => {
           _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
           _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
 
-          // Re-render center slide ONLY if its page index is stale
-          if ((parseInt(slots[1].dataset.pageIdx, 10) || 0) !== currentPageIdx) {
-            _renderPageIntoSlide(slots[1], currentPageIdx);
-          }
+          // A3: ALWAYS re-render center slot after page turn — guarantees correctness.
+          // The render cache makes this near-instant for already-cached pages.
+          _renderPageIntoSlide(slots[1], currentPageIdx);
 
           // Pre-render the new adjacent page into the recycled slot
           if (delta > 0 && currentPageIdx < _pages.length - 1) {
@@ -1367,11 +1456,28 @@ const Setlists = (() => {
           // ALWAYS clear animation lock, even if recycle/render throws
           _isAnimating = false;
           _animStartTime = 0;
+          // B1: process queued swipe delta from rapid navigation
+          if (_queuedDelta !== 0) {
+            const qd = _queuedDelta;
+            _queuedDelta = 0;
+            requestAnimationFrame(() => _goPage(qd));
+          }
         }
       }
 
-      carousel.addEventListener('transitionend', _afterSnap, { once: true });
-      setTimeout(() => { if (_isAnimating) _afterSnap(); }, 500);
+      // B4: use BOTH transitionend AND deterministic timeout.
+      // First one to fire wins; _afterSnap guards against double-fire.
+      // Filter transitionend by property to avoid premature fire from opacity transitions.
+      function _onTransitionEnd(e) {
+        if (e.propertyName !== 'transform') return;
+        _afterSnap();
+      }
+      carousel.addEventListener('transitionend', _onTransitionEnd);
+      // 400ms = 250ms anim + 150ms margin for slow devices / CPU load
+      setTimeout(() => {
+        carousel.removeEventListener('transitionend', _onTransitionEnd);
+        _afterSnap();
+      }, 400);
     }
 
     function _checkSongBoundary() {
@@ -1384,6 +1490,8 @@ const Setlists = (() => {
 
     function _showOverlay(song) {
       haptic.medium(); // song boundary feedback
+      // B5: show chrome on song boundary transitions
+      if (typeof _showChrome === 'function') _showChrome();
       if (_overlayTimer) clearTimeout(_overlayTimer);
       const meta = [song.key, song.bpm ? song.bpm + ' BPM' : '', song.timeSig].filter(Boolean).join(' \u00b7 ');
       chartOverlay.innerHTML = `<div class="lm-overlay-title">${esc(song.title)}</div>${meta ? `<div class="lm-overlay-meta">${esc(meta)}</div>` : ''}`;
@@ -1399,11 +1507,20 @@ const Setlists = (() => {
     // -- Progressive PDF loading (serialized mutations to prevent race conditions) --
     let _spliceLock = Promise.resolve();
 
-    async function _loadChartPDF(songIdx, chartDriveId) {
+    async function _loadChartPDF(songIdx, chartDriveId, _retryCount) {
+      _retryCount = _retryCount || 0;
       try {
         const blobUrl = await _getBlobUrl(chartDriveId);
         if (!_liveModeActive) return; // exited during load
-        const pdfDoc = await pdfjsLib.getDocument(blobUrl).promise;
+        // B2: 10-second timeout on PDF load to prevent indefinite hangs
+        const loadTask = pdfjsLib.getDocument(blobUrl);
+        const pdfDoc = await Promise.race([
+          loadTask.promise,
+          new Promise((_, reject) => setTimeout(() => {
+            try { loadTask.destroy(); } catch (_) {}
+            reject(new Error('PDF load timeout (10s)'));
+          }, 10000))
+        ]);
         if (!_liveModeActive) { pdfDoc.destroy(); return; } // exited during load
         const numPages = pdfDoc.numPages;
 
@@ -1416,7 +1533,7 @@ const Setlists = (() => {
               _pages[idx] = { type: 'metadata', songIdx, song: _pages[idx].song };
               if (idx === currentPageIdx) _updateSlots();
             }
-          });
+          }).catch(e => console.warn('Splice lock error', e));
           return;
         }
 
@@ -1460,6 +1577,7 @@ const Setlists = (() => {
                 if (!_liveModeActive) { clearInterval(_checkAfterAnim); return; }
                 if (!_isAnimating) {
                   clearInterval(_checkAfterAnim);
+                  if (!_liveModeActive) return; // double-check after clearing interval
                   _updateSlots();
                 }
               }, 50);
@@ -1469,9 +1587,20 @@ const Setlists = (() => {
               _updateSlots();
             }
           }
-        });
+        }).catch(e => console.warn('Splice lock error', e));
       } catch (err) {
         console.error('Failed to load chart for song', songIdx, err);
+        // B2: retry once on network/timeout errors (not corrupt PDF)
+        const isNetworkError = err.message && (err.message.includes('timeout') || err.message.includes('fetch') || err.message.includes('network') || err.message.includes('NetworkError'));
+        if (_retryCount < 1 && isNetworkError && _liveModeActive) {
+          console.warn('Live mode: retrying chart load for song', songIdx);
+          return _loadChartPDF(songIdx, chartDriveId, _retryCount + 1);
+        }
+        // B7: track failed charts for later retry
+        _failedCharts.push({ songIdx, chartDriveId });
+        // B2: toast on failure
+        const songName = _songEntries[songIdx]?.title || `Song ${songIdx + 1}`;
+        showToast(`Chart failed to load: ${songName}`);
         _spliceLock = _spliceLock.then(() => {
           const idx = _pages.findIndex(p => p.songIdx === songIdx && p.type === 'loading' && p.chartDriveId === chartDriveId);
           if (idx !== -1) {
@@ -1479,7 +1608,7 @@ const Setlists = (() => {
             _pages[idx] = { type: 'metadata', songIdx, song };
             if (idx === currentPageIdx) _updateSlots();
           }
-        });
+        }).catch(e => console.warn('Splice lock error', e));
       }
     }
 
@@ -1515,6 +1644,8 @@ const Setlists = (() => {
         _loadingOverlay.style.opacity = '0';
         setTimeout(() => _loadingOverlay.remove(), 200);
       }
+      // A1: clear visibility:hidden that was set for layout measurement
+      _lmCarousel.style.removeProperty('visibility');
       _lmHeader.style.transition = 'opacity 0.25s ease-in';
       _lmCarousel.style.transition = 'opacity 0.25s ease-in';
       _lmNav.style.transition = 'opacity 0.25s ease-in';
@@ -1579,19 +1710,27 @@ const Setlists = (() => {
       // Collect unique chart pages to pre-render
       const toRender = [];
       const seenKeys = new Set();
-      for (const pg of _pages) {
+      for (let pi = 0; pi < _pages.length; pi++) {
+        const pg = _pages[pi];
         if (pg.type !== 'chart' || !pg.pdfDoc) continue;
         const key = (pg.pdfDoc.fingerprints?.[0] || pg.pdfDoc._transport?.docId || String(Math.random())) + '-' + pg.pageNum;
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
-          toRender.push(pg);
+          toRender.push({ pg, dist: Math.abs(pi - currentPageIdx) });
         }
       }
-      // Batch pre-renders in groups of 4 to avoid memory spikes
-      for (let i = 0; i < toRender.length; i += 4) {
+      // B11: sort by proximity to current page (nearest pages render first)
+      toRender.sort((a, b) => a.dist - b.dist);
+      // Limit pre-renders on low-memory devices to avoid OOM
+      const mem = navigator.deviceMemory || 4;
+      const batchSize = mem <= 2 ? 2 : 4;
+      const maxPreRender = mem <= 2 ? 8 : toRender.length;
+      const limited = toRender.slice(0, maxPreRender);
+      // Batch pre-renders to avoid memory spikes
+      for (let i = 0; i < limited.length; i += batchSize) {
         if (!_liveModeActive) return;
-        await Promise.all(toRender.slice(i, i + 4).map(pg =>
-          PDFViewer.preRenderPage(pg.pdfDoc, pg.pageNum, cw).catch(() => {})
+        await Promise.all(limited.slice(i, i + batchSize).map(item =>
+          PDFViewer.preRenderPage(item.pg.pdfDoc, item.pg.pageNum, cw).catch(() => {})
         ));
       }
     }).catch(() => {});
@@ -1622,6 +1761,8 @@ const Setlists = (() => {
       _stopAutoAdvance();
       // Close interval picker if open
       _closeAutoIntervalPicker();
+      // B5: clear auto-hide chrome timer
+      if (_chromeHideTimer) { clearTimeout(_chromeHideTimer); _chromeHideTimer = null; }
       // Release wake lock
       if (_wakeLock) { try { _wakeLock.release(); } catch (_) {} _wakeLock = null; _updateWakeLockIndicator(false); }
       document.body.classList.remove('live-mode-active');
@@ -1633,6 +1774,12 @@ const Setlists = (() => {
       carousel.removeEventListener('touchend', _onDragEnd);
       carousel.removeEventListener('touchstart', _onTapStart);
       carousel.removeEventListener('touchend', _onTapEnd);
+      carousel.removeEventListener('touchstart', _onInteraction);
+      carousel.removeEventListener('mousedown', _onInteraction);
+      carousel.removeEventListener('click', _onClickTapZone);
+      document.removeEventListener('fullscreenchange', _onFullscreenChange);
+      window.removeEventListener('popstate', _onPopState);
+      if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitFullscreenElement) {
@@ -1680,18 +1827,78 @@ const Setlists = (() => {
         // Decrease auto-advance interval
         const next = Math.max(5, _autoAdvanceSecs - 5);
         _setAutoAdvanceInterval(next);
+      } else if (e.key === 'c' || e.key === 'C') {
+        // B5: toggle chrome visibility
+        _toggleChrome();
+      } else if (e.key === 'r' || e.key === 'R') {
+        // B7: retry failed chart loads
+        _retryFailedCharts();
       }
     }
     document.addEventListener('keydown', _onKey);
 
+    // -- B5: Auto-hide chrome (header + nav fade after 4s of no interaction) --
+    let _chromeHideTimer = null;
+    let _chromeHidden = false;
+    const _chromeElements = [_lmHeader, _lmNav]; // elements to auto-hide
+
+    function _showChrome() {
+      if (_chromeHidden) {
+        _chromeHidden = false;
+        _chromeElements.forEach(el => {
+          el.style.opacity = '1';
+          el.style.pointerEvents = '';
+        });
+      }
+      _resetChromeTimer();
+    }
+
+    function _hideChrome() {
+      _chromeHidden = true;
+      _chromeElements.forEach(el => {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      });
+    }
+
+    function _resetChromeTimer() {
+      if (_chromeHideTimer) clearTimeout(_chromeHideTimer);
+      _chromeHideTimer = setTimeout(_hideChrome, 4000);
+    }
+
+    function _toggleChrome() {
+      if (_chromeHidden) _showChrome(); else _hideChrome();
+    }
+
+    // Show chrome on any touch/mouse/key interaction
+    function _onInteraction() { _showChrome(); }
+    carousel.addEventListener('touchstart', _onInteraction, { passive: true });
+    carousel.addEventListener('mousedown', _onInteraction, { passive: true });
+    // 'C' key or center-tap toggles chrome (handled in _onKey for 'C', tap zones for center)
+    // Start the auto-hide timer
+    _resetChromeTimer();
+
+    // -- B7: Offline recovery — retry failed charts on visibility change or 'R' key --
+    function _retryFailedCharts() {
+      if (_failedCharts.length === 0) return;
+      showToast(`Retrying ${_failedCharts.length} failed chart(s)\u2026`);
+      const toRetry = _failedCharts.splice(0);
+      toRetry.forEach(({ songIdx, chartDriveId }) => {
+        _loadChartPDF(songIdx, chartDriveId);
+      });
+    }
+
     // -- Carousel swipe navigation (drag-follow + snap) --
     let _dragX0 = 0, _dragY0 = 0, _dragging = false, _dragLocked = false, _edgeBuzzed = false;
+    let _snapBackTimer = null; // track snap-back transition cleanup timer
     const SWIPE_THRESHOLD = Math.max(40, Math.min(60, window.innerWidth * 0.15));
 
     function _onDragStart(e) {
       if (_isAnimating) return;
       // If zoomed, let zoom/pan handle the touch
       if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
+      // Clear any pending snap-back timer to prevent it from killing our transition
+      if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; carousel.style.transition = 'none'; }
       const t = e.touches[0];
       _dragX0 = t.clientX;
       _dragY0 = t.clientY;
@@ -1728,8 +1935,9 @@ const Setlists = (() => {
       // Prevent native scroll while carousel-dragging horizontally
       e.preventDefault();
 
-      // Convert dx pixels to percentage of one slide width
-      const slideWidth = carousel.clientWidth;
+      // A2: guard against zero slideWidth — fallback to window.innerWidth for cross-device safety
+      const slideWidth = carousel.clientWidth || window.innerWidth;
+      if (slideWidth <= 0) return; // absolute safety — should never happen
       let offsetPct = (dx / slideWidth) * 100;
 
       // Rubber-band effect at edges
@@ -1760,10 +1968,11 @@ const Setlists = (() => {
         }
       }
 
-      // Snap back
+      // Snap back — use tracked timer so next drag can cancel it
+      if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
       carousel.style.transition = 'transform 0.2s ease-out';
       carousel.style.transform = 'translateX(-100%)';
-      setTimeout(() => { carousel.style.transition = ''; }, 250);
+      _snapBackTimer = setTimeout(() => { _snapBackTimer = null; carousel.style.transition = ''; }, 250);
     }
 
     carousel.addEventListener('touchstart', _onDragStart, { passive: false });
@@ -1821,6 +2030,44 @@ const Setlists = (() => {
 
     carousel.addEventListener('touchstart', _onTapStart, { passive: true });
     carousel.addEventListener('touchend', _onTapEnd, { passive: true });
+
+    // -- Desktop click tap zones (mouse users have no touchstart/touchend) --
+    let _lastTouchEnd = 0;
+    function _onClickTapZone(e) {
+      // Suppress click events that fire right after touchend (prevent double-fire on touch devices)
+      if (Date.now() - _lastTouchEnd < 400) return;
+      if (_isAnimating) return;
+      if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
+      const page = _pages[currentPageIdx];
+      if (!page || page.type !== 'chart') return;
+      // Don't trigger on button/control clicks
+      if (e.target.closest('button, .lm-nav, .lm-header, .lm-jump-overlay')) return;
+
+      const currentChartArea = slots[1].querySelector('.lm-slide-chart');
+      const rect = currentChartArea.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+
+      if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); }
+
+      const flash = document.createElement('div');
+      flash.className = 'lm-tap-flash';
+      if (x >= 0.45) {
+        flash.style.right = '0';
+        flash.style.width = '55%';
+        currentChartArea.appendChild(flash);
+        setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
+        _goPage(1);
+      } else if (x <= 0.30) {
+        flash.style.left = '0';
+        flash.style.width = '30%';
+        currentChartArea.appendChild(flash);
+        setTimeout(() => { if (flash.parentNode) flash.remove(); }, 200);
+        _goPage(-1);
+      }
+    }
+    // Track last touchend to suppress duplicate click
+    carousel.addEventListener('touchend', () => { _lastTouchEnd = Date.now(); }, { passive: true });
+    carousel.addEventListener('click', _onClickTapZone);
 
     // -- Initial render --
     _updateSlots();

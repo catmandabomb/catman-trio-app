@@ -37,7 +37,9 @@ const PDFViewer = (() => {
   // Cache stores pre-rendered canvases keyed by `${pdfId}-${pageNum}`
   const _renderCache = new Map(); // key: `${pdfId}-${pageNum}` → { canvas, displayW, displayH }
   const _isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const MAX_RENDER_CACHE = _isMobileDevice ? 20 : 40;
+  // B3: adaptive cache sizing based on device memory (when available)
+  const _deviceMemGB = navigator.deviceMemory || (_isMobileDevice ? 2 : 8);
+  const MAX_RENDER_CACHE = _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : _deviceMemGB >= 8 ? 40 : 20;
 
   // Assign stable IDs to pdfDoc objects via WeakMap (they have no built-in ID)
   const _pdfIdMap = new WeakMap();
@@ -51,6 +53,28 @@ const PDFViewer = (() => {
       _pdfIdMap.set(pdfDoc, id);
     }
     return id;
+  }
+
+  // ─── Safe LRU eviction (skips actively-displayed canvases) ──
+  function _evictIfFull() {
+    if (_renderCache.size < MAX_RENDER_CACHE) return;
+    // Collect keys currently displayed on visible canvases
+    const activeKeys = new Set();
+    if (typeof document !== 'undefined') {
+      document.querySelectorAll('canvas[data-render-key]').forEach(c => {
+        if (c.dataset.renderKey) activeKeys.add(c.dataset.renderKey);
+      });
+    }
+    // Evict oldest non-active entry
+    for (const key of _renderCache.keys()) {
+      if (!activeKeys.has(key)) {
+        _renderCache.delete(key);
+        return;
+      }
+    }
+    // All entries are active — evict oldest anyway to prevent unbounded growth
+    const oldestKey = _renderCache.keys().next().value;
+    _renderCache.delete(oldestKey);
   }
 
   // ─── Phase 2: OffscreenCanvas feature detection ───────────
@@ -259,11 +283,8 @@ const PDFViewer = (() => {
       return;
     }
 
-    // LRU eviction: if cache is full, delete the oldest entry (first inserted)
-    if (_renderCache.size >= MAX_RENDER_CACHE) {
-      const oldestKey = _renderCache.keys().next().value;
-      _renderCache.delete(oldestKey);
-    }
+    // LRU eviction: if cache is full, evict oldest non-active entry
+    _evictIfFull();
 
     // Store in cache (re-insert to maintain insertion order for LRU)
     _renderCache.delete(cacheKey);
@@ -307,9 +328,9 @@ const PDFViewer = (() => {
         // Dimensions match — blit from cache
         const cachedCanvas = cached.canvas;
 
-        // Only reassign canvas dimensions if they differ — setting canvas.width/height
-        // implicitly clears the canvas (per HTML spec), which causes a visible black flash
-        // when the slide background (#000) shows through before drawImage completes.
+        // A4: Only reassign canvas dimensions if they differ — setting canvas.width/height
+        // clears the canvas per HTML spec, but the clear + drawImage are synchronous within
+        // one JS task so no repaint occurs between them (no visible flash).
         const needsResize = canvas.width !== cachedCanvas.width || canvas.height !== cachedCanvas.height;
         if (needsResize) {
           canvas.width = cachedCanvas.width;
@@ -317,12 +338,7 @@ const PDFViewer = (() => {
         }
         canvas.style.width = cached.displayW + 'px';
         canvas.style.height = cached.displayH + 'px';
-
-        // Blit cached canvas — always use drawImage (transferToImageBitmap is destructive
-        // and would empty the cached OffscreenCanvas, breaking future cache hits)
-        const ctx = canvas.getContext('2d');
-        if (needsResize) ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(cachedCanvas, 0, 0);
+        canvas.getContext('2d').drawImage(cachedCanvas, 0, 0);
 
         // Re-insert to refresh LRU position
         _renderCache.delete(cacheKey);
@@ -368,24 +384,19 @@ const PDFViewer = (() => {
       try {
         const dpr = window.devicePixelRatio || 1;
         const { bitmap, displayW, displayH } = await _workerRender(pdfUrl, pageNum, containerWidth, dpr);
-        // Draw ImageBitmap to visible canvas
+        // Draw ImageBitmap to visible canvas (canvas.width assignment already clears)
         canvas.width = bitmap.width;
         canvas.height = bitmap.height;
         canvas.style.width = displayW + 'px';
         canvas.style.height = displayH + 'px';
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(bitmap, 0, 0);
+        canvas.getContext('2d').drawImage(bitmap, 0, 0);
         bitmap.close();
 
         // Store in render cache
         const pdfId = _getPdfId(pdfDoc);
         const cacheKey = `${pdfId}-${pageNum}`;
         canvas.dataset.renderKey = cacheKey;
-        if (_renderCache.size >= MAX_RENDER_CACHE) {
-          const oldestKey = _renderCache.keys().next().value;
-          _renderCache.delete(oldestKey);
-        }
+        _evictIfFull();
         // Pre-render to cache via worker as well (create offscreen copy)
         const cacheCanvas = document.createElement('canvas');
         cacheCanvas.width = canvas.width;
@@ -439,6 +450,7 @@ const PDFViewer = (() => {
 
     // Tag canvas with what we just rendered — so idle callback can detect staleness
     canvas.dataset.renderKey = cacheKey;
+    canvas.dataset.renderWidth = containerWidth; // track width for orientation change detection
 
     _rIC(async () => {
       if (!docRef || typeof docRef.getPage !== 'function') return;
@@ -466,16 +478,19 @@ const PDFViewer = (() => {
         return;
       }
 
-      // Re-check staleness after await (canvas may have changed pages during render)
-      if (canvas.dataset.renderKey === cacheKey) {
-        canvas.width = hiVP.width;
-        canvas.height = hiVP.height;
-        canvas.style.width = displayW + 'px';
-        canvas.style.height = displayH + 'px';
-
-        const swapCtx = canvas.getContext('2d');
-        swapCtx.clearRect(0, 0, canvas.width, canvas.height);
-        swapCtx.drawImage(hiCanvas, 0, 0);
+      // Re-check staleness after await — page or container width may have changed
+      // (orientation change, slot recycling, etc.)
+      if (canvas.dataset.renderKey === cacheKey &&
+          parseFloat(canvas.dataset.renderWidth) === containerWidth) {
+        // Use rAF to guarantee dimension change + draw happen in a single paint frame
+        requestAnimationFrame(() => {
+          if (canvas.dataset.renderKey !== cacheKey) return; // re-check after rAF
+          canvas.width = hiVP.width;
+          canvas.height = hiVP.height;
+          canvas.style.width = displayW + 'px';
+          canvas.style.height = displayH + 'px';
+          canvas.getContext('2d').drawImage(hiCanvas, 0, 0);
+        });
       }
 
       if (_renderCache.size >= MAX_RENDER_CACHE) {
@@ -507,6 +522,29 @@ const PDFViewer = (() => {
     } else {
       _renderCache.clear();
     }
+  }
+
+  // B3: proactive cache trim — halve cache when app goes to background to reduce memory pressure
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && _renderCache.size > 4) {
+        const targetSize = Math.floor(_renderCache.size * 0.5);
+        const keys = [..._renderCache.keys()];
+        // Collect keys actively displayed on visible canvases — never evict these
+        const activeKeys = new Set();
+        document.querySelectorAll('canvas[data-render-key]').forEach(c => {
+          if (c.dataset.renderKey) activeKeys.add(c.dataset.renderKey);
+        });
+        let removed = 0;
+        const toRemove = keys.length - targetSize;
+        for (let i = 0; i < keys.length && removed < toRemove; i++) {
+          if (!activeKeys.has(keys[i])) {
+            _renderCache.delete(keys[i]);
+            removed++;
+          }
+        }
+      }
+    });
   }
 
   // ─── Reusable: attach zoom/pan handlers to any canvas ───
