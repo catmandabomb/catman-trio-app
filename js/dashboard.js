@@ -198,6 +198,9 @@ const Dashboard = (() => {
 
     let html = `
       <div class="dash-header">
+        <button class="text-btn dash-exit-admin" id="dash-exit-admin" title="Exit Admin Edit Mode">
+          <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Exit Admin Edit Mode
+        </button>
         <h2>Admin Dashboard</h2>
         <p>System health and data integrity overview</p>
         <span class="dash-version">${APP_VERSION}</span>
@@ -373,6 +376,13 @@ const Dashboard = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Wire Exit Admin button
+    document.getElementById('dash-exit-admin')?.addEventListener('click', () => {
+      Admin.exitEditMode();
+      App.renderList();
+      Utils.showToast('Admin mode exited');
+    });
 
     // Wire Tag Manager
     container.querySelectorAll('.tag-mgr-rename').forEach(btn => {

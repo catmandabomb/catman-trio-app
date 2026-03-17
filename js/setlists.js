@@ -194,8 +194,8 @@ const Setlists = (() => {
         }
         overlay.remove();
         // Exit selection mode — call back into App
-        if (typeof App !== 'undefined' && App._exitSelectionMode) {
-          App._exitSelectionMode();
+        if (typeof Songs !== 'undefined' && Songs.exitSelectionMode) {
+          Songs.exitSelectionMode();
         }
       });
     });
@@ -404,7 +404,8 @@ const Setlists = (() => {
     let html = `<div class="detail-header">
       ${isAdmin ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
-      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>' : ''}</div>
+      <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
+      ${songs.length > 0 ? '<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button></div>' : ''}
     </div>`;
 
     if (songs.length === 0) {
@@ -939,12 +940,16 @@ const Setlists = (() => {
     document.body.classList.add('live-mode-active');
     document.documentElement.classList.add('live-mode-active');
 
-    // Try Fullscreen API
-    const docEl = document.documentElement;
-    if (docEl.requestFullscreen) {
-      docEl.requestFullscreen().catch(() => {});
-    } else if (docEl.webkitRequestFullscreen) {
-      docEl.webkitRequestFullscreen();
+    // Try Fullscreen API — only on touch devices (mobile/tablet).
+    // Desktop fullscreen breaks viewport and has no visible exit mechanism.
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouchDevice) {
+      const docEl = document.documentElement;
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(() => {});
+      } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+      }
     }
 
     const container = document.getElementById('setlist-live-content');
@@ -1326,6 +1331,8 @@ const Setlists = (() => {
       const metaArea = slide.querySelector('.lm-slide-meta');
       const loadArea = slide.querySelector('.lm-slide-loading');
 
+      // Read previous page index BEFORE overwriting (used to skip clearRect on same-page re-renders)
+      const prevPageIdx = parseInt(slide.dataset.pageIdx, 10);
       slide.dataset.pageIdx = pageIdx;
       // B1: stamp render generation for stale-render detection
       const gen = ++_renderGen;
@@ -1344,9 +1351,21 @@ const Setlists = (() => {
       loadArea.classList.toggle('hidden', page.type !== 'loading');
 
       if (page.type === 'chart') {
-        // B12: clear canvas before render to avoid stale partial content
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Force visibility chain — belt and suspenders for iOS compositing
+        chartArea.style.display = '';
+        canvas.style.display = 'block';
+        canvas.style.visibility = 'visible';
+        canvas.style.opacity = '1';
+        if (loadArea) loadArea.classList.add('hidden');
+
+        // B12: Only clear canvas if rendering a DIFFERENT page than what's currently displayed.
+        // Unconditional clearRect was causing the "black flash" — canvas goes black during the
+        // async gap between clear and PDF paint. When _updateSlots() is called multiple times
+        // (e.g. as PDFs load), re-clearing an already-correct canvas produces visible black flashes.
+        if (isNaN(prevPageIdx) || prevPageIdx !== pageIdx) {
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
 
         // CLASSIC 4 NUCLEAR FIX: Use window.innerWidth directly as primary width.
         // In Live Mode the carousel is ALWAYS 100% viewport width, so reading
@@ -1373,6 +1392,8 @@ const Setlists = (() => {
           .then(() => {
             // B1: verify this render is still current (not stale from rapid navigation)
             if (parseInt(slide.dataset.renderGen, 10) !== gen) return;
+            // Force compositing on iOS Safari — ensures canvas is painted to screen
+            void canvas.offsetHeight;
           })
           .catch(err => {
             console.error('Live mode chart render error', err);
@@ -1743,6 +1764,12 @@ const Setlists = (() => {
     function _revealLiveMode() {
       if (_lmRevealed) return;
       _lmRevealed = true;
+      // CLASSIC 4 FIX: Make carousel visible BEFORE rendering so iOS Safari
+      // composites canvas content. The loading overlay (z-index above) hides
+      // the carousel visually, so there's no flash. Without this, iOS can
+      // skip canvas compositing for opacity:0 elements, producing black pages.
+      _lmCarousel.style.opacity = '1';
+      _lmCarousel.style.visibility = 'visible';
       // Update slots now that current page is loaded
       _updateSlots();
       // Fade out loading overlay, fade in content
@@ -1752,10 +1779,8 @@ const Setlists = (() => {
         setTimeout(() => _loadingOverlay.remove(), 200);
       }
       _lmHeader.style.transition = 'opacity 0.25s ease-in';
-      _lmCarousel.style.transition = 'opacity 0.25s ease-in';
       _lmNav.style.transition = 'opacity 0.25s ease-in';
       _lmHeader.style.opacity = '1';
-      _lmCarousel.style.opacity = '1';
       _lmNav.style.opacity = '1';
       // Clean up inline opacity styles after fade-in.
       // IMPORTANT: Do NOT reset carousel.style.transition here — _goPage may
@@ -1771,6 +1796,7 @@ const Setlists = (() => {
         // as needed. Removing it here is safe; setting it to 'none' is not.
         _lmCarousel.style.removeProperty('transition');
         _lmCarousel.style.removeProperty('opacity');
+        _lmCarousel.style.removeProperty('visibility');
       }, 300);
     }
 
@@ -1987,7 +2013,7 @@ const Setlists = (() => {
     // -- B5: Auto-hide chrome (header + nav fade after 4s of no interaction) --
     let _chromeHideTimer = null;
     let _chromeHidden = false;
-    const _chromeElements = [_lmHeader, _lmNav]; // elements to auto-hide
+    const _chromeElements = [_lmHeader]; // Only auto-hide header — nav buttons must stay tappable always
 
     function _showChrome() {
       if (_chromeHidden) {

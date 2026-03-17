@@ -121,18 +121,12 @@ const Admin = (() => {
     _editMode = true;
     try { sessionStorage.setItem('bb_admin_active', '1'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.remove('hidden');
-    document.getElementById('admin-dashboard-bar')?.classList.remove('hidden');
-    const btn = document.getElementById('btn-edit-mode');
-    if (btn) { btn.textContent = 'Exit Admin'; btn.classList.add('exit-mode'); }
   }
 
   function exitEditMode() {
     _editMode = false;
     try { sessionStorage.removeItem('bb_admin_active'); } catch (_) {}
     document.getElementById('btn-add-song')?.classList.add('hidden');
-    document.getElementById('admin-dashboard-bar')?.classList.add('hidden');
-    const btn = document.getElementById('btn-edit-mode');
-    if (btn) { btn.textContent = 'Admin'; btn.classList.remove('exit-mode'); }
   }
 
   /** Restore admin mode from sessionStorage (survives refresh, not tab close) */

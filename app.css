@@ -307,10 +307,8 @@ a { color: inherit; text-decoration: none; }
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
-  box-shadow: 0 0 6px rgba(240,204,128,0.4);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 0 6px rgba(240,204,128,0.4);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-  transition: transform 0.1s;
 }
 .volume-slider::-webkit-slider-thumb:hover { transform: scale(1.3); box-shadow: 0 0 10px rgba(240,204,128,0.6); }
 .volume-slider::-moz-range-thumb {
@@ -319,8 +317,7 @@ a { color: inherit; text-decoration: none; }
   background: var(--accent);
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 6px rgba(240,204,128,0.4);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 0 6px rgba(240,204,128,0.4);
 }
 .volume-slider::-moz-range-track {
   height: 4px;
@@ -546,20 +543,12 @@ body.is-mobile .search-refresh-btn { display: none; }
   gap: 4px;
   flex-shrink: 0;
   margin-left: auto;
-}
-.admin-dashboard-bar {
-  grid-column: 1 / -1;
-  margin-top: 8px;
+  min-height: 36px; /* Match icon-btn height so row doesn't shift when + appears */
 }
 .admin-toggle-btn {
   font-size: 12px;
   padding: 4px 10px;
   letter-spacing: 0.03em;
-}
-#btn-edit-mode.exit-mode {
-  font-size: 9px;
-  white-space: nowrap;
-  padding: 7px 8px;
 }
 
 /* Install app button in admin bar */
@@ -569,20 +558,29 @@ body.is-mobile .search-refresh-btn { display: none; }
 }
 
 /* ═══════════════════════════════════════════
-   ADMIN DASHBOARD BAR
-═══════════════════════════════════════════ */
-.admin-dashboard-btn {
-  font-size: 11px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-
-/* ═══════════════════════════════════════════
    ADMIN DASHBOARD VIEW
 ═══════════════════════════════════════════ */
 .dash-header {
   text-align: center;
   margin-bottom: 24px;
+  position: relative;
+}
+.dash-exit-admin {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 12px;
+  padding: 4px 10px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+@media (max-width: 360px) {
+  .dash-exit-admin {
+    white-space: normal;
+    max-width: 130px;
+    text-align: right;
+    line-height: 1.3;
+  }
 }
 .dash-header h2 {
   font-family: 'Oxanium', sans-serif;
@@ -1124,6 +1122,12 @@ body.is-mobile .search-refresh-btn { display: none; }
   font-size: 15px;
   color: var(--text-2);
   margin-bottom: 12px;
+}
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .detail-meta-row {
@@ -3358,12 +3362,18 @@ html.live-mode-active { overflow: hidden; }
   /* B5: smooth auto-hide transitions (opacity only — no reflow) */
   transition: opacity 0.3s ease;
 }
-.lm-header-row1,
-.lm-header-row2 {
+.lm-header-row1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
+}
+.lm-header-row2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   width: 100%;
 }
 .lm-progress {
@@ -3876,6 +3886,7 @@ html.live-mode-active { overflow: hidden; }
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 .lm-clock {
   font-size: 12px;
@@ -4064,7 +4075,8 @@ html.live-mode-active { overflow: hidden; }
 
 @media (max-width: 600px) {
   .lm-header { padding: 4px 8px; padding-top: calc(4px + env(safe-area-inset-top, 0px)); gap: 2px; }
-  .lm-header-row1, .lm-header-row2 { gap: 4px; }
+  .lm-header-row1 { gap: 4px; }
+  .lm-header-row2 { gap: 8px; }
   .lm-progress { font-size: 12px; }
   .lm-tools { gap: 3px; }
   .lm-dark-toggle,
@@ -4301,6 +4313,64 @@ html.live-mode-active { overflow: hidden; }
   background: linear-gradient(90deg, var(--bg-3) 25%, var(--bg-4) 50%, var(--bg-3) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+/* ═══════════════════════════════════════════
+   LIST FOOTER
+═══════════════════════════════════════════ */
+.list-footer {
+  padding: 20px 16px 48px;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .list-footer { padding-top: 32px; }
+}
+.list-footer.hidden { display: none; }
+.footer-divider {
+  width: 40px;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 auto 24px;
+}
+.footer-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px 24px;
+  max-width: 480px;
+  margin: 0 auto 24px;
+  text-align: left;
+}
+.footer-col-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 8px;
+}
+.footer-link {
+  display: block;
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  text-decoration: none;
+  padding: 3px 0;
+  transition: color 0.15s;
+}
+.footer-link:hover,
+.footer-link:focus-visible {
+  color: var(--accent);
+}
+.footer-bottom {
+  margin-top: 0;
+}
+.footer-text {
+  font-size: 10px;
+  color: rgba(255,255,255,0.2);
+  letter-spacing: 1px;
+}
+@media (max-width: 360px) {
+  .footer-columns { gap: 12px 16px; }
+  .footer-link { font-size: 11px; }
 }
 
 /* ═══════════════════════════════════════════

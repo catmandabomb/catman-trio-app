@@ -153,6 +153,9 @@ const Songs = (() => {
     const isDataRefresh = view === 'list' && showViewCalled;
 
     App.revokeBlobCache();
+    // Clear loading skeleton cards (they have no data-song-id)
+    const songListEl = document.getElementById('song-list');
+    if (songListEl) songListEl.querySelectorAll('.skeleton-card').forEach(el => el.remove());
     if (!selectionMode) { Store.set('selectedSongIds', new Set()); _removeSelectionBar(); }
 
     if (!isDataRefresh) {
@@ -351,6 +354,53 @@ const Songs = (() => {
       if (!navStack.length) { navStack.push(function() { _exitSelectionMode(); }); Store.set('navStack', navStack); }
     } else {
       _removeSelectionBar();
+    }
+    const listFooter = document.getElementById('list-footer');
+    if (listFooter) {
+      listFooter.classList.toggle('hidden', _preFiltered.length === 0);
+      // Wire footer nav links (once — check for data attribute to avoid duplicate listeners)
+      if (!listFooter.dataset.wired) {
+        listFooter.dataset.wired = '1';
+        listFooter.addEventListener('click', (e) => {
+          const link = e.target.closest('[data-footer-nav]');
+          if (!link) return;
+          e.preventDefault();
+          const target = link.dataset.footerNav;
+          const currentView = Store.get('view');
+          if (target === 'list') {
+            if (currentView === 'list') {
+              // Already on songs list — scroll to top
+              const scroll = document.getElementById('song-list-scroll');
+              if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+              App.renderList();
+            }
+          } else if (target === 'setlists') {
+            if (currentView === 'setlists') {
+              const scroll = document.getElementById('setlists-list');
+              if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+              Setlists.renderSetlists();
+            }
+          } else if (target === 'practice') {
+            if (currentView === 'practice') {
+              const scroll = document.getElementById('practice-list');
+              if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
+            } else if (typeof Practice !== 'undefined') {
+              Practice.renderPractice();
+            }
+          } else if (target === 'dashboard') {
+            if (Admin.isEditMode()) {
+              Dashboard.renderDashboard();
+            } else {
+              Admin.showPasswordModal(() => {
+                Admin.enterEditMode();
+                Dashboard.renderDashboard();
+              });
+            }
+          }
+        });
+      }
     }
   }
 

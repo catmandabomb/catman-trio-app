@@ -503,7 +503,7 @@ const App = (() => {
     // Safety: dismiss splash screen after 6s no matter what (don't strand user)
     const _splashSafety = setTimeout(() => {
       const s = document.getElementById('splash-screen');
-      if (s) { s.classList.add('fade-out'); setTimeout(() => s.remove(), 450); }
+      if (s) { s.classList.add('fade-out'); setTimeout(() => s.remove(), 300); }
     }, 6000);
 
     // Show loading skeleton immediately so the user sees activity on cold start
@@ -649,28 +649,12 @@ const App = (() => {
     document.getElementById('btn-edit-mode').addEventListener('click', () => {
       haptic.double(); // mode toggle
       if (Admin.isEditMode()) {
-        Admin.exitEditMode();
-        if (_view === 'list')              renderList();
-        else if (_view === 'detail' && Store.get('activeSong')) renderDetail(Store.get('activeSong'), true);
-        else if (_view === 'detail' || _view === 'edit') { Store.set('activeSong', null); renderList(); }
-        else if (_view === 'setlists')     renderSetlists(true);
-        else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
-        else if (_view === 'setlist-edit') renderSetlists();
-        else if (_view === 'practice')     renderPractice(true);
-        else if (_view === 'practice-detail' && _activePersona) renderPracticeDetail(_activePersona, true);
-        else if (_view === 'practice-edit' && _activePersona && _activePracticeList) renderPracticeListDetail(_activePersona, _activePracticeList, true);
-        else if (_view === 'practice-edit') renderPractice();
+        // Already authenticated — go straight to dashboard
+        renderDashboard();
       } else {
         Admin.showPasswordModal(() => {
           Admin.enterEditMode();
-          if (_view === 'list')              renderList();
-          else if (_view === 'detail' && Store.get('activeSong')) renderDetail(Store.get('activeSong'), true);
-          else if (_view === 'detail')       renderList();
-          else if (_view === 'setlists')     renderSetlists(true);
-          else if (_view === 'setlist-detail' && _activeSetlist) renderSetlistDetail(_activeSetlist, true);
-          else if (_view === 'practice')     renderPractice(true);
-          else if (_view === 'practice-detail' && _activePersona) renderPracticeDetail(_activePersona, true);
-          else if (_view === 'practice-edit' && _activePersona && _activePracticeList) renderPracticeListDetail(_activePersona, _activePracticeList, true);
+          renderDashboard();
         });
       }
     });
@@ -993,10 +977,7 @@ const App = (() => {
       renderPractice();
     });
 
-    // Admin Dashboard button
-    document.getElementById('btn-admin-dashboard')?.addEventListener('click', () => {
-      renderDashboard();
-    });
+    // (Admin Dashboard button removed — "Admin" button now goes directly to dashboard)
 
     // Master volume slider (hidden on mobile — iOS audio.volume is read-only, Android has system volume)
     const isMobile = _isMobile();
@@ -1045,7 +1026,7 @@ const App = (() => {
     const splash = document.getElementById('splash-screen');
     if (splash) {
       splash.classList.add('fade-out');
-      setTimeout(() => splash.remove(), 450);
+      setTimeout(() => splash.remove(), 300);
     }
 
     // Deep link: if URL has a hash, navigate to it after data loads
