@@ -845,6 +845,11 @@ const Setlists = (() => {
       try { sessionStorage.setItem('bb_live_state', JSON.stringify({ setlistId: setlist.id, pageIdx: currentPageIdx })); } catch (_) {}
     }
 
+    // CLASSIC 4 FIX: Skip View Transition API for live mode entry.
+    // startViewTransition() defers the swap() callback asynchronously, which means
+    // the .active class may not be applied when rendering starts (especially with
+    // cached PDFs that load almost instantly). Force synchronous swap.
+    Store.set('skipViewTransition', true);
     _showView('setlist-live');
     document.body.classList.add('live-mode-active');
     document.documentElement.classList.add('live-mode-active');
@@ -866,18 +871,22 @@ const Setlists = (() => {
         <div class="lm-loading-text">Loading Live Mode\u2026</div>
       </div>
       <div class="lm-header" style="opacity:0">
-        <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:20px;height:20px;"></i></button>
-        <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:12px;height:12px;opacity:0.15;"></i></span>
-        <div class="lm-tools">
-          <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:18px;height:18px;"></i></button>
-          <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:18px;height:18px;"></i></button>
-          <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:18px;height:18px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
+        <div class="lm-header-row1">
+          <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:18px;height:18px;"></i></button>
+          <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:10px;height:10px;opacity:0.15;"></i></span>
+          <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
         </div>
-        <div class="lm-clock-group">
-          <span class="lm-clock"></span>
-          <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:12px;height:12px;"></i> <span class="lm-timer">Start</span></button>
+        <div class="lm-header-row2">
+          <div class="lm-tools">
+            <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:16px;height:16px;"></i></button>
+            <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:16px;height:16px;"></i></button>
+            <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:16px;height:16px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
+          </div>
+          <div class="lm-clock-group">
+            <span class="lm-clock"></span>
+            <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:10px;height:10px;"></i><span class="lm-timer">Start</span></button>
+          </div>
         </div>
-        <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
       </div>
       <div class="lm-jump-overlay hidden">
         <div class="lm-jump-list"></div>
@@ -1254,15 +1263,13 @@ const Setlists = (() => {
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Force reflow after un-hiding chartArea
-        void chartArea.offsetWidth;
-        let cw = chartArea.clientWidth;
-        if (cw <= 0) cw = carousel.clientWidth || 0;
-        // Retry: if width is still 0, try window width as last resort
-        if (cw <= 0) cw = window.innerWidth || 0;
-        // A1: if still zero, schedule retry instead of silently aborting.
-        // Use both rAF and setTimeout — iOS Safari throttles rAF when backgrounded.
-        // The renderGen guard prevents double-render if both fire.
+        // CLASSIC 4 NUCLEAR FIX: Use window.innerWidth directly as primary width.
+        // In Live Mode the carousel is ALWAYS 100% viewport width, so reading
+        // clientWidth (which depends on CSS layout being computed, view.active being
+        // set, and visibility/opacity tricks) is fragile and the root cause of ALL
+        // Classic 4 bugs. window.innerWidth is always valid and always correct here.
+        let cw = window.innerWidth;
+        // Ultra-paranoid fallback — should never trigger on any device with a screen
         if (cw <= 0) {
           const retry = () => {
             if (parseInt(slide.dataset.renderGen, 10) === gen) {
@@ -1270,7 +1277,7 @@ const Setlists = (() => {
             }
           };
           requestAnimationFrame(retry);
-          setTimeout(retry, 200); // fallback if rAF is throttled
+          setTimeout(retry, 200);
           return Promise.resolve();
         }
         // Half-page mode: set alignment class on chart area for top/bottom clipping
@@ -1317,14 +1324,10 @@ const Setlists = (() => {
     }
 
     function _updateSlots() {
-      // A1: Force carousel to have layout dimensions before rendering.
-      // The carousel starts at opacity:0 for fade-in, but we need non-zero
-      // clientWidth for PDF rendering. Use visibility:hidden so it takes layout
-      // space while remaining invisible, then force a reflow.
-      if (carousel.style.opacity === '0' && !carousel.style.visibility) {
-        carousel.style.visibility = 'hidden';
-        void carousel.offsetWidth; // force reflow — now clientWidth > 0
-      }
+      // CLASSIC 4 FIX: The old A1 visibility:hidden reflow trick is no longer needed.
+      // We now use window.innerWidth directly in _renderPageIntoSlide(), which
+      // completely sidesteps the zero-width problem regardless of CSS layout state.
+      // Just ensure carousel is positioned correctly.
       // Carousel always shows the middle slot (index 1)
       carousel.style.transition = 'none';
       carousel.style.transform = 'translateX(-100%)';
@@ -1580,7 +1583,7 @@ const Setlists = (() => {
           _pages.splice(placeholderIdx, 1, ...chartPages);
 
           // Pre-render first chart page for this song
-          const cw = _currentChartArea ? _currentChartArea.clientWidth : 0;
+          const cw = window.innerWidth;
           if (cw > 0) {
             PDFViewer.preRenderPage(pdfDoc, 1, cw).catch(() => {});
           }
@@ -1663,8 +1666,6 @@ const Setlists = (() => {
         _loadingOverlay.style.opacity = '0';
         setTimeout(() => _loadingOverlay.remove(), 200);
       }
-      // A1: clear visibility:hidden that was set for layout measurement
-      _lmCarousel.style.removeProperty('visibility');
       _lmHeader.style.transition = 'opacity 0.25s ease-in';
       _lmCarousel.style.transition = 'opacity 0.25s ease-in';
       _lmNav.style.transition = 'opacity 0.25s ease-in';
@@ -1747,7 +1748,7 @@ const Setlists = (() => {
     // After all charts load, pre-render every page for instant swiping
     _allChartsLoaded.then(async () => {
       if (!_liveModeActive) return;
-      const cw = carousel.clientWidth || window.innerWidth;
+      const cw = window.innerWidth;
       if (cw <= 0) return;
       // Collect unique chart pages to pre-render
       const toRender = [];
@@ -1996,9 +1997,10 @@ const Setlists = (() => {
       // Prevent native scroll while carousel-dragging horizontally
       e.preventDefault();
 
-      // A2: guard against zero slideWidth — fallback to window.innerWidth for cross-device safety
-      const slideWidth = carousel.clientWidth || window.innerWidth;
-      if (slideWidth <= 0) return; // absolute safety — should never happen
+      // CLASSIC 4 FIX: Use window.innerWidth directly — same reasoning as render fix.
+      // carousel.clientWidth can be 0 if layout hasn't computed, producing NaN transforms.
+      const slideWidth = window.innerWidth;
+      if (slideWidth <= 0) return;
       let offsetPct = (dx / slideWidth) * 100;
 
       // Rubber-band effect at edges

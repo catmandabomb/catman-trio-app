@@ -10,6 +10,56 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
   <title>Catman Trio</title>
 
+  <!-- Splash screen: inline CSS so it renders BEFORE any external stylesheet loads.
+       This eliminates the black flash on first load. Instagram-style launch screen. -->
+  <style>
+    #splash-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      background: #0e0e10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease-out;
+    }
+    #splash-screen.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .splash-logo {
+      text-align: center;
+      line-height: 1.05;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .splash-catman {
+      display: block;
+      font-family: 'Chakra Petch', 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: clamp(42px, 12vw, 72px);
+      letter-spacing: 2px;
+    }
+    .splash-trio {
+      display: block;
+      font-family: 'Chakra Petch', 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: clamp(42px, 12vw, 72px);
+      letter-spacing: 6px;
+    }
+    /* Same gold gradient as the topbar title */
+    .splash-catman span:nth-child(1) { color: rgb(215,175,90); }
+    .splash-catman span:nth-child(2) { color: rgb(220,184,105); }
+    .splash-catman span:nth-child(3) { color: rgb(225,193,120); }
+    .splash-catman span:nth-child(4) { color: rgb(230,202,135); }
+    .splash-catman span:nth-child(5) { color: rgb(235,211,150); }
+    .splash-catman span:nth-child(6) { color: rgb(240,220,165); }
+    .splash-trio span:nth-child(1) { color: rgb(220,184,105); }
+    .splash-trio span:nth-child(2) { color: rgb(225,193,120); }
+    .splash-trio span:nth-child(3) { color: rgb(230,202,135); }
+    .splash-trio span:nth-child(4) { color: rgb(235,211,150); }
+  </style>
+
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="img/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,15 +69,23 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=19.0" as="style">
+  <link rel="preload" href="app.css?v=19.1" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="preload" href="app.js?v=19.0" as="script">
-  <link rel="stylesheet" href="app.css?v=19.0" />
+  <link rel="preload" href="app.js?v=19.1" as="script">
+  <link rel="stylesheet" href="app.css?v=19.1" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" integrity="sha256-bQqDH8GbS66FF5etM5MVfoYa+3hiRZwRImNZsn4sQzc=" crossorigin="anonymous"></script>
 </head>
 <body>
+  <!-- Professional splash screen — visible instantly, dismissed by app.js after init -->
+  <div id="splash-screen">
+    <div class="splash-logo">
+      <span class="splash-catman"><span>C</span><span>a</span><span>t</span><span>m</span><span>a</span><span>n</span></span>
+      <span class="splash-trio"><span>T</span><span>r</span><span>i</span><span>o</span></span>
+    </div>
+  </div>
+
   <a href="#app" class="skip-link">Skip to content</a>
 
   <header id="topbar">
@@ -280,21 +338,21 @@
 
   <script src="lucide.min.js"></script>
   <script src="idb.js"></script>
-  <script src="js/store.js?v=19.0"></script>
-  <script src="js/utils.js?v=19.0"></script>
-  <script src="js/modal.js?v=19.0"></script>
-  <script src="js/router.js?v=19.0"></script>
+  <script src="js/store.js?v=19.1"></script>
+  <script src="js/utils.js?v=19.1"></script>
+  <script src="js/modal.js?v=19.1"></script>
+  <script src="js/router.js?v=19.1"></script>
   <script src="drive.js"></script>
   <script src="github.js"></script>
-  <script src="js/sync.js?v=19.0"></script>
+  <script src="js/sync.js?v=19.1"></script>
   <script src="pdf-viewer.js"></script>
   <script src="player.js"></script>
   <script src="metronome.js"></script>
   <script src="admin.js"></script>
-  <script src="js/dashboard.js?v=19.0"></script>
-  <script src="js/practice.js?v=19.0"></script>
-  <script src="js/setlists.js?v=19.0"></script>
-  <script src="js/songs.js?v=19.0"></script>
-  <script src="app.js?v=19.0"></script>
+  <script src="js/dashboard.js?v=19.1"></script>
+  <script src="js/practice.js?v=19.1"></script>
+  <script src="js/setlists.js?v=19.1"></script>
+  <script src="js/songs.js?v=19.1"></script>
+  <script src="app.js?v=19.1"></script>
 </body>
 </html>

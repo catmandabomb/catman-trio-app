@@ -500,6 +500,12 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    // Safety: dismiss splash screen after 6s no matter what (don't strand user)
+    const _splashSafety = setTimeout(() => {
+      const s = document.getElementById('splash-screen');
+      if (s) { s.classList.add('fade-out'); setTimeout(() => s.remove(), 450); }
+    }, 6000);
+
     // Show loading skeleton immediately so the user sees activity on cold start
     // (must happen before any await to avoid black-screen perception)
     const songList = document.getElementById('song-list');
@@ -1033,6 +1039,15 @@ const App = (() => {
     }
 
     renderList();
+
+    // Dismiss splash screen — app is ready, UI is painted
+    clearTimeout(_splashSafety);
+    const splash = document.getElementById('splash-screen');
+    if (splash) {
+      splash.classList.add('fade-out');
+      setTimeout(() => splash.remove(), 450);
+    }
+
     // Deep link: if URL has a hash, navigate to it after data loads
     if (location.hash && location.hash !== '#') {
       const route = _resolveHash(location.hash);

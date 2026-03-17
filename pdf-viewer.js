@@ -335,17 +335,27 @@ const PDFViewer = (() => {
         // Dimensions match — blit from cache
         const cachedCanvas = cached.canvas;
 
-        // A4: Only reassign canvas dimensions if they differ — setting canvas.width/height
-        // clears the canvas per HTML spec, but the clear + drawImage are synchronous within
-        // one JS task so no repaint occurs between them (no visible flash).
+        // A4 FIX: Double-buffer on dimension change to prevent flash-then-black.
+        // Setting canvas.width/height clears the canvas per HTML spec. While clear + drawImage
+        // are in the same JS task, some browsers (especially iOS Safari) may repaint between
+        // microtasks, causing a visible black flash. Double-buffering eliminates this.
         const needsResize = canvas.width !== cachedCanvas.width || canvas.height !== cachedCanvas.height;
         if (needsResize) {
+          // Render to a temp canvas first, then swap all at once
+          const tmpCanvas = document.createElement('canvas');
+          tmpCanvas.width = cachedCanvas.width;
+          tmpCanvas.height = cachedCanvas.height;
+          tmpCanvas.getContext('2d').drawImage(cachedCanvas, 0, 0);
           canvas.width = cachedCanvas.width;
           canvas.height = cachedCanvas.height;
+          canvas.style.width = cached.displayW + 'px';
+          canvas.style.height = cached.displayH + 'px';
+          canvas.getContext('2d').drawImage(tmpCanvas, 0, 0);
+        } else {
+          canvas.style.width = cached.displayW + 'px';
+          canvas.style.height = cached.displayH + 'px';
+          canvas.getContext('2d').drawImage(cachedCanvas, 0, 0);
         }
-        canvas.style.width = cached.displayW + 'px';
-        canvas.style.height = cached.displayH + 'px';
-        canvas.getContext('2d').drawImage(cachedCanvas, 0, 0);
 
         // Re-insert to refresh LRU position
         _renderCache.delete(cacheKey);
@@ -500,12 +510,8 @@ const PDFViewer = (() => {
         });
       }
 
-      if (_renderCache.size >= MAX_RENDER_CACHE) {
-        const oldestKey = _renderCache.keys().next().value;
-        const oldest = _renderCache.get(oldestKey);
-        if (oldest?.canvas) { oldest.canvas.width = 0; oldest.canvas.height = 0; }
-        _renderCache.delete(oldestKey);
-      }
+      // Use safe eviction (respects active canvases) instead of naive oldest-first
+      _evictIfFull();
       _renderCache.delete(cacheKey);
       _renderCache.set(cacheKey, { canvas: hiCanvas, displayW, displayH });
     });

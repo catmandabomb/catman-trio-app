@@ -3309,32 +3309,45 @@ html.live-mode-active { overflow: hidden; }
 }
 .lm-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 16px;
-  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  flex-direction: column;
+  padding: 6px 12px;
+  padding-top: calc(6px + env(safe-area-inset-top, 0px));
   flex-shrink: 0;
+  gap: 4px;
   /* B5: smooth auto-hide transitions (opacity only — no reflow) */
   transition: opacity 0.3s ease;
 }
+.lm-header-row1,
+.lm-header-row2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
 .lm-progress {
-  font-size: 16px;
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
   font-weight: 600;
   color: rgba(255,255,255,0.5);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .lm-wake-indicator {
   display: inline-flex;
   align-items: center;
-  margin-left: 6px;
+  margin-left: 4px;
   vertical-align: middle;
   transition: opacity 0.2s;
 }
 .lm-close-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3344,15 +3357,16 @@ html.live-mode-active { overflow: hidden; }
   border-radius: 50%;
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
 }
 .lm-close-btn:hover { color: var(--accent); background: rgba(255,255,255,0.12); }
 .lm-close-btn:focus-visible { box-shadow: 0 0 0 3px var(--accent); outline: none; }
 /* Quick-Jump Song Picker */
 .lm-jump-btn {
-  width: 36px;
-  height: 36px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3517,10 +3531,10 @@ html.live-mode-active { overflow: hidden; }
 
 /* ─── Live Mode: iPad / Tablet (touch + large screen) ─── */
 @media (min-width: 768px) and (pointer: coarse) {
-  .lm-header { padding: 12px 24px; padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
-  .lm-progress { font-size: 18px; }
-  .lm-close-btn { width: 48px; height: 48px; }
-  .lm-jump-btn { width: 44px; height: 44px; }
+  .lm-header { padding: 10px 24px; padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+  .lm-progress { font-size: 16px; }
+  .lm-close-btn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; }
+  .lm-jump-btn { width: 38px; height: 38px; min-width: 38px; min-height: 38px; }
 
   .lm-body { padding: 30px 50px; gap: 14px; }
   .lm-song-num { font-size: 56px; }
@@ -3797,12 +3811,11 @@ html.live-mode-active { overflow: hidden; }
 ═══════════════════════════════════════════ */
 .lm-clock-group {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
 }
 .lm-clock {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: rgba(255,255,255,0.4);
   font-variant-numeric: tabular-nums;
@@ -3811,11 +3824,11 @@ html.live-mode-active { overflow: hidden; }
   background: none;
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 6px;
-  padding: 2px 10px;
+  padding: 2px 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   color: var(--accent);
   transition: border-color 0.15s;
 }
@@ -3827,15 +3840,15 @@ html.live-mode-active { overflow: hidden; }
   background: rgba(240,204,128,0.08);
 }
 .lm-timer {
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.5px;
 }
 @media (max-width: 600px) {
-  .lm-timer { font-size: 16px; }
-  .lm-clock { font-size: 12px; }
+  .lm-timer { font-size: 13px; }
+  .lm-clock { font-size: 11px; }
 }
 
 /* ═══════════════════════════════════════════
@@ -3844,14 +3857,16 @@ html.live-mode-active { overflow: hidden; }
 .lm-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
 }
 .lm-dark-toggle,
 .lm-half-toggle,
 .lm-auto-toggle {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3867,8 +3882,8 @@ html.live-mode-active { overflow: hidden; }
 }
 .lm-auto-toggle {
   width: auto;
-  padding: 0 10px;
-  gap: 4px;
+  padding: 0 8px;
+  gap: 3px;
 }
 .lm-auto-label {
   font-size: 11px;
@@ -3968,16 +3983,20 @@ html.live-mode-active { overflow: hidden; }
 }
 
 @media (max-width: 600px) {
-  .lm-tools { gap: 4px; }
+  .lm-header { padding: 4px 8px; padding-top: calc(4px + env(safe-area-inset-top, 0px)); gap: 2px; }
+  .lm-header-row1, .lm-header-row2 { gap: 4px; }
+  .lm-progress { font-size: 12px; }
+  .lm-tools { gap: 3px; }
   .lm-dark-toggle,
   .lm-half-toggle,
   .lm-auto-toggle {
-    width: 34px; height: 34px;
-    /* Ensure 44px touch target via padding even though visual is 34px */
-    min-width: 44px; min-height: 44px;
+    width: 28px; height: 28px;
+    min-width: 28px; min-height: 28px;
   }
-  .lm-auto-toggle { width: auto; padding: 0 8px; min-width: auto; }
+  .lm-auto-toggle { width: auto; padding: 0 6px; min-width: auto; }
   .lm-auto-label { font-size: 10px; }
+  .lm-close-btn { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
+  .lm-jump-btn { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
   .lm-auto-picker { top: 52px; max-width: calc(100vw - 16px); }
   .lm-auto-pick-item { padding: 10px 12px; font-size: 14px; min-height: 44px; }
 }
