@@ -735,6 +735,7 @@ const Setlists = (() => {
         if (meta.length) line += '  (' + meta.join(' · ') + ')';
         lines.push(line);
         if (entry.notes) lines.push('   ' + entry.notes);
+        if (entry.comment) lines.push('   → ' + entry.comment);
         return;
       }
       const song = allSongs.find(s => s.id === entry.id);
