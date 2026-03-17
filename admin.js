@@ -182,15 +182,25 @@ const Admin = (() => {
   }
 
   function newSetlist(existingSetlists) {
-    const now = new Date().toISOString();
+    const now = new Date();
+    const dateStr = `${now.getMonth() + 1}-${now.getDate()}-${now.getFullYear()}`;
+    let baseName = `Setlist (${dateStr})`;
+    // FEAT-18: Enforce unique name — append (#2), (#3) etc.
+    const existingNames = new Set((existingSetlists || []).map(s => s.name));
+    let finalName = baseName;
+    let counter = 2;
+    while (existingNames.has(finalName)) {
+      finalName = `${baseName} (#${counter})`;
+      counter++;
+    }
     return {
       id:        generateId(existingSetlists),
-      name:      '',
+      name:      finalName,
       songs:     [],   // [{ id, comment }]
       gigDate:   '',   // ISO date string, optional
       archived:  false,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
     };
   }
 

@@ -500,6 +500,7 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    const _splashStart = Date.now();
     // Safety: dismiss splash screen after 6s no matter what (don't strand user)
     const _splashSafety = setTimeout(() => {
       const s = document.getElementById('splash-screen');
@@ -1021,12 +1022,21 @@ const App = (() => {
 
     renderList();
 
-    // Dismiss splash screen — app is ready, UI is painted
+    // BUG-01: Dismiss splash with minimum hold time + double-rAF paint settling
     clearTimeout(_splashSafety);
     const splash = document.getElementById('splash-screen');
     if (splash) {
-      splash.classList.add('fade-out');
-      setTimeout(() => splash.remove(), 300);
+      const elapsed = Date.now() - _splashStart;
+      const minHold = Math.max(0, 800 - elapsed);
+      setTimeout(() => {
+        // Double-rAF ensures layout reflow is complete before fade
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            splash.classList.add('fade-out');
+            setTimeout(() => splash.remove(), 300);
+          });
+        });
+      }, minHold);
     }
 
     // Deep link: if URL has a hash, navigate to it after data loads

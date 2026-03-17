@@ -201,7 +201,6 @@ const Dashboard = (() => {
         <button class="text-btn dash-exit-admin" id="dash-exit-admin" title="Exit Admin Edit Mode">
           <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Exit Admin Edit Mode
         </button>
-        <h2>Admin Dashboard</h2>
         <p>System health and data integrity overview</p>
         <span class="dash-version">${APP_VERSION}</span>
       </div>
@@ -244,9 +243,11 @@ const Dashboard = (() => {
     }
 
     errors.forEach(e => {
+      const isOrphan = e.code === 1201 || e.code === 1301;
       html += `<div class="dash-alert">
         <div class="dash-alert-title">${_codeTag(e.code)} ${e.title}</div>
         ${e.detail ? `<div class="dash-alert-detail">${e.detail}</div>` : ''}
+        ${isOrphan ? `<button class="btn-ghost btn-remove-orphans" data-orphan-code="${e.code}" style="margin-top:6px;font-size:11px;padding:4px 10px;">Remove Orphans</button>` : ''}
         ${e.items ? `<ul class="dash-file-list">${e.items.map(i => `<li>${i}</li>`).join('')}</ul>` : ''}
       </div>`;
     });
@@ -382,6 +383,38 @@ const Dashboard = (() => {
       Admin.exitEditMode();
       App.renderList();
       Utils.showToast('Admin mode exited');
+    });
+
+    // BUG-28: Wire Remove Orphans buttons
+    container.querySelectorAll('.btn-remove-orphans').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const code = parseInt(btn.dataset.orphanCode, 10);
+        const songIdSet = new Set(songs.map(s => s.id));
+        let removed = 0;
+        if (code === 1201) {
+          // Remove orphans from practice lists
+          practice.forEach(persona => {
+            (persona.practiceLists || []).forEach(pl => {
+              const before = (pl.songs || []).length;
+              pl.songs = (pl.songs || []).filter(e => songIdSet.has(e.songId));
+              removed += before - pl.songs.length;
+            });
+          });
+          Store.set('practice', practice);
+          if (typeof Sync !== 'undefined') Sync.savePractice();
+        } else if (code === 1301) {
+          // Remove orphans from setlists
+          setlists.forEach(sl => {
+            const before = (sl.songs || []).length;
+            sl.songs = (sl.songs || []).filter(e => songIdSet.has(e.id || e.songId));
+            removed += before - sl.songs.length;
+          });
+          Store.set('setlists', setlists);
+          if (typeof Sync !== 'undefined') Sync.saveSetlists();
+        }
+        showToast(`Removed ${removed} orphan${removed !== 1 ? 's' : ''}`);
+        renderDashboard();
+      });
     });
 
     // Wire Tag Manager

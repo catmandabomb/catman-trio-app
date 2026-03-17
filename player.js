@@ -174,25 +174,27 @@ const Player = (() => {
           <i data-lucide="repeat" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px;"></i>A/B Loop
         </button>
         <div class="loop-controls hidden">
+          <div class="loop-top-row">
+            <div class="loop-status hidden">
+              <span class="loop-count-label">Loops: <strong class="loop-count-val">0</strong></span>
+            </div>
+            <button class="loop-clear-btn hidden">Clear</button>
+          </div>
           <div class="loop-points">
             <div class="loop-point">
-              <span class="loop-label">A</span>
-              <button class="loop-nudge" data-target="a" data-dir="-1">−</button>
-              <span class="loop-time loop-time-a">—</span>
+              <span class="loop-label">Loop Start</span>
+              <button class="loop-nudge" data-target="a" data-dir="-1">&minus;</button>
+              <span class="loop-time loop-time-a">&mdash;</span>
               <button class="loop-nudge" data-target="a" data-dir="1">+</button>
-              <button class="loop-set-btn" data-point="a">Set A</button>
+              <button class="loop-set-btn" data-point="a">Set</button>
             </div>
             <div class="loop-point">
-              <span class="loop-label">B</span>
-              <button class="loop-nudge" data-target="b" data-dir="-1">−</button>
-              <span class="loop-time loop-time-b">—</span>
+              <span class="loop-label">Loop End</span>
+              <button class="loop-nudge" data-target="b" data-dir="-1">&minus;</button>
+              <span class="loop-time loop-time-b">&mdash;</span>
               <button class="loop-nudge" data-target="b" data-dir="1">+</button>
-              <button class="loop-set-btn" data-point="b">Set B</button>
+              <button class="loop-set-btn" data-point="b">Set</button>
             </div>
-          </div>
-          <div class="loop-status hidden">
-            <span class="loop-count-label">Loops: <strong class="loop-count-val">0</strong></span>
-            <button class="loop-clear-btn">Clear</button>
           </div>
         </div>
       `;
@@ -205,6 +207,7 @@ const Player = (() => {
       const loopStatusDiv = loopSection.querySelector('.loop-status');
       const loopCountVal = loopSection.querySelector('.loop-count-val');
       const loopClearBtn = loopSection.querySelector('.loop-clear-btn');
+      const loopTopRow = loopSection.querySelector('.loop-top-row');
 
       function _roundT(t) { return Math.round(t * 10) / 10; }
       function _fmtT(t) { return t === null ? '—' : t.toFixed(1) + 's'; }
@@ -214,6 +217,7 @@ const Player = (() => {
         loopTimeB.textContent = _fmtT(loopB);
         loopActive = loopA !== null && loopB !== null && loopA < loopB;
         loopStatusDiv.classList.toggle('hidden', !loopActive);
+        loopClearBtn.classList.toggle('hidden', !loopActive);
         loopCountVal.textContent = loopCount;
 
         // Update progress bar overlay

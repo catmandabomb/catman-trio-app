@@ -576,13 +576,17 @@ const Practice = (() => {
     const plSongs = practiceList.songs || [];
 
     let html = `<div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-practice-list">Edit List</button></div>` : ''}
+      ${Admin.isEditMode() ? `<div class="detail-edit-bar" style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-ghost btn-edit-practice-list">Edit List</button>
+        <button class="btn-ghost btn-delete-practice-list-top" style="color:#e87c6a;">Delete List</button>
+      </div>` : `<div class="detail-edit-bar" style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-ghost btn-delete-practice-list-top" style="color:#e87c6a;">Delete List</button>
+      </div>`}
       <div class="detail-title" style="margin-bottom:4px">${esc(practiceList.name)}</div>
       <div class="detail-subtitle">${plSongs.length} song${plSongs.length !== 1 ? 's' : ''}</div>
     </div>`;
 
-    // Metronome panel
-    html += _metronomeHTML();
+    // FEAT-24: Metronome moved to practice mode (below)
 
     // Add song button (all users)
     html += `<button class="btn-ghost" id="btn-add-practice-song" style="width:100%;text-align:center;margin-bottom:16px;">
@@ -623,22 +627,18 @@ const Practice = (() => {
       html += `</div>`;
     }
 
-    // Delete practice list button at bottom (all users)
-    html += `<div class="delete-zone" style="margin-top:32px;">
-      <button class="btn-danger" id="btn-delete-practice-list" style="font-size:12px;">
-        <i data-lucide="trash-2" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px;"></i>Delete Practice List
-      </button>
-    </div>`;
+    // FEAT-25: Delete button moved next to Edit List (above)
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
-    _wireMetronome();
 
-    // Wire song clicks
+    // Wire song clicks — FEAT-22: tapping enters practice mode scrolled to that song
     container.querySelectorAll('.setlist-song-row').forEach(row => {
       row.addEventListener('click', () => {
         const song = songs.find(s => s.id === row.dataset.songId);
-        if (song) {
+        if (song && plSongs.length > 0) {
+          _enterPracticeMode(persona, practiceList, song.id);
+        } else if (song) {
           _pushNav(() => renderPracticeListDetail(persona, practiceList));
           App.renderDetail(song, true);
         }
@@ -660,8 +660,8 @@ const Practice = (() => {
       _enterPracticeMode(persona, practiceList);
     });
 
-    // Wire delete practice list (all users)
-    document.getElementById('btn-delete-practice-list')?.addEventListener('click', () => {
+    // FEAT-25: Wire delete practice list (moved next to edit button)
+    container.querySelector('.btn-delete-practice-list-top')?.addEventListener('click', () => {
       if (_savingPractice) return;
       Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
         if (_savingPractice) return;
@@ -1009,7 +1009,7 @@ const Practice = (() => {
 
   // ─── PRACTICE MODE ────────────────────────────────────────
 
-  function _enterPracticeMode(persona, practiceList) {
+  function _enterPracticeMode(persona, practiceList, scrollToSongId) {
     _practicePersona = persona;
     _practiceList = practiceList;
     App.revokeBlobCache();
@@ -1033,6 +1033,9 @@ const Practice = (() => {
       </div>
       <button class="btn-secondary" id="btn-exit-practice-mode" style="width:100%;margin-bottom:16px;">Exit Practice Mode</button>
     </div>`;
+
+    // FEAT-24: Metronome at top of practice mode
+    html += _metronomeHTML();
 
     html += `<div class="practice-accordion">`;
     plSongs.forEach((entry, i) => {
@@ -1078,6 +1081,29 @@ const Practice = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+    // FEAT-24: Wire metronome in practice mode
+    _wireMetronome();
+
+    // FEAT-22: Scroll to and auto-expand the target song
+    if (scrollToSongId) {
+      const targetIdx = plSongs.findIndex(e => e.songId === scrollToSongId);
+      if (targetIdx > -1) {
+        const targetItem = container.querySelector(`.practice-accordion-item[data-practice-idx="${targetIdx}"]`);
+        if (targetItem) {
+          // Ensure it's expanded
+          const body = targetItem.querySelector('.practice-accordion-body');
+          if (body && body.classList.contains('hidden')) {
+            body.classList.remove('hidden');
+            const chevron = targetItem.querySelector('.accordion-chevron, svg');
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+          }
+          // Scroll after a frame to let layout settle
+          requestAnimationFrame(() => {
+            targetItem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        }
+      }
+    }
 
     // Pre-fetch all chart PDFs eagerly (prevents Drive contention with audio)
     plSongs.forEach(entry => {
@@ -1187,6 +1213,65 @@ const Practice = (() => {
     });
   }
 
+  // FEAT-26: Practice list picker — called from song detail
+  function _showPracticeListPicker(song) {
+    _syncFromStore();
+    if (!_practice.length) {
+      showToast('No practice personas yet');
+      return;
+    }
+    // Build persona → practice list hierarchy
+    let rows = '';
+    _practice.forEach((persona, pi) => {
+      const lists = persona.practiceLists || [];
+      if (!lists.length) return;
+      rows += `<div class="practice-picker-persona" style="font-size:11px;color:var(--text-3);font-weight:600;padding:8px 0 4px;border-top:1px solid var(--border);">${esc(persona.name)}</div>`;
+      lists.forEach((pl, li) => {
+        const count = (pl.songs || []).length;
+        rows += `<div class="setlist-pick-row" data-persona-idx="${pi}" data-list-idx="${li}">
+          <span class="setlist-pick-name">${esc(pl.name)}</span>
+          <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
+        </div>`;
+      });
+    });
+    if (!rows) {
+      showToast('No practice lists yet');
+      return;
+    }
+
+    const handle = Modal.create({
+      id: 'practice-list-picker-overlay',
+      cls: 'setlist-picker',
+      content: `<h3>Add to Practice List</h3>${rows}<button class="setlist-picker-cancel">Cancel</button>`,
+    });
+    if (!handle) return;
+
+    handle.overlay.querySelector('.setlist-picker-cancel').addEventListener('click', () => handle.hide());
+
+    handle.overlay.querySelectorAll('.setlist-pick-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const pi = parseInt(row.dataset.personaIdx, 10);
+        const li = parseInt(row.dataset.listIdx, 10);
+        const persona = _practice[pi];
+        if (!persona) return;
+        const pl = (persona.practiceLists || [])[li];
+        if (!pl) return;
+
+        const already = (pl.songs || []).some(e => e.songId === song.id);
+        if (already) {
+          showToast('Already in ' + pl.name);
+          handle.hide();
+          return;
+        }
+
+        if (!pl.songs) pl.songs = [];
+        pl.songs.push({ songId: song.id, comment: '' });
+        savePractice('Added to ' + pl.name);
+        handle.hide();
+      });
+    });
+  }
+
   function _exitPracticeMode() {
     document.body.classList.remove('practice-mode-active');
     _practicePersona = null;
@@ -1211,6 +1296,7 @@ const Practice = (() => {
     savePractice,
     migratePracticeData,
     enterPracticeMode: _enterPracticeMode,
+    showPracticeListPicker: _showPracticeListPicker,
     // Allow app.js to sync local _practice after external refresh
     syncFromStore: _syncFromStore,
   };

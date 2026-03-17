@@ -703,6 +703,15 @@ const Songs = (() => {
       _showSetlistPicker(song);
     });
 
+    // FEAT-26: Add to Practice List
+    container.querySelector('.btn-add-to-practice-list')?.addEventListener('click', () => {
+      if (typeof Practice !== 'undefined' && Practice.showPracticeListPicker) {
+        Practice.showPracticeListPicker(song);
+      } else {
+        showToast('Practice module not loaded');
+      }
+    });
+
     // Pre-fetch all chart PDFs eagerly
     const chartDriveIds = (song.assets?.charts || []).map(c => c.driveId).filter(Boolean);
     chartDriveIds.forEach(id => {
@@ -860,11 +869,14 @@ const Songs = (() => {
         </div>
         ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
-      ${Admin.isEditMode() ? `<div class="detail-quick-add">
-        <button class="btn-ghost btn-add-to-setlist">
+      <div class="detail-quick-add">
+        ${Admin.isEditMode() ? `<button class="btn-ghost btn-add-to-setlist">
           <i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist
+        </button>` : ''}
+        <button class="btn-ghost btn-add-to-practice-list">
+          <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Practice List
         </button>
-      </div>` : ''}`;
+      </div>`;
 
     if (song.notes) {
       html += `<div class="detail-section" id="detail-notes">
@@ -988,12 +1000,12 @@ const Songs = (() => {
     Store.set('showViewCalled', true);
     Router.setTopbar(isNew ? 'New Song' : 'Edit Song', true);
     const editContainer = document.getElementById('edit-content');
-    editContainer.innerHTML = _buildEditHTML(editSong);
+    editContainer.innerHTML = _buildEditHTML(editSong, isNew);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [editContainer] });
     _wireEditForm();
   }
 
-  function _buildEditHTML(song) {
+  function _buildEditHTML(song, isNew) {
     const assets = song.assets;
     return `
       <div class="edit-section">

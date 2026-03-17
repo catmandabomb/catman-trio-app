@@ -1318,7 +1318,7 @@ const Setlists = (() => {
     // -- Navigation --
     let _lastRenderedSongIdx = -1;
     let _isAnimating = false;
-    let _animStartTime = 0; // timestamp when animation started — for stuck detection
+    let _animStartTime = 0;
     let _renderGen = 0; // B1: generation counter to detect stale renders
     let _queuedDelta = 0; // B1: queued swipe delta during animation
     const _renderErrorSongs = new Set(); // B6: track songs that failed to render (toast once per song)
@@ -1388,6 +1388,8 @@ const Setlists = (() => {
         chartArea.classList.remove('half-top', 'half-bottom');
         if (page.half === 'top') chartArea.classList.add('half-top');
         else if (page.half === 'bottom') chartArea.classList.add('half-bottom');
+        // BUG-09/23: Null guard — if PDF not yet loaded, leave as loading state (don't toast error)
+        if (!page.pdfDoc) return Promise.resolve();
         return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
           .then(() => {
             // B1: verify this render is still current (not stale from rapid navigation)
@@ -1796,7 +1798,11 @@ const Setlists = (() => {
         // as needed. Removing it here is safe; setting it to 'none' is not.
         _lmCarousel.style.removeProperty('transition');
         _lmCarousel.style.removeProperty('opacity');
-        _lmCarousel.style.removeProperty('visibility');
+        // CLASSIC 4 FIX: Do NOT remove visibility — leave 'visible' permanently.
+        // If CSS default doesn't set visibility:visible, carousel disappears.
+        // _lmCarousel.style.removeProperty('visibility'); // REMOVED
+        // Safety: re-render current slide after reveal to ensure content is painted
+        _renderPageIntoSlide(slots[1], currentPageIdx);
       }, 300);
     }
 
@@ -1931,6 +1937,10 @@ const Setlists = (() => {
       carousel.removeEventListener('touchstart', _onInteraction);
       carousel.removeEventListener('mousedown', _onInteraction);
       carousel.removeEventListener('click', _onClickTapZone);
+      // BUG-06/10: Remove header interaction listeners
+      _lmHeader.removeEventListener('touchstart', _onInteraction);
+      _lmHeader.removeEventListener('mousedown', _onInteraction);
+      _lmHeader.removeEventListener('click', _onInteraction);
       document.removeEventListener('fullscreenchange', _onFullscreenChange);
       window.removeEventListener('popstate', _onPopState);
       window.removeEventListener('resize', _onResize);
@@ -2030,7 +2040,8 @@ const Setlists = (() => {
       _chromeHidden = true;
       _chromeElements.forEach(el => {
         el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
+        // BUG-06/10: Do NOT set pointerEvents 'none' — it kills header buttons permanently.
+        // Opacity-only hiding keeps buttons tappable, and tapping triggers _showChrome().
       });
     }
 
@@ -2047,6 +2058,10 @@ const Setlists = (() => {
     function _onInteraction() { _showChrome(); }
     carousel.addEventListener('touchstart', _onInteraction, { passive: true });
     carousel.addEventListener('mousedown', _onInteraction, { passive: true });
+    // BUG-06/10: Also listen on header itself — tapping hidden header shows chrome
+    _lmHeader.addEventListener('touchstart', _onInteraction, { passive: true });
+    _lmHeader.addEventListener('mousedown', _onInteraction, { passive: true });
+    _lmHeader.addEventListener('click', _onInteraction, { passive: true });
     // 'C' key or center-tap toggles chrome (handled in _onKey for 'C', tap zones for center)
     // Start the auto-hide timer
     _resetChromeTimer();
@@ -2067,6 +2082,11 @@ const Setlists = (() => {
     const SWIPE_THRESHOLD = Math.max(40, Math.min(60, window.innerWidth * 0.15));
 
     function _onDragStart(e) {
+      // CLASSIC 4 FIX: Safety reset — if _isAnimating stuck >1500ms, force-clear.
+      // transitionend can fail to fire on iOS if compositing layers are recycled.
+      if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1500)) {
+        _isAnimating = false;
+      }
       if (_isAnimating) return;
       // If zoomed, let zoom/pan handle the touch
       if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
@@ -2621,6 +2641,9 @@ const Setlists = (() => {
       if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
       sl.name = document.getElementById('slf-name').value.trim();
       if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
+      // FEAT-18: Validate name uniqueness
+      const dupeName = _setlists.find(s => s.id !== sl.id && s.name === sl.name);
+      if (dupeName) { showToast('A setlist with this name already exists.'); document.getElementById('slf-name').focus(); return; }
       const emptyFt = sl.songs.find(e => e.freetext && !(e.title || '').trim());
       if (emptyFt) { showToast('All freetext songs need a title.'); return; }
       _savingSetlists = true;
