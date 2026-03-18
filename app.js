@@ -577,14 +577,14 @@ const App = (() => {
   async function handleVerifyEmail(token) {
     showToast('Verifying email...');
     const result = await Auth.verifyEmailToken(token);
-    if (result.ok) {
-      showToast('Email verified!');
-      _updateAuthUI();
-    } else {
-      showToast(result.error || 'Verification failed');
-    }
     location.hash = '#';
     renderList();
+    _updateAuthUI();
+    if (result.ok) {
+      showToast('Email verified! You\'re all set.', 5000);
+    } else {
+      showToast(result.error || 'Verification failed', 5000);
+    }
   }
 
   // ─── FORGOT PASSWORD MODAL ─────────────────────────────────
