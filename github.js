@@ -220,9 +220,13 @@ const GitHub = (() => {
       // Fetch key seed from Worker (cached in memory only — never localStorage)
       if (!_keySeed) {
         const adminHash = _getAdminHash();
-        if (!adminHash) throw new Error('Admin hash not found — log in first');
+        const sessionToken = (typeof Auth !== 'undefined' && Auth.getToken) ? Auth.getToken() : null;
+        if (!adminHash && !sessionToken) throw new Error('Not authenticated — log in first');
+        const authHeaders = adminHash
+          ? { 'X-Admin-Hash': adminHash }
+          : { 'Authorization': `Bearer ${sessionToken}` };
         const resp = await fetch(`${WORKER_URL}/auth/key`, {
-          headers: { 'X-Admin-Hash': adminHash },
+          headers: authHeaders,
         });
         if (!resp.ok) throw new Error(`Key fetch failed: ${resp.status}`);
         const data = await resp.json();
@@ -339,18 +343,23 @@ const GitHub = (() => {
       if (USE_WORKER) {
         // ─── Worker proxy path ─────────────────────────
         const adminHash = _getAdminHash();
-        if (!adminHash) throw new Error('Admin hash not found — log in first');
+        const sessionToken = (typeof Auth !== 'undefined' && Auth.getToken) ? Auth.getToken() : null;
+        if (!adminHash && !sessionToken) throw new Error('Not authenticated — log in first');
 
         const owner = encodeURIComponent(_owner());
         const repo  = encodeURIComponent(_repo());
         const safePath = path
           .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
 
+        const authHeaders = adminHash
+          ? { 'X-Admin-Hash': adminHash }
+          : { 'Authorization': `Bearer ${sessionToken}` };
+
         resp = await fetch(`${WORKER_URL}/github${safePath}`, {
           ...options,
           signal: controller.signal,
           headers: {
-            'X-Admin-Hash': adminHash,
+            ...authHeaders,
             'Accept': 'application/vnd.github+json',
             ...(options.headers || {}),
           },
