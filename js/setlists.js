@@ -407,11 +407,11 @@ function renderSetlistDetail(setlist, skipNavPush) {
   _showView('setlist-detail');
   _setTopbar(setlist.name || 'Setlist', true);
 
-  // Add Edit + Duplicate to topbar right (admin only)
+  // Add Edit + Copy to topbar right (admin only)
   const isAdmin = Admin.isEditMode();
   if (isAdmin) {
     _injectTopbarActions('setlist-detail-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist">Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button>`);
+      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist">Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`);
   }
 
   const _songs = Store.get('songs');
@@ -1126,7 +1126,7 @@ function _renderLiveMode(setlist) {
     <div class="lm-jump-overlay hidden">
       <div class="lm-jump-list"></div>
     </div>
-    <div class="lm-carousel" style="opacity:0">
+    <div class="lm-carousel" style="opacity:1">
       <div class="lm-slide" data-slot="0">
         <div class="lm-slide-chart hidden">
           <canvas class="lm-slide-canvas"></canvas>
@@ -1683,7 +1683,7 @@ function _renderLiveMode(setlist) {
     void carousel.offsetWidth; // force style recalc so transition is registered
     carousel.style.transform = `translateX(${targetX})`;
 
-    function _afterSnap() {
+    async function _afterSnap() {
       // B4: prevent double-fire (both transitionend and setTimeout)
       if (!_isAnimating) return;
       carousel.removeEventListener('transitionend', _onTransitionEnd);
@@ -1701,10 +1701,6 @@ function _renderLiveMode(setlist) {
           carousel.insertBefore(recycled, slots[1]);
         }
 
-        // Reset position to show center (no transition)
-        carousel.style.transition = 'none';
-        carousel.style.transform = 'translateX(-100%)';
-
         // 3B: retarget zoom/pan to the new center slide (avoids destroy/create churn)
         _currentChartArea = slots[1].querySelector('.lm-slide-chart');
         _currentCanvas = slots[1].querySelector('.lm-slide-canvas');
@@ -1719,9 +1715,13 @@ function _renderLiveMode(setlist) {
           _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
         }
 
-        // A3: ALWAYS re-render center slot after page turn — guarantees correctness.
-        // The render cache makes this near-instant for already-cached pages.
-        _renderPageIntoSlide(slots[1], currentPageIdx);
+        // A3: Await center slide render BEFORE resetting carousel position.
+        // This prevents flash-then-black on page turns (Classic 4 fix).
+        await _renderPageIntoSlide(slots[1], currentPageIdx);
+
+        // Reset position to show center (no transition) — AFTER render completes
+        carousel.style.transition = 'none';
+        carousel.style.transform = 'translateX(-100%)';
 
         // Pre-render the new adjacent page into the recycled slot
         if (delta > 0 && currentPageIdx < _pages.length - 1) {
@@ -1927,11 +1927,8 @@ function _renderLiveMode(setlist) {
     if (_lmRevealed) return;
     _lmRevealed = true;
     _diagLog('reveal');
-    // CLASSIC 4 FIX: Make carousel visible BEFORE rendering so iOS Safari
-    // composites canvas content. The loading overlay (z-index above) hides
-    // the carousel visually, so there's no flash. Without this, iOS can
-    // skip canvas compositing for opacity:0 elements, producing black pages.
-    _lmCarousel.style.opacity = '1';
+    // Carousel starts visible (opacity:1 in HTML) — no need to set here.
+    // Ensure visibility in case CSS overrides it.
     _lmCarousel.style.visibility = 'visible';
     // Update slots now that current page is loaded
     _updateSlots();

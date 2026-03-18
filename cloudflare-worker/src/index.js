@@ -660,7 +660,15 @@ export default {
 
     // ─── GET /auth/me ────────────────────────────────
     if (path === '/auth/me' && method === 'GET') {
-      return respond(json({ user: currentUser }));
+      return respond(json({ user: {
+        id: currentUser.userId,
+        username: currentUser.username,
+        displayName: currentUser.displayName,
+        role: currentUser.role,
+        personaId: currentUser.personaId,
+        emailVerified: !!currentUser.emailVerified,
+        passwordExpired: !!currentUser.passwordExpired,
+      } }));
     }
 
     // ─── GET /auth/sessions — list active sessions ──

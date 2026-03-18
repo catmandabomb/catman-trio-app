@@ -255,6 +255,12 @@ a { color: inherit; text-decoration: none; }
 #topbar-title:hover {
   opacity: 0.75;
 }
+/* Mobile: slightly smaller titles (except main CATMAN TRIO) + tighter back button */
+@media (max-width: 1023px) {
+  #topbar-title:not(.title-home) { font-size: 17px; }
+  #topbar { padding-left: 8px; }
+  .topbar-row-top { gap: 4px; }
+}
 /* Two-line title mode (main page only) */
 #topbar-title.title-home {
   line-height: 1.1;
@@ -1135,7 +1141,7 @@ body.is-mobile .search-refresh-btn { display: none; }
 }
 .detail-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   margin-top: 8px;
   flex-wrap: wrap;
 }
@@ -3894,6 +3900,26 @@ html.live-mode-active { overflow: hidden; }
   transition: all 0.15s;
 }
 .btn-share-setlist:hover {
+  color: var(--text-bright);
+  border-color: var(--border-light);
+  background: var(--bg-4);
+}
+.btn-email-setlist {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 4px 12px;
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: all 0.15s;
+}
+.btn-email-setlist:hover {
   color: var(--text-bright);
   border-color: var(--border-light);
   background: var(--bg-4);

@@ -313,11 +313,21 @@ async function preRenderPage(pdfDoc, pageNum, containerWidth) {
  * @param {HTMLElement} containerEl
  * @returns {Promise<void>}
  */
-async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthOverride) {
+async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthOverride, _retryCount) {
   if (!pdfDoc || typeof pdfDoc.getPage !== 'function') return;
   if (!Number.isFinite(pageNum) || pageNum < 1 || pageNum > pdfDoc.numPages) return;
   const containerWidth = widthOverride || containerEl.clientWidth;
-  if (containerWidth <= 0) return;
+  if (containerWidth <= 0) {
+    // Container not laid out yet — retry up to 5 times with rAF + timeout
+    const retries = _retryCount || 0;
+    if (retries < 5) {
+      return new Promise(resolve => {
+        const retry = () => renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthOverride, retries + 1).then(resolve);
+        requestAnimationFrame(() => setTimeout(retry, 50));
+      });
+    }
+    return; // give up after 5 retries
+  }
 
   const pdfId = _getPdfId(pdfDoc);
   const cacheKey = `${pdfId}-${pageNum}`;

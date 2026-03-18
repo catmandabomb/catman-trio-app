@@ -903,7 +903,7 @@ function renderDashboard() {
         <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
           <div>
             <div style="font-size:13px;color:var(--text);">${esc(s.deviceInfo || 'Unknown device')}</div>
-            <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
+            <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(new Date(s.lastUsed).getTime())}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
           </div>
           ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
         </div>

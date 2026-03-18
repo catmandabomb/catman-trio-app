@@ -156,9 +156,8 @@ function showView(name) {
     } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
       document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
     }
-    // Show topbar refresh on setlists/practice top-level views
-    const showRefresh = name === 'setlists' || name === 'practice' || name === 'practice-detail';
-    document.getElementById('btn-topbar-refresh')?.classList.toggle('hidden', !showRefresh);
+    // Topbar refresh always hidden (PTR on main list handles refresh; desktop has search-refresh-btn)
+    document.getElementById('btn-topbar-refresh')?.classList.add('hidden');
   };
 
   const skipTransition = Store.get('skipViewTransition');
