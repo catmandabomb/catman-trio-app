@@ -30,12 +30,14 @@ const Sync = (() => {
     catch { return []; }
   }
 
-  function _saveLocal(songs) {
+  async function _saveLocal(songs) {
+    // IDB first (primary), localStorage as fallback mirror
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try { await IDB.saveSongs(songs); }
+      catch (e) { console.warn('IDB save songs failed', e); }
+    }
     try { localStorage.setItem('ct_songs', JSON.stringify(songs)); }
     catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
-    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
-      IDB.saveSongs(songs).catch(e => console.warn('IDB save songs failed', e));
-    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SONGS', songs });
     }
@@ -89,12 +91,14 @@ const Sync = (() => {
     catch { return []; }
   }
 
-  function _saveSetlistsLocal(setlists) {
+  async function _saveSetlistsLocal(setlists) {
+    // IDB first (primary), localStorage as fallback mirror
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try { await IDB.saveSetlists(setlists); }
+      catch (e) { console.warn('IDB save setlists failed', e); }
+    }
     try { localStorage.setItem('ct_setlists', JSON.stringify(setlists)); }
     catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
-    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
-      IDB.saveSetlists(setlists).catch(e => console.warn('IDB save setlists failed', e));
-    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SETLISTS', setlists });
     }
@@ -148,12 +152,14 @@ const Sync = (() => {
     catch { return []; }
   }
 
-  function _savePracticeLocal(data) {
+  async function _savePracticeLocal(data) {
+    // IDB first (primary), localStorage as fallback mirror
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try { await IDB.savePractice(data); }
+      catch (e) { console.warn('IDB save practice failed', e); }
+    }
     try { localStorage.setItem('ct_practice', JSON.stringify(data)); }
     catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
-    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
-      IDB.savePractice(data).catch(e => console.warn('IDB save practice failed', e));
-    }
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
     }
@@ -373,6 +379,8 @@ const Sync = (() => {
       // Re-render current view if data changed
       if (dataChanged) {
         _rerenderAfterSync();
+        // App Badge API — show badge when data changed from remote
+        navigator.setAppBadge?.(1)?.catch?.(() => {});
       }
       _markSynced();
     } catch (e) {

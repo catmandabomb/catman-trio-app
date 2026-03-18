@@ -948,6 +948,9 @@ const App = (() => {
   // ─── Init ──────────────────────────────────────────────────
 
   async function init() {
+    // Clear app badge on open (user has seen the app)
+    navigator.clearAppBadge?.()?.catch?.(() => {});
+
     // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
     if (typeof Migrate !== 'undefined') Migrate.runAll();
     // Safety: dismiss splash after 2.5s no matter what (don't strand user)
@@ -976,6 +979,11 @@ const App = (() => {
           new Promise((_, reject) => setTimeout(() => reject(new Error('IDB timeout')), 5000))
         ]);
       } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
+    }
+
+    // Restore pending writes AFTER IDB is open (avoids race where IDB data is missed)
+    if (typeof GitHub !== 'undefined') {
+      await GitHub.init();
     }
 
     // Register SW early so the install prompt can work
@@ -1799,7 +1807,7 @@ document.addEventListener('DOMContentLoaded', () => {
     GitHub.onDataChanged = (types) => {
       App.showToast('Data synced from another tab — pull down to refresh', 3000);
     };
-    GitHub.init(); // Restore pending writes from crash recovery
+    // init() is called inside App.init() after IDB.open() — see below
   }
 
   App.init();

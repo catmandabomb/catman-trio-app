@@ -75,6 +75,12 @@ const Auth = (() => {
       ...options,
       headers,
     });
+    // Handle silent token rotation from server
+    const newToken = resp.headers.get('X-New-Token');
+    if (newToken && _token) {
+      _token = newToken;
+      _save();
+    }
     return resp;
   }
 

@@ -455,6 +455,17 @@ const Dashboard = (() => {
         </div>
       </div>`;
 
+      // ── Service Quotas ──
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="gauge" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Service Quotas
+        </div>
+        <div id="dash-quotas" style="margin-top:8px;font-size:13px;">
+          <span class="muted">Loading…</span>
+        </div>
+      </div>`;
+
       // ── Client Error Log ──
       html += `
       <div class="dash-section" style="margin-top:24px;">
@@ -465,6 +476,17 @@ const Dashboard = (() => {
           <span class="muted">No errors captured</span>
         </div>
         <button class="btn-ghost" id="dash-clear-errors" style="font-size:12px;margin-top:6px;display:none;">Clear Log</button>
+      </div>`;
+
+      // ── Server Error Log ──
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="server-crash" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Server Error Log
+        </div>
+        <div id="dash-server-errors" style="margin-top:8px;font-size:12px;max-height:200px;overflow-y:auto;">
+          <span class="muted">Loading…</span>
+        </div>
       </div>`;
     }
 
@@ -687,6 +709,119 @@ const Dashboard = (() => {
       clearErrorsBtn.style.display = 'none';
       showToast('Error log cleared');
     });
+
+    // Async service quotas fetch
+    const quotasEl = document.getElementById('dash-quotas');
+    const isOwner = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.getUser()?.role === 'owner';
+    if (quotasEl && isOwner) {
+      (async () => {
+        try {
+          const workerUrl = (typeof GitHub !== 'undefined' && GitHub.workerUrl) ? GitHub.workerUrl : 'https://catman-api.catmandabomb.workers.dev';
+          const token = Auth.getToken();
+          const resp = await fetch(`${workerUrl}/admin/quotas`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const q = data.quotas || {};
+            let html = '';
+
+            // GitHub API (client-side tracking)
+            if (typeof GitHub !== 'undefined') {
+              const gh = GitHub.getRateLimitStatus();
+              const ghColor = gh.pct >= 90 ? '#e87c6a' : gh.pct >= 60 ? '#d4b478' : '#7ec87e';
+              html += `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                  <span>GitHub API</span>
+                  <span style="color:${ghColor}">${gh.callsThisHour} / ${gh.limit} per hour (${gh.pct}%)</span>
+                </div>
+                <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
+                  <div style="background:${ghColor};height:100%;width:${Math.min(gh.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
+                </div>
+              </div>`;
+            }
+
+            // Resend emails
+            if (q.resend) {
+              const dColor = q.resend.daily.pct >= 90 ? '#e87c6a' : q.resend.daily.pct >= 60 ? '#d4b478' : '#7ec87e';
+              const mColor = q.resend.monthly.pct >= 90 ? '#e87c6a' : q.resend.monthly.pct >= 60 ? '#d4b478' : '#7ec87e';
+              html += `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                  <span>Resend Emails (daily)</span>
+                  <span style="color:${dColor}">${q.resend.daily.used} / ${q.resend.daily.limit} (${q.resend.daily.pct}%)</span>
+                </div>
+                <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
+                  <div style="background:${dColor};height:100%;width:${Math.min(q.resend.daily.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
+                </div>
+              </div>
+              <div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+                  <span>Resend Emails (monthly)</span>
+                  <span style="color:${mColor}">${q.resend.monthly.used} / ${q.resend.monthly.limit} (${q.resend.monthly.pct}%)</span>
+                </div>
+                <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
+                  <div style="background:${mColor};height:100%;width:${Math.min(q.resend.monthly.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
+                </div>
+              </div>`;
+            }
+
+            // D1 table sizes
+            if (q.d1) {
+              html += `<div style="margin-bottom:10px;">
+                <div style="color:var(--text-2);margin-bottom:4px;">D1 Database</div>
+                <div style="color:var(--text-3);font-size:12px;">
+                  Users: ${q.d1.users} &middot; Sessions: ${q.d1.sessions} &middot; Error log: ${q.d1.errorLog}
+                </div>
+                <div style="color:var(--text-3);font-size:11px;margin-top:2px;">${esc(q.d1.note || '')}</div>
+              </div>`;
+            }
+
+            // Static quotas info
+            html += `<div style="color:var(--text-3);font-size:11px;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
+              Workers: 100K req/day &middot; KV: 100K reads/day, 1K writes/day
+            </div>`;
+
+            quotasEl.innerHTML = html || '<span class="muted">No quota data</span>';
+          } else {
+            quotasEl.innerHTML = '<span class="muted">Could not fetch quotas</span>';
+          }
+        } catch (_) {
+          quotasEl.innerHTML = '<span class="muted">Could not fetch quotas</span>';
+        }
+      })();
+    }
+
+    // Async server error log fetch
+    const serverErrorsEl = document.getElementById('dash-server-errors');
+    if (serverErrorsEl && isOwner) {
+      (async () => {
+        try {
+          const workerUrl = (typeof GitHub !== 'undefined' && GitHub.workerUrl) ? GitHub.workerUrl : 'https://catman-api.catmandabomb.workers.dev';
+          const token = Auth.getToken();
+          const resp = await fetch(`${workerUrl}/admin/errors`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const errs = data.errors || [];
+            if (errs.length === 0) {
+              serverErrorsEl.innerHTML = '<span class="muted">No server errors</span>';
+            } else {
+              serverErrorsEl.innerHTML = errs.map(e =>
+                `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+                  <div style="color:#e87c6a;">${esc(e.message || 'Unknown')}</div>
+                  <div style="color:var(--text-3);font-size:11px;">${esc(e.method || '')} ${esc(e.path || '')} ${e.created_at ? '&middot; ' + Utils.timeAgo(new Date(e.created_at).getTime()) : ''}</div>
+                </div>`
+              ).join('');
+            }
+          } else {
+            serverErrorsEl.innerHTML = '<span class="muted">Could not fetch server errors</span>';
+          }
+        } catch (_) {
+          serverErrorsEl.innerHTML = '<span class="muted">Could not fetch server errors</span>';
+        }
+      })();
+    }
 
     // Async Drive check
     _renderDriveSection(container, songs, setlists, practice, _codeTag);

@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v19.96';
+const CACHE_NAME = 'catmantrio-v19.97';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -228,6 +228,14 @@ self.addEventListener('message', (e) => {
       .catch(err => console.warn('SW: clear PDF cache error', err));
   }
 
+  // ─── Background Sync registration ─────────────────────
+  if (e.data && e.data.type === 'REGISTER_SYNC') {
+    if (self.registration && self.registration.sync) {
+      self.registration.sync.register('flush-writes').catch(() => {});
+    }
+    return;
+  }
+
   if (e.data && e.data.type === 'GET_PDF_CACHE_SIZE') {
     (async () => {
       try {
@@ -247,6 +255,22 @@ self.addEventListener('message', (e) => {
         if (e.source) e.source.postMessage({ type: 'PDF_CACHE_SIZE', size: 0 });
       }
     })();
+  }
+});
+
+// ─── Background Sync: flush pending writes when online ──
+// Safari doesn't support Background Sync — graceful degradation
+// (existing localStorage + IDB persistence still works)
+self.addEventListener('sync', (e) => {
+  if (e.tag === 'flush-writes') {
+    e.waitUntil(
+      self.clients.matchAll().then(clients => {
+        if (clients.length > 0) {
+          // Tell the app to flush its write queue
+          clients.forEach(client => client.postMessage({ type: 'SYNC_FLUSH_WRITES' }));
+        }
+      })
+    );
   }
 });
 
@@ -347,20 +371,28 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Shell assets: network-first so version bumps take effect immediately;
-  // fall back to cache when offline (ignoreSearch so ?v= params match pre-cached files)
+  // Shell assets: stale-while-revalidate — serve from cache instantly,
+  // fire background fetch to update cache for next visit.
+  // ignoreSearch so ?v= params match pre-cached files.
   e.respondWith(
-    fetch(e.request).then(resp => {
-      if (e.request.method === 'GET' && resp.status === 200) {
-        const clone = resp.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-      }
-      return resp;
-    }).catch(() =>
-      caches.match(e.request, { ignoreSearch: true }).then(cached => {
-        if (cached) return cached;
+    caches.match(e.request, { ignoreSearch: true }).then(cached => {
+      const fetchPromise = fetch(e.request).then(resp => {
+        if (e.request.method === 'GET' && resp.status === 200) {
+          const clone = resp.clone();
+          // Strip ?v= params from cache key so old entries don't accumulate
+          const cacheUrl = e.request.url.split('?')[0];
+          const cacheKey = new Request(cacheUrl);
+          caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, clone)).catch(() => {});
+        }
+        return resp;
+      }).catch(() => null);
+
+      // Return cached immediately if available, otherwise wait for network
+      return cached || fetchPromise.then(resp => {
+        if (resp) return resp;
         if (e.request.destination === 'document') return caches.match('/index.html');
-      })
-    )
+        return new Response('Offline', { status: 503 });
+      });
+    })
   );
 });

@@ -12,17 +12,20 @@ const IDB = (() => {
   async function open() {
     return new Promise((resolve, reject) => {
       if (!window.indexedDB) { reject(new Error('IndexedDB not supported')); return; }
-      const req = indexedDB.open('catmantrio-db', 1);
+      const req = indexedDB.open('catmantrio-db', 2);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('setlists')) db.createObjectStore('setlists', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('practice')) db.createObjectStore('practice', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        // v2: pending writes store for Background Sync
+        if (!db.objectStoreNames.contains('pendingWrites')) db.createObjectStore('pendingWrites', { keyPath: 'type' });
       };
       req.onsuccess = (e) => { _db = e.target.result; _available = true;
           _db.onversionchange = () => { _db.close(); _available = false; };
           resolve(); };
+      req.onblocked = () => { reject(new Error('IDB blocked by another tab')); };
       req.onerror = (e) => { reject(e.target.error); };
     });
   }
@@ -89,9 +92,59 @@ const IDB = (() => {
     });
   }
 
+  // ─── Pending writes (Background Sync) ───────────────
+
+  async function savePendingWrite(type, data) {
+    if (!_db) return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = _db.transaction('pendingWrites', 'readwrite');
+        tx.objectStore('pendingWrites').put({ type, data, ts: Date.now() });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  async function loadPendingWrites() {
+    if (!_db) return [];
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = _db.transaction('pendingWrites', 'readonly');
+        const req = tx.objectStore('pendingWrites').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  async function clearPendingWrite(type) {
+    if (!_db) return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = _db.transaction('pendingWrites', 'readwrite');
+        tx.objectStore('pendingWrites').delete(type);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      } catch (e) { reject(e); }
+    });
+  }
+
+  async function clearAllPendingWrites() {
+    if (!_db) return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = _db.transaction('pendingWrites', 'readwrite');
+        tx.objectStore('pendingWrites').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      } catch (e) { reject(e); }
+    });
+  }
+
   async function clearAll() {
     if (!_db) return;
-    const stores = ['songs', 'setlists', 'practice', 'meta'];
+    const stores = ['songs', 'setlists', 'practice', 'meta', 'pendingWrites'];
     return new Promise((resolve, reject) => {
       try {
         const tx = _db.transaction(stores, 'readwrite');
@@ -117,5 +170,5 @@ const IDB = (() => {
     return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice') };
   }
 
-  return { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, getMeta, setMeta, clearAll, getStorageInfo };
+  return { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites };
 })();

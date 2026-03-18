@@ -24,10 +24,10 @@ import { checkRateLimit } from './rate-limit.js';
 import { proxyToGitHub } from './github-proxy.js';
 import { handleGetKey } from './crypto.js';
 import {
-  verifyPassword, createSession, validateSession, deleteSession,
+  verifyPassword, createSession, validateSession, deleteSession, rotateSession,
   cleanExpiredSessions, listUserSessions, deleteSessionByPrefix,
   createUser, getUser, listUsers, updateUser, deleteUser,
-  changePassword, getUserByUsername, countUsers,
+  changePassword, rehashPassword, getUserByUsername, countUsers,
   createResetToken, validateAndConsumeResetToken, cleanExpiredResetTokens,
   createEmailVerifyToken, verifyEmail, isPasswordExpired,
 } from './users.js';
@@ -62,6 +62,23 @@ function validatePasswordComplexity(password) {
 
 async function parseBody(request) {
   try { return await request.json(); } catch { return null; }
+}
+
+/**
+ * Track email sends for quota monitoring.
+ * Increments daily and monthly KV counters (best-effort).
+ */
+async function _trackEmailSend(env, count = 1) {
+  if (!env.CATMAN_RATE) return;
+  try {
+    const now = new Date();
+    const dayKey = `emails:day:${now.toISOString().slice(0, 10)}`;
+    const monthKey = `emails:month:${now.toISOString().slice(0, 7)}`;
+    const dayCount = parseInt(await env.CATMAN_RATE.get(dayKey) || '0', 10) + count;
+    const monthCount = parseInt(await env.CATMAN_RATE.get(monthKey) || '0', 10) + count;
+    await env.CATMAN_RATE.put(dayKey, String(dayCount), { expirationTtl: 86400 * 2 });
+    await env.CATMAN_RATE.put(monthKey, String(monthCount), { expirationTtl: 86400 * 35 });
+  } catch (_) {}
 }
 
 function _safeAppUrl(env) {
@@ -105,9 +122,12 @@ export default {
     const method = request.method;
     const path = url.pathname;
 
+    // Scoped CORS helper — passes env automatically
+    const cors = (resp) => withCors(request, resp, env);
+
     // ─── CORS preflight ──────────────────────────────
     if (method === 'OPTIONS') {
-      return handlePreflight(request);
+      return handlePreflight(request, env);
     }
 
     // ─── Health check (no auth) ──────────────────────
@@ -116,7 +136,7 @@ export default {
       if (env.DB) {
         try { needsSetup = (await countUsers(env.DB)) === 0; } catch (_) {}
       }
-      return withCors(request, json({
+      return cors(json({
         status: 'ok',
         version: '2.0.0',
         timestamp: new Date().toISOString(),
@@ -128,18 +148,18 @@ export default {
     // ─── Rate limiting (all non-health routes) ───────
     const rateResult = await checkRateLimit(request, env);
     if (!rateResult.ok) {
-      return withCors(request, json({ error: rateResult.error }, 429));
+      return cors(json({ error: rateResult.error }, 429));
     }
 
     // ─── PUBLIC: POST /auth/login ────────────────────
     if (path === '/auth/login' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const body = await parseBody(request);
       if (!body || !body.username || !body.password) {
-        return withCors(request, json({ error: 'Username and password required' }, 400));
+        return cors(json({ error: 'Username and password required' }, 400));
       }
       if (body.username.length > 25 || body.password.length > 128) {
-        return withCors(request, json({ error: 'Invalid input length' }, 400));
+        return cors(json({ error: 'Invalid input length' }, 400));
       }
       // Per-username lockout: block after 10 failed attempts per hour
       if (env.CATMAN_RATE) {
@@ -148,7 +168,7 @@ export default {
         try {
           const fails = parseInt(await env.CATMAN_RATE.get(failKey) || '0', 10);
           if (fails >= 10) {
-            return withCors(request, json({ error: 'Account temporarily locked — too many failed attempts. Try again in an hour.' }, 429));
+            return cors(json({ error: 'Account temporarily locked — too many failed attempts. Try again in an hour.' }, 429));
           }
         } catch (_) {}
       }
@@ -165,12 +185,12 @@ export default {
             await env.CATMAN_RATE.put(failKey, String(fails), { expirationTtl: 3660 });
           } catch (_) {}
         }
-        return withCors(request, json({ error: 'Invalid credentials' }, 401));
+        return cors(json({ error: 'Invalid credentials' }, 401));
       }
       const ok = await verifyPassword(body.password, user.pw_hash);
       // Transparent rehash: if password verified with legacy 100k iterations, upgrade to 600k
       if (ok === 'needs_rehash' && env.DB) {
-        changePassword(env.DB, user.id, body.password).catch(() => {});
+        rehashPassword(env.DB, user.id, body.password).catch(() => {});
       }
       if (!ok) {
         // Track failed attempts per username for lockout alerts
@@ -201,12 +221,12 @@ export default {
                     <p>If this was you, no action is needed. If not, consider changing your password immediately.</p>
                     <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
                 }),
-              }).catch(() => {}); // fire-and-forget
+              }).then(() => _trackEmailSend(env)).catch(() => {}); // fire-and-forget
               } // end if (!alreadySent)
             }
           } catch (_) {}
         }
-        return withCors(request, json({ error: 'Invalid credentials' }, 401));
+        return cors(json({ error: 'Invalid credentials' }, 401));
       }
       // Clear failed attempt counter on successful login
       if (env.CATMAN_RATE) {
@@ -243,7 +263,7 @@ export default {
                     <p>If this was you, no action needed. Otherwise, change your password immediately.</p>
                     <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
                 }),
-              }).catch(() => {}); // fire-and-forget
+              }).then(() => _trackEmailSend(env)).catch(() => {}); // fire-and-forget
             }
           }
         } catch (_) { /* non-fatal */ }
@@ -252,7 +272,7 @@ export default {
       const session = await createSession(env.DB, user.id, deviceInfo);
       // Clean up expired sessions occasionally (1 in 10 logins)
       if (Math.random() < 0.1) cleanExpiredSessions(env.DB).catch(() => {});
-      return withCors(request, json({
+      return cors(json({
         token: session.token,
         expires: session.expires,
         user: {
@@ -269,52 +289,52 @@ export default {
 
     // ─── PUBLIC: POST /auth/register (self-registration) ────
     if (path === '/auth/register' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const body = await parseBody(request);
       if (!body || !body.username || !body.password || !body.email) {
-        return withCors(request, json({ error: 'Username, password, and email required' }, 400));
+        return cors(json({ error: 'Username, password, and email required' }, 400));
       }
       // Input length limits
       if (body.username.length > 25 || body.password.length > 128 || body.email.length > 200) {
-        return withCors(request, json({ error: 'Invalid input length' }, 400));
+        return cors(json({ error: 'Invalid input length' }, 400));
       }
       if (body.displayName && body.displayName.length > 100) {
-        return withCors(request, json({ error: 'Invalid input length' }, 400));
+        return cors(json({ error: 'Invalid input length' }, 400));
       }
       // Trim username (like email is trimmed)
       body.username = body.username.trim();
       // Username format: 2-25 chars, alphanumeric + underscores only
       if (body.username.length < 2) {
-        return withCors(request, json({ error: 'Username must be at least 2 characters' }, 400));
+        return cors(json({ error: 'Username must be at least 2 characters' }, 400));
       }
       if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
-        return withCors(request, json({ error: 'Username may only contain letters, numbers, and underscores' }, 400));
+        return cors(json({ error: 'Username may only contain letters, numbers, and underscores' }, 400));
       }
       // Password complexity
       const regPwErr = validatePasswordComplexity(body.password);
       if (regPwErr) {
-        return withCors(request, json({ error: regPwErr }, 400));
+        return cors(json({ error: regPwErr }, 400));
       }
       // Email format validation
       const email = body.email.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return withCors(request, json({ error: 'Invalid email format' }, 400));
+        return cors(json({ error: 'Invalid email format' }, 400));
       }
       // Reject placeholder emails
       if (email.endsWith('@placeholder.local')) {
-        return withCors(request, json({ error: 'A valid email address is required' }, 400));
+        return cors(json({ error: 'A valid email address is required' }, 400));
       }
       // Check username uniqueness
       const existingUser = await getUserByUsername(env.DB, body.username);
       if (existingUser) {
-        return withCors(request, json({ error: 'Username already taken' }, 409));
+        return cors(json({ error: 'Username already taken' }, 409));
       }
       // Check email uniqueness
       const emailExists = await env.DB.prepare(
         'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1'
       ).bind(email).first();
       if (emailExists) {
-        return withCors(request, json({ error: 'Email already in use' }, 409));
+        return cors(json({ error: 'Email already in use' }, 409));
       }
       // Create user with member role
       const displayName = (body.displayName || body.username).trim();
@@ -330,9 +350,9 @@ export default {
       } catch (e) {
         const msg = e.message || '';
         if (msg.includes('UNIQUE') || msg.includes('already exists')) {
-          return withCors(request, json({ error: 'Username or email already in use' }, 409));
+          return cors(json({ error: 'Username or email already in use' }, 409));
         }
-        return withCors(request, json({ error: 'Registration failed' }, 400));
+        return cors(json({ error: 'Registration failed' }, 400));
       }
       // Send verification email
       let emailSent = false;
@@ -359,6 +379,7 @@ export default {
             }),
           });
           emailSent = emailResp.ok;
+          if (emailSent) _trackEmailSend(env);
           if (!emailResp.ok) {
             console.error('Resend error on register:', await emailResp.text().catch(() => 'unknown'));
           }
@@ -373,13 +394,13 @@ export default {
         session = await createSession(env.DB, user.id, deviceInfo);
       } catch (_) {
         // User created but session failed — they can log in manually
-        return withCors(request, json({
+        return cors(json({
           ok: true,
           message: 'Account created — please log in',
           user: { id: user.id, username: user.username, displayName: displayName, role: 'member' },
         }, 201));
       }
-      return withCors(request, json({
+      return cors(json({
         token: session.token,
         expires: session.expires,
         user: {
@@ -397,21 +418,21 @@ export default {
 
     // ─── PUBLIC: POST /setup/init (one-time owner creation) ──
     if (path === '/setup/init' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const existing = await countUsers(env.DB);
       if (existing > 0) {
-        return withCors(request, json({ error: 'Setup already completed — users exist' }, 409));
+        return cors(json({ error: 'Setup already completed — users exist' }, 409));
       }
       const body = await parseBody(request);
       if (!body || !body.username || !body.password) {
-        return withCors(request, json({ error: 'Username and password required' }, 400));
+        return cors(json({ error: 'Username and password required' }, 400));
       }
       if (body.username.length > 25 || (body.displayName && body.displayName.length > 100) || (body.email && body.email.length > 200)) {
-        return withCors(request, json({ error: 'Invalid input length' }, 400));
+        return cors(json({ error: 'Invalid input length' }, 400));
       }
       const setupPwErr = validatePasswordComplexity(body.password);
       if (setupPwErr) {
-        return withCors(request, json({ error: setupPwErr }, 400));
+        return cors(json({ error: setupPwErr }, 400));
       }
       let user;
       try {
@@ -426,9 +447,9 @@ export default {
         // Race condition: another request may have created a user first
         const recheck = await countUsers(env.DB);
         if (recheck > 0) {
-          return withCors(request, json({ error: 'Setup already completed — users exist' }, 409));
+          return cors(json({ error: 'Setup already completed — users exist' }, 409));
         }
-        return withCors(request, json({ error: 'Setup failed' }, 500));
+        return cors(json({ error: 'Setup failed' }, 500));
       }
       // Auto-verify owner email
       try {
@@ -440,18 +461,18 @@ export default {
         session = await createSession(env.DB, user.id, deviceInfo);
       } catch (_) {
         user.emailVerified = true;
-        return withCors(request, json({ ok: true, message: 'Account created — please log in', user }, 201));
+        return cors(json({ ok: true, message: 'Account created — please log in', user }, 201));
       }
       user.emailVerified = true;
-      return withCors(request, json({ token: session.token, expires: session.expires, user }, 201));
+      return cors(json({ token: session.token, expires: session.expires, user }, 201));
     }
 
     // ─── PUBLIC: POST /auth/forgot-password ────────────
     if (path === '/auth/forgot-password' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const body = await parseBody(request);
       if (!body || !body.email) {
-        return withCors(request, json({ error: 'Email is required' }, 400));
+        return cors(json({ error: 'Email is required' }, 400));
       }
       // Always return success to prevent email enumeration
       // Direct query instead of fetching all users (O(1) vs O(n))
@@ -482,49 +503,50 @@ export default {
                 <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
             }),
           });
+          _trackEmailSend(env);
         } catch (_) { /* silently fail — don't leak info */ }
         // Clean up old tokens occasionally
         if (Math.random() < 0.2) cleanExpiredResetTokens(env.DB).catch(() => {});
       }
-      return withCors(request, json({ ok: true, message: 'If that email is registered, a reset link has been sent.' }));
+      return cors(json({ ok: true, message: 'If that email is registered, a reset link has been sent.' }));
     }
 
     // ─── PUBLIC: POST /auth/reset-password ─────────────
     if (path === '/auth/reset-password' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const body = await parseBody(request);
       if (!body || !body.token || !body.password) {
-        return withCors(request, json({ error: 'Token and new password required' }, 400));
+        return cors(json({ error: 'Token and new password required' }, 400));
       }
       const resetPwErr = validatePasswordComplexity(body.password);
       if (resetPwErr) {
-        return withCors(request, json({ error: resetPwErr }, 400));
+        return cors(json({ error: resetPwErr }, 400));
       }
       const tokenData = await validateAndConsumeResetToken(env.DB, body.token);
       if (!tokenData) {
-        return withCors(request, json({ error: 'Invalid or expired reset link' }, 400));
+        return cors(json({ error: 'Invalid or expired reset link' }, 400));
       }
       await changePassword(env.DB, tokenData.userId, body.password);
-      return withCors(request, json({ ok: true, message: 'Password reset — please log in' }));
+      return cors(json({ ok: true, message: 'Password reset — please log in' }));
     }
 
     // ─── PUBLIC: GET /auth/verify-email?token=... ──────
     if (path === '/auth/verify-email' && method === 'GET') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       const token = url.searchParams.get('token');
       if (!token) {
-        return withCors(request, json({ error: 'Token required' }, 400));
+        return cors(json({ error: 'Token required' }, 400));
       }
       const result = await verifyEmail(env.DB, token);
       if (!result) {
-        return withCors(request, json({ error: 'Invalid or expired verification link' }, 400));
+        return cors(json({ error: 'Invalid or expired verification link' }, 400));
       }
-      return withCors(request, json({ ok: true, message: 'Email verified!', username: result.username }));
+      return cors(json({ ok: true, message: 'Email verified!', username: result.username }));
     }
 
     // ─── PUBLIC: POST /auth/resend-verification ────────
     if (path === '/auth/resend-verification' && method === 'POST') {
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
       // Per-user rate limit: max 3 verification emails per hour
       if (env.CATMAN_RATE) {
         const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -533,7 +555,7 @@ export default {
         try {
           const current = parseInt(await env.CATMAN_RATE.get(verifyKey) || '0', 10);
           if (current >= 3) {
-            return withCors(request, json({ error: 'Too many verification requests — try again later' }, 429));
+            return cors(json({ error: 'Too many verification requests — try again later' }, 429));
           }
           await env.CATMAN_RATE.put(verifyKey, String(current + 1), { expirationTtl: 3660 });
         } catch (_) {}
@@ -541,20 +563,20 @@ export default {
       // Requires session auth
       const authHeader = request.headers.get('Authorization') || '';
       if (!authHeader.startsWith('Bearer ')) {
-        return withCors(request, json({ error: 'Authentication required' }, 401));
+        return cors(json({ error: 'Authentication required' }, 401));
       }
       const token = authHeader.slice(7);
       const sessionUser = await validateSession(env.DB, token);
       if (!sessionUser) {
-        return withCors(request, json({ error: 'Authentication required' }, 401));
+        return cors(json({ error: 'Authentication required' }, 401));
       }
       if (sessionUser.emailVerified) {
-        return withCors(request, json({ ok: true, message: 'Email already verified' }));
+        return cors(json({ ok: true, message: 'Email already verified' }));
       }
       // Get user email
       const dbUser = await getUserByUsername(env.DB, sessionUser.username);
       if (!dbUser || !dbUser.email || dbUser.email.endsWith('@placeholder.local')) {
-        return withCors(request, json({ error: 'No valid email on file' }, 400));
+        return cors(json({ error: 'No valid email on file' }, 400));
       }
       if (env.RESEND_API_KEY) {
         try {
@@ -578,47 +600,75 @@ export default {
                 <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
             }),
           });
+          if (emailResp.ok) _trackEmailSend(env);
           if (!emailResp.ok) {
             console.error('Resend error on resend-verification:', await emailResp.text().catch(() => 'unknown'));
-            return withCors(request, json({ ok: false, error: 'Email service error — try again later' }, 502));
+            return cors(json({ ok: false, error: 'Email service error — try again later' }, 502));
           }
         } catch (e) {
           console.error('Email send failed on resend-verification:', e.message || e);
-          return withCors(request, json({ ok: false, error: 'Email service error — try again later' }, 502));
+          return cors(json({ ok: false, error: 'Email service error — try again later' }, 502));
         }
       } else {
-        return withCors(request, json({ ok: false, error: 'Email service not configured' }, 500));
+        return cors(json({ ok: false, error: 'Email service not configured' }, 500));
       }
-      return withCors(request, json({ ok: true, message: 'Verification email sent' }));
+      return cors(json({ ok: true, message: 'Verification email sent' }));
     }
 
     // ─── All other routes require authentication ─────
     const authResult = await authenticateRequest(request, env);
     if (!authResult) {
-      return withCors(request, json({ error: 'Authentication required' }, 401));
+      return cors(json({ error: 'Authentication required' }, 401));
     }
     const { user: currentUser, authMethod } = authResult;
+
+    // ─── Session token rotation (>24h since last used) ─────
+    let _rotatedToken = null;
+    if (authMethod === 'session' && currentUser.lastUsed && env.DB) {
+      const lastUsedMs = new Date(currentUser.lastUsed).getTime();
+      if (Date.now() - lastUsedMs > 24 * 60 * 60 * 1000) {
+        try {
+          const oldToken = (request.headers.get('Authorization') || '').slice(7);
+          _rotatedToken = await rotateSession(env.DB, oldToken);
+        } catch (_) { /* rotation failure is non-fatal */ }
+      }
+    }
+    // Helper: wrap response with rotated token header + CORS
+    function respond(resp) {
+      const corsResp = cors(resp);
+      if (_rotatedToken) {
+        const newHeaders = new Headers(corsResp.headers);
+        newHeaders.set('X-New-Token', _rotatedToken);
+        newHeaders.set('Access-Control-Expose-Headers', 'X-New-Token');
+        return new Response(corsResp.body, {
+          status: corsResp.status,
+          statusText: corsResp.statusText,
+          headers: newHeaders,
+        });
+      }
+      return corsResp;
+    }
 
     // ─── POST /auth/logout ───────────────────────────
     if (path === '/auth/logout' && method === 'POST') {
       if (authMethod === 'session') {
-        const token = (request.headers.get('Authorization') || '').slice(7);
+        const token = _rotatedToken || (request.headers.get('Authorization') || '').slice(7);
         await deleteSession(env.DB, token);
       }
-      return withCors(request, json({ ok: true }));
+      return respond(json({ ok: true }));
     }
 
     // ─── GET /auth/me ────────────────────────────────
     if (path === '/auth/me' && method === 'GET') {
-      return withCors(request, json({ user: currentUser }));
+      return respond(json({ user: currentUser }));
     }
 
     // ─── GET /auth/sessions — list active sessions ──
     if (path === '/auth/sessions' && method === 'GET') {
       if (authMethod !== 'session' || !env.DB) {
-        return withCors(request, json({ error: 'Session auth required' }, 400));
+        return respond(json({ error: 'Session auth required' }, 400));
       }
-      const currentToken = (request.headers.get('Authorization') || '').slice(7);
+      const currentToken = _rotatedToken || (request.headers.get('Authorization') || '').slice(7);
       const currentPrefix = currentToken.substring(0, 8);
       const sessions = await listUserSessions(env.DB, currentUser.userId);
       // Mark which session is the current one
@@ -626,81 +676,81 @@ export default {
         ...s,
         isCurrent: s.id === currentPrefix,
       }));
-      return withCors(request, json({ sessions: sessionsWithCurrent }));
+      return respond(json({ sessions: sessionsWithCurrent }));
     }
 
     // ─── DELETE /auth/sessions/:id — revoke a session ──
     const sessionIdMatch = path.match(/^\/auth\/sessions\/([a-f0-9]{8})$/);
     if (sessionIdMatch && method === 'DELETE') {
       if (authMethod !== 'session' || !env.DB) {
-        return withCors(request, json({ error: 'Session auth required' }, 400));
+        return respond(json({ error: 'Session auth required' }, 400));
       }
       const tokenPrefix = sessionIdMatch[1];
-      const currentToken = (request.headers.get('Authorization') || '').slice(7);
+      const currentToken = _rotatedToken || (request.headers.get('Authorization') || '').slice(7);
       if (currentToken.startsWith(tokenPrefix)) {
-        return withCors(request, json({ error: 'Cannot revoke current session — use logout instead' }, 400));
+        return respond(json({ error: 'Cannot revoke current session — use logout instead' }, 400));
       }
       const deleted = await deleteSessionByPrefix(env.DB, currentUser.userId, tokenPrefix);
       if (deleted === 0) {
-        return withCors(request, json({ error: 'Session not found' }, 404));
+        return respond(json({ error: 'Session not found' }, 404));
       }
-      return withCors(request, json({ ok: true }));
+      return respond(json({ ok: true }));
     }
 
     // ─── GET /auth/key — encryption key seed (owner/admin only) ─────────
     if (path === '/auth/key' && method === 'GET') {
       if (!['owner', 'admin'].includes(currentUser.role)) {
-        return withCors(request, json({ error: 'Admin access required' }, 403));
+        return respond(json({ error: 'Admin access required' }, 403));
       }
-      return withCors(request, handleGetKey(env));
+      return respond(handleGetKey(env));
     }
 
     // ─── PUT /users/me/password ──────────────────────
     if (path === '/users/me/password' && method === 'PUT') {
       if (authMethod !== 'session' || !env.DB) {
-        return withCors(request, json({ error: 'Session auth required' }, 400));
+        return respond(json({ error: 'Session auth required' }, 400));
       }
       const body = await parseBody(request);
       if (!body || !body.currentPassword || !body.newPassword) {
-        return withCors(request, json({ error: 'Current and new password required' }, 400));
+        return respond(json({ error: 'Current and new password required' }, 400));
       }
       const changePwErr = validatePasswordComplexity(body.newPassword);
       if (changePwErr) {
-        return withCors(request, json({ error: changePwErr }, 400));
+        return respond(json({ error: changePwErr }, 400));
       }
       // Verify current password
       const dbUser = await getUserByUsername(env.DB, currentUser.username);
-      if (!dbUser) return withCors(request, json({ error: 'User not found' }, 404));
+      if (!dbUser) return respond(json({ error: 'User not found' }, 404));
       const ok = await verifyPassword(body.currentPassword, dbUser.pw_hash);
-      if (!ok) return withCors(request, json({ error: 'Current password is incorrect' }, 403));
+      if (!ok) return respond(json({ error: 'Current password is incorrect' }, 403));
       await changePassword(env.DB, currentUser.userId, body.newPassword);
-      return withCors(request, json({ ok: true, message: 'Password changed — please log in again' }));
+      return respond(json({ ok: true, message: 'Password changed — please log in again' }));
     }
 
     // ─── PUT /users/me/email ───────────────────────────
     if (path === '/users/me/email' && method === 'PUT') {
       if (authMethod !== 'session' || !env.DB) {
-        return withCors(request, json({ error: 'Session auth required' }, 400));
+        return respond(json({ error: 'Session auth required' }, 400));
       }
       const body = await parseBody(request);
       if (!body || !body.email || !body.password) {
-        return withCors(request, json({ error: 'Email and current password required' }, 400));
+        return respond(json({ error: 'Email and current password required' }, 400));
       }
       // Re-verify password before allowing email change
       const emailChangeUser = await getUserByUsername(env.DB, currentUser.username);
-      if (!emailChangeUser) return withCors(request, json({ error: 'User not found' }, 404));
+      if (!emailChangeUser) return respond(json({ error: 'User not found' }, 404));
       const pwOk = await verifyPassword(body.password, emailChangeUser.pw_hash);
-      if (!pwOk) return withCors(request, json({ error: 'Current password is incorrect' }, 403));
+      if (!pwOk) return respond(json({ error: 'Current password is incorrect' }, 403));
       const email = body.email.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return withCors(request, json({ error: 'Invalid email format' }, 400));
+        return respond(json({ error: 'Invalid email format' }, 400));
       }
       // Check email uniqueness
       const emailTaken = await env.DB.prepare(
         'SELECT id FROM users WHERE LOWER(email) = ? AND id != ? LIMIT 1'
       ).bind(email, currentUser.userId).first();
       if (emailTaken) {
-        return withCors(request, json({ error: 'Email already in use' }, 409));
+        return respond(json({ error: 'Email already in use' }, 409));
       }
       // Update email and reset verification
       await env.DB.prepare(
@@ -725,44 +775,45 @@ export default {
                 <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
             }),
           });
+          _trackEmailSend(env);
         } catch (_) {}
       }
-      return withCors(request, json({ ok: true, message: 'Email updated — check your inbox to verify' }));
+      return respond(json({ ok: true, message: 'Email updated — check your inbox to verify' }));
     }
 
     // ─── /users/* — User management (owner only, session auth required) ─────
     if (path.startsWith('/users')) {
       // Block admin-hash from user management (security: prevent synthetic owner from managing real users)
       if (authMethod === 'admin-hash') {
-        return withCors(request, json({ error: 'Session auth required for user management' }, 403));
+        return respond(json({ error: 'Session auth required for user management' }, 403));
       }
       if (currentUser.role !== 'owner') {
-        return withCors(request, json({ error: 'Owner access required' }, 403));
+        return respond(json({ error: 'Owner access required' }, 403));
       }
-      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      if (!env.DB) return respond(json({ error: 'Database not configured' }, 500));
 
       // GET /users — list all
       if (path === '/users' && method === 'GET') {
         const users = await listUsers(env.DB);
-        return withCors(request, json({ users }));
+        return respond(json({ users }));
       }
 
       // POST /users — create user
       if (path === '/users' && method === 'POST') {
         const body = await parseBody(request);
         if (!body || !body.username || !body.password || !body.email) {
-          return withCors(request, json({ error: 'Username, password, and email required' }, 400));
+          return respond(json({ error: 'Username, password, and email required' }, 400));
         }
         if (body.username.length > 25 || body.email.length > 200 || (body.displayName && body.displayName.length > 100)) {
-          return withCors(request, json({ error: 'Invalid input length' }, 400));
+          return respond(json({ error: 'Invalid input length' }, 400));
         }
         const createPwErr = validatePasswordComplexity(body.password);
         if (createPwErr) {
-          return withCors(request, json({ error: createPwErr }, 400));
+          return respond(json({ error: createPwErr }, 400));
         }
         // Don't allow creating another owner
         if (body.role === 'owner') {
-          return withCors(request, json({ error: 'Cannot create another owner' }, 400));
+          return respond(json({ error: 'Cannot create another owner' }, 400));
         }
         // Check email uniqueness
         if (body.email && !body.email.endsWith('@placeholder.local')) {
@@ -770,7 +821,7 @@ export default {
             'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1'
           ).bind(body.email.trim().toLowerCase()).first();
           if (emailExists) {
-            return withCors(request, json({ error: 'Email already in use' }, 409));
+            return respond(json({ error: 'Email already in use' }, 409));
           }
         }
         try {
@@ -798,12 +849,13 @@ export default {
                     <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
                 }),
               });
+              _trackEmailSend(env);
             } catch (_) { /* email send failure is non-fatal */ }
           }
-          return withCors(request, json({ user }, 201));
+          return respond(json({ user }, 201));
         } catch (e) {
           const safeMsg = e.message?.includes('already exists') ? 'Username already exists' : 'User creation failed';
-          return withCors(request, json({ error: safeMsg }, 400));
+          return respond(json({ error: safeMsg }, 400));
         }
       }
 
@@ -814,26 +866,26 @@ export default {
 
         if (method === 'GET') {
           const user = await getUser(env.DB, userId);
-          if (!user) return withCors(request, json({ error: 'User not found' }, 404));
-          return withCors(request, json({ user }));
+          if (!user) return respond(json({ error: 'User not found' }, 404));
+          return respond(json({ user }));
         }
 
         if (method === 'PUT') {
           const body = await parseBody(request);
-          if (!body) return withCors(request, json({ error: 'Body required' }, 400));
+          if (!body) return respond(json({ error: 'Body required' }, 400));
           // Prevent changing own role away from owner
           if (userId === currentUser.userId && body.role && body.role !== 'owner') {
-            return withCors(request, json({ error: 'Cannot demote yourself from owner' }, 400));
+            return respond(json({ error: 'Cannot demote yourself from owner' }, 400));
           }
           // Prevent promoting anyone to owner via PUT
           if (body.role === 'owner' && userId !== currentUser.userId) {
-            return withCors(request, json({ error: 'Cannot promote to owner' }, 400));
+            return respond(json({ error: 'Cannot promote to owner' }, 400));
           }
           // Handle password reset by owner
           if (body.password) {
             const resetPwErr = validatePasswordComplexity(body.password);
             if (resetPwErr) {
-              return withCors(request, json({ error: resetPwErr }, 400));
+              return respond(json({ error: resetPwErr }, 400));
             }
             await changePassword(env.DB, userId, body.password);
           }
@@ -860,23 +912,23 @@ export default {
                         <p><a href="${verifyLink}" style="display:inline-block;padding:10px 24px;background:#d4b478;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;">Verify Email</a></p>
                         <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
                     }),
-                  }).catch(() => {});
+                  }).then(() => _trackEmailSend(env)).catch(() => {});
                 } catch (_) {}
               }
             }
           }
           await updateUser(env.DB, userId, body);
           const user = await getUser(env.DB, userId);
-          return withCors(request, json({ user }));
+          return respond(json({ user }));
         }
 
         if (method === 'DELETE') {
           // Can't delete yourself
           if (userId === currentUser.userId) {
-            return withCors(request, json({ error: 'Cannot delete yourself' }, 400));
+            return respond(json({ error: 'Cannot delete yourself' }, 400));
           }
           await deleteUser(env.DB, userId);
-          return withCors(request, json({ ok: true }));
+          return respond(json({ ok: true }));
         }
       }
     }
@@ -885,16 +937,16 @@ export default {
     if (path.startsWith('/github/') || path === '/github') {
       // Check write permission for non-GET requests
       if (method !== 'GET' && !['owner', 'admin'].includes(currentUser.role)) {
-        return withCors(request, json({ error: 'Write access requires admin or owner role' }, 403));
+        return respond(json({ error: 'Write access requires admin or owner role' }, 403));
       }
       const resp = await proxyToGitHub(request, env);
-      return withCors(request, resp);
+      return respond(resp);
     }
 
     // ─── POST /email/send — Send email via Resend (any authenticated user) ──
     if (path === '/email/send' && method === 'POST') {
       if (!env.RESEND_API_KEY) {
-        return withCors(request, json({ error: 'Email service not configured' }, 500));
+        return respond(json({ error: 'Email service not configured' }, 500));
       }
       // Per-user email rate limiting: 10 sends per hour
       if (env.CATMAN_RATE && currentUser.userId) {
@@ -903,22 +955,22 @@ export default {
         try {
           const sent = parseInt(await env.CATMAN_RATE.get(emailKey) || '0', 10);
           if (sent >= 10) {
-            return withCors(request, json({ error: 'Email rate limit reached — max 10 per hour' }, 429));
+            return respond(json({ error: 'Email rate limit reached — max 10 per hour' }, 429));
           }
           await env.CATMAN_RATE.put(emailKey, String(sent + 1), { expirationTtl: 3600 });
         } catch (_) {}
       }
       const body = await parseBody(request);
       if (!body || !body.to || !body.subject || !body.html) {
-        return withCors(request, json({ error: 'to, subject, and html are required' }, 400));
+        return respond(json({ error: 'to, subject, and html are required' }, 400));
       }
       // Subject length limit
       if (typeof body.subject !== 'string' || body.subject.length > 200) {
-        return withCors(request, json({ error: 'Subject must be 200 characters or less' }, 400));
+        return respond(json({ error: 'Subject must be 200 characters or less' }, 400));
       }
       // HTML body size limit (100KB) and strip dangerous tags
       if (typeof body.html !== 'string' || body.html.length > 102400) {
-        return withCors(request, json({ error: 'Email body too large' }, 400));
+        return respond(json({ error: 'Email body too large' }, 400));
       }
       const sanitizedHtml = body.html
         .replace(/<script[\s>][\s\S]*?<\/script>/gi, '')
@@ -928,20 +980,20 @@ export default {
         .replace(/\bon\w+\s*=/gi, 'data-removed=');
       const recipients = Array.isArray(body.to) ? body.to : [body.to];
       if (recipients.length === 0 || recipients.length > 10) {
-        return withCors(request, json({ error: 'Must have 1-10 recipients' }, 400));
+        return respond(json({ error: 'Must have 1-10 recipients' }, 400));
       }
       // Basic email format validation
       const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       const invalid = recipients.filter(r => !emailRe.test(r));
       if (invalid.length > 0) {
-        return withCors(request, json({ error: 'Invalid email address: ' + invalid[0] }, 400));
+        return respond(json({ error: 'Invalid email address: ' + invalid[0] }, 400));
       }
       try {
-        const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
-        // Always send TO catmanbeats@gmail.com (owner copy), BCC all entered recipients
+        const fromAddr = env.EMAIL_FROM_PERSONAL || env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
+        // Always send TO cat@catmanbeats.com (owner copy), BCC all entered recipients
         const emailPayload = {
           from: fromAddr,
-          to: ['catmanbeats@gmail.com'],
+          to: ['cat@catmanbeats.com'],
           bcc: recipients,
           subject: body.subject,
           html: sanitizedHtml,
@@ -956,21 +1008,108 @@ export default {
         });
         const data = await resp.json();
         if (!resp.ok) {
-          return withCors(request, json({ error: data.message || 'Email send failed' }, resp.status));
+          return respond(json({ error: data.message || 'Email send failed' }, resp.status));
         }
-        return withCors(request, json({ ok: true, id: data.id, sent: recipients.length }));
+        _trackEmailSend(env, recipients.length);
+        return respond(json({ ok: true, id: data.id, sent: recipients.length }));
       } catch (_) {
-        return withCors(request, json({ error: 'Email send failed' }, 500));
+        return respond(json({ error: 'Email send failed' }, 500));
+      }
+    }
+
+    // ─── GET /admin/quotas — Service quota usage (owner only) ──
+    if (path === '/admin/quotas' && method === 'GET') {
+      if (currentUser.role !== 'owner') {
+        return respond(json({ error: 'Owner access required' }, 403));
+      }
+      const quotas = {};
+      // Resend email quotas
+      if (env.CATMAN_RATE) {
+        try {
+          const now = new Date();
+          const dayKey = `emails:day:${now.toISOString().slice(0, 10)}`;
+          const monthKey = `emails:month:${now.toISOString().slice(0, 7)}`;
+          const dailySent = parseInt(await env.CATMAN_RATE.get(dayKey) || '0', 10);
+          const monthlySent = parseInt(await env.CATMAN_RATE.get(monthKey) || '0', 10);
+          quotas.resend = {
+            daily: { used: dailySent, limit: 100, pct: Math.round(dailySent / 100 * 100) },
+            monthly: { used: monthlySent, limit: 3000, pct: Math.round(monthlySent / 3000 * 100) },
+          };
+        } catch (_) {
+          quotas.resend = { daily: { used: 0, limit: 100, pct: 0 }, monthly: { used: 0, limit: 3000, pct: 0 } };
+        }
+      }
+      // D1 table sizes
+      if (env.DB) {
+        try {
+          const userCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM users').first();
+          const sessionCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM sessions').first();
+          let errorCount = { cnt: 0 };
+          try { errorCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM error_log').first(); } catch (_) {}
+          quotas.d1 = {
+            users: userCount?.cnt || 0,
+            sessions: sessionCount?.cnt || 0,
+            errorLog: errorCount?.cnt || 0,
+            note: 'Free tier: 5M reads/day, 100K writes/day, 5GB storage',
+          };
+        } catch (_) {
+          quotas.d1 = { users: 0, sessions: 0, errorLog: 0 };
+        }
+      }
+      // Cloudflare Workers free tier info
+      quotas.workers = { note: 'Free tier: 100K requests/day, 10ms CPU/request' };
+      // KV free tier info
+      quotas.kv = { note: 'Free tier: 100K reads/day, 1K writes/day' };
+      // GitHub API (tracked client-side, not available here)
+      quotas.github = { note: '5,000 requests/hour (authenticated), tracked client-side' };
+      return respond(json({ quotas }));
+    }
+
+    // ─── GET /admin/errors — Server error log (owner only) ──
+    if (path === '/admin/errors' && method === 'GET') {
+      if (currentUser.role !== 'owner') {
+        return respond(json({ error: 'Owner access required' }, 403));
+      }
+      if (!env.DB) return respond(json({ errors: [] }));
+      try {
+        const { results } = await env.DB.prepare(
+          'SELECT id, message, stack, path, method, ip, created_at FROM error_log ORDER BY created_at DESC LIMIT 50'
+        ).all();
+        return respond(json({ errors: results || [] }));
+      } catch (_) {
+        return respond(json({ errors: [] }));
       }
     }
 
     // ─── 404 — unknown route ─────────────────────────
-    return withCors(request, json({ error: 'Not found' }, 404));
+    return respond(json({ error: 'Not found' }, 404));
 
     } catch (e) {
       // Top-level safety net — prevent bare 500s leaking stack traces
       console.error('Unhandled Worker error:', e.message || e);
-      return withCors(request, json({ error: 'Internal error' }, 500));
+      // Log to D1 error_log table (best-effort)
+      if (env.DB) {
+        try {
+          const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+          let errPath = '', errMethod = '';
+          try { errPath = new URL(request.url).pathname; errMethod = request.method; } catch (_) {}
+          await env.DB.prepare(
+            'INSERT INTO error_log (message, stack, path, method, ip, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(
+            String(e.message || e).substring(0, 500),
+            String(e.stack || '').substring(0, 2000),
+            errPath,
+            errMethod,
+            ip,
+            new Date().toISOString()
+          ).run();
+          // Probabilistic cleanup: keep last 500 rows (10% chance per error)
+          if (Math.random() < 0.1) {
+            env.DB.prepare('DELETE FROM error_log WHERE id NOT IN (SELECT id FROM error_log ORDER BY created_at DESC LIMIT 500)').run().catch(() => {});
+          }
+        } catch (_) { /* logging failure is non-fatal */ }
+      }
+      return withCors(request, json({ error: 'Internal error' }, 500), env);
     }
   },
 };

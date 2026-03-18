@@ -535,14 +535,18 @@ const GitHub = (() => {
 
   // ─── Save data (queued + debounced) ───────────────────────
 
-  function saveSongs(data)    { _queueWrite('songs', data); }
-  function saveSetlists(data) { _queueWrite('setlists', data); }
-  function savePractice(data) { _queueWrite('practice', data); }
+  function saveSongs(data)    { _queueWrite('songs', data); return Promise.resolve(); }
+  function saveSetlists(data) { _queueWrite('setlists', data); return Promise.resolve(); }
+  function savePractice(data) { _queueWrite('practice', data); return Promise.resolve(); }
 
   function _queueWrite(type, data) {
     _pending[type] = data;
     _persistPending();
     _scheduleFlush();
+    // Register Background Sync so offline writes flush when connectivity returns
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'REGISTER_SYNC' });
+    }
   }
 
   function _scheduleFlush() {
@@ -759,25 +763,61 @@ const GitHub = (() => {
     } catch (e) {
       console.warn('GitHub: could not persist pending writes for crash recovery', e);
     }
-  }
-
-  function _restorePending() {
-    try {
-      const raw = localStorage.getItem('ct_github_pending');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        let hasPending = false;
-        for (const type of ['songs', 'setlists', 'practice']) {
-          if (parsed[type] !== null && parsed[type] !== undefined) {
-            _pending[type] = parsed[type];
-            hasPending = true;
-          }
-        }
-        if (hasPending) {
-          console.info('GitHub: restoring pending writes from crash recovery');
+    // Also persist to IDB for Background Sync
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      for (const [type, data] of Object.entries(_pending)) {
+        if (data !== null) {
+          IDB.savePendingWrite(type, data).catch(() => {});
+        } else {
+          IDB.clearPendingWrite(type).catch(() => {});
         }
       }
-      // Restore deletions
+    }
+  }
+
+  async function _restorePending() {
+    // Try IDB first, fall back to localStorage
+    let restoredFromIDB = false;
+    if (typeof IDB !== 'undefined' && IDB.isAvailable()) {
+      try {
+        const idbPending = await IDB.loadPendingWrites();
+        if (idbPending && idbPending.length > 0) {
+          for (const entry of idbPending) {
+            if (entry.type && entry.data !== undefined && entry.data !== null) {
+              _pending[entry.type] = entry.data;
+              restoredFromIDB = true;
+            }
+          }
+          if (restoredFromIDB) {
+            console.info('GitHub: restoring pending writes from IDB');
+          }
+        }
+      } catch (e) {
+        console.warn('GitHub: IDB pending restore failed', e);
+      }
+    }
+    if (!restoredFromIDB) {
+      try {
+        const raw = localStorage.getItem('ct_github_pending');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          let hasPending = false;
+          for (const type of ['songs', 'setlists', 'practice']) {
+            if (parsed[type] !== null && parsed[type] !== undefined) {
+              _pending[type] = parsed[type];
+              hasPending = true;
+            }
+          }
+          if (hasPending) {
+            console.info('GitHub: restoring pending writes from localStorage');
+          }
+        }
+      } catch (e) {
+        console.warn('GitHub: localStorage pending restore failed', e);
+      }
+    }
+    // Restore deletions (localStorage only — not critical for IDB)
+    try {
       const delRaw = localStorage.getItem('ct_github_deletions');
       if (delRaw) {
         const delParsed = JSON.parse(delRaw);
@@ -799,11 +839,21 @@ const GitHub = (() => {
 
   // ─── Init (called by app.js after DOM ready) ──────────────
 
-  function init() {
-    _restorePending();
+  async function init() {
+    await _restorePending();
     // Schedule flush if pending data was restored
     if (Object.values(_pending).some(v => v !== null)) {
       _scheduleFlush();
+    }
+    // Listen for Background Sync flush trigger from SW
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'SYNC_FLUSH_WRITES') {
+          if (Object.values(_pending).some(v => v !== null)) {
+            flushNow();
+          }
+        }
+      });
     }
   }
 

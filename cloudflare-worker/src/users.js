@@ -122,11 +122,32 @@ async function validateSession(db, token) {
     personaId: row.persona_id,
     emailVerified: !!row.email_verified,
     passwordExpired: isPasswordExpired(row),
+    lastUsed: row.last_used,
   };
 }
 
 async function deleteSession(db, token) {
   await db.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
+}
+
+async function rotateSession(db, oldToken) {
+  // Get old session info to copy user_id and device_info
+  const oldRow = await db.prepare(
+    'SELECT user_id, device_info FROM sessions WHERE token = ?'
+  ).bind(oldToken).first();
+  if (!oldRow) return null;
+  // Create new session
+  const newToken = generateToken();
+  const now = new Date().toISOString();
+  const newExpires = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  await db.prepare(
+    'INSERT INTO sessions (token, user_id, created_at, expires_at, device_info, last_used) VALUES (?, ?, ?, ?, ?, ?)'
+  ).bind(newToken, oldRow.user_id, now, newExpires, oldRow.device_info, now).run();
+  // Keep old token alive for 5 min grace period (in case response is lost)
+  const grace = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  await db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?')
+    .bind(grace, oldToken).run();
+  return newToken;
 }
 
 async function listUserSessions(db, userId) {
@@ -232,6 +253,13 @@ async function changePassword(db, userId, newPassword) {
   await db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();
 }
 
+async function rehashPassword(db, userId, newPassword) {
+  const pwHash = await hashPassword(newPassword);
+  const now = new Date().toISOString();
+  await db.prepare('UPDATE users SET pw_hash = ?, password_changed_at = ?, updated_at = ? WHERE id = ?')
+    .bind(pwHash, now, now, userId).run();
+}
+
 // ─── Password reset tokens ──────────────────────────────
 
 const RESET_TOKEN_TTL_HOURS = 1;
@@ -320,10 +348,10 @@ async function countUsers(db) {
 
 export {
   hashPassword, verifyPassword, generateToken,
-  createSession, validateSession, deleteSession, cleanExpiredSessions,
+  createSession, validateSession, deleteSession, rotateSession, cleanExpiredSessions,
   listUserSessions, deleteSessionByPrefix,
   createUser, getUser, listUsers, updateUser, deleteUser,
-  changePassword, getUserByUsername, countUsers,
+  changePassword, rehashPassword, getUserByUsername, countUsers,
   createResetToken, validateAndConsumeResetToken, cleanExpiredResetTokens,
   createEmailVerifyToken, verifyEmail, isPasswordExpired,
 };
