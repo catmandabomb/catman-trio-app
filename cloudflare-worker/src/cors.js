@@ -1,33 +1,28 @@
 /**
  * cors.js — CORS handling for the Catman API Worker
  *
- * Allows requests from the app's production origins.
- * Localhost origins are gated behind DEV_MODE env var.
+ * Allows requests from the app's production origins and localhost for dev.
  * Rejects other origins with no CORS headers.
  */
 
-const PROD_ORIGINS = [
+const ALLOWED_ORIGINS = [
   'https://trio.catmanbeats.com',
   'https://catmandabomb.github.io',  // keep during transition
-];
-
-const DEV_ORIGINS = [
   'http://localhost:8080',
+  'http://localhost:8081',
   'http://127.0.0.1:8080',
+  'http://127.0.0.1:8081',
 ];
 
 /**
  * Build CORS headers for a given request origin.
  * Returns null if origin is not allowed.
  * @param {Request} request
- * @param {object} [env] - Worker env bindings (checks DEV_MODE)
+ * @param {object} [env] - Worker env bindings (reserved for future use)
  */
 function getCorsHeaders(request, env) {
   const origin = request.headers.get('Origin') || '';
-  const allowed = env && env.DEV_MODE
-    ? [...PROD_ORIGINS, ...DEV_ORIGINS]
-    : PROD_ORIGINS;
-  if (!allowed.includes(origin)) return null;
+  if (!ALLOWED_ORIGINS.includes(origin)) return null;
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -67,4 +62,4 @@ function withCors(request, response, env) {
   });
 }
 
-export { getCorsHeaders, handlePreflight, withCors, PROD_ORIGINS, DEV_ORIGINS };
+export { getCorsHeaders, handlePreflight, withCors, ALLOWED_ORIGINS };

@@ -21,8 +21,8 @@ try {
 }
 
 try {
-  importScripts('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
-  importScripts('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js');
+  importScripts('../lib/pdf.min.js');
+  importScripts('../lib/pdf.worker.min.js');
 } catch (e) {
   self.postMessage({ id: null, error: 'importScripts failed: ' + e.message });
   self.close();

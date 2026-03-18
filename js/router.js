@@ -5,232 +5,228 @@
  * Router calls them by key, avoiding circular deps.
  */
 
-const Router = (() => {
+import * as Store from './store.js';
+import * as Player from '../player.js';
+import * as Metronome from '../metronome.js';
 
-  // ─── View registry ──────────────────────────────────────────
-  const _registry = {};       // viewName → renderFn(route)
-  const _hooks = {};          // hookName → fn
+// Lazy import to break circular dep (app.js imports router.js)
+let _App = null;
+function _getApp() {
+  if (!_App) _App = import('../app.js');
+  return _App;
+}
 
-  // ─── Cached DOM references ─────────────────────────────────
-  let _viewEls = null;        // cached .view NodeList
-  let _navBtns = null;        // cached .topbar-nav-btn NodeList
-  const _prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+// ─── View registry ──────────────────────────────────────────
+const _registry = {};       // viewName → renderFn(route)
+const _hooks = {};          // hookName → fn
 
-  /**
-   * Register a render function for a view name.
-   * Called by view modules at load time.
-   */
-  function register(viewName, renderFn) {
-    _registry[viewName] = renderFn;
+// ─── Cached DOM references ─────────────────────────────────
+let _viewEls = null;        // cached .view NodeList
+let _navBtns = null;        // cached .topbar-nav-btn NodeList
+const _prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+/**
+ * Register a render function for a view name.
+ * Called by view modules at load time.
+ */
+function register(viewName, renderFn) {
+  _registry[viewName] = renderFn;
+}
+
+/**
+ * Register a named hook (e.g. 'cleanupDetailAnchors').
+ */
+function registerHook(name, fn) {
+  _hooks[name] = fn;
+}
+
+function _callHook(name) {
+  if (_hooks[name]) _hooks[name]();
+}
+
+// ─── Hash ↔ View mapping ───────────────────────────────────
+
+function viewToHash(viewName, params) {
+  switch (viewName) {
+    case 'list': return '#';
+    case 'detail': return params?.songId ? `#song/${params.songId}` : '#';
+    case 'setlists': return '#setlists';
+    case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
+    case 'practice': return '#practice';
+    case 'practice-detail': return '#practice';
+    case 'dashboard': return '#dashboard';
+    default: return '#';
   }
+}
 
-  /**
-   * Register a named hook (e.g. 'cleanupDetailAnchors').
-   */
-  function registerHook(name, fn) {
-    _hooks[name] = fn;
-  }
-
-  function _callHook(name) {
-    if (_hooks[name]) _hooks[name]();
-  }
-
-  // ─── Hash ↔ View mapping ───────────────────────────────────
-
-  function viewToHash(viewName, params) {
-    switch (viewName) {
-      case 'list': return '#';
-      case 'detail': return params?.songId ? `#song/${params.songId}` : '#';
-      case 'setlists': return '#setlists';
-      case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
-      case 'practice': return '#practice';
-      case 'practice-detail': return '#practice';
-      case 'dashboard': return '#dashboard';
-      default: return '#';
+function resolveHash(hash) {
+  if (!hash || hash === '#' || hash === '') return { view: 'list' };
+  const raw = hash.replace(/^#/, '');
+  // Handle routes with query params (e.g. reset-password?token=...)
+  const [routePart, queryPart] = raw.split('?');
+  const params = {};
+  if (queryPart) {
+    for (const pair of queryPart.split('&')) {
+      const [k, v] = pair.split('=');
+      if (k) params[decodeURIComponent(k)] = v ? decodeURIComponent(v) : '';
     }
   }
-
-  function resolveHash(hash) {
-    if (!hash || hash === '#' || hash === '') return { view: 'list' };
-    const raw = hash.replace(/^#/, '');
-    // Handle routes with query params (e.g. reset-password?token=...)
-    const [routePart, queryPart] = raw.split('?');
-    const params = {};
-    if (queryPart) {
-      for (const pair of queryPart.split('&')) {
-        const [k, v] = pair.split('=');
-        if (k) params[decodeURIComponent(k)] = v ? decodeURIComponent(v) : '';
-      }
-    }
-    const parts = routePart.split('/');
-    switch (parts[0]) {
-      case 'song': return { view: 'detail', songId: parts[1] };
-      case 'setlists': return { view: 'setlists' };
-      case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
-      case 'practice':
-        return { view: 'practice' };
-      case 'dashboard': return { view: 'dashboard' };
-      case 'reset-password': return { view: 'reset-password', token: params.token };
-      case 'verify-email': return { view: 'verify-email', token: params.token };
-      default: return { view: 'list' };
-    }
+  const parts = routePart.split('/');
+  switch (parts[0]) {
+    case 'song': return { view: 'detail', songId: parts[1] };
+    case 'setlists': return { view: 'setlists' };
+    case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
+    case 'practice':
+      return { view: 'practice' };
+    case 'dashboard': return { view: 'dashboard' };
+    case 'reset-password': return { view: 'reset-password', token: params.token };
+    case 'verify-email': return { view: 'verify-email', token: params.token };
+    default: return { view: 'list' };
   }
+}
 
-  /**
-   * Navigate to a resolved route using the registry.
-   * Falls back to 'list' if no handler registered.
-   */
-  function navigateToRoute(route) {
-    if (!route) return;
-    const fn = _registry[route.view];
-    if (fn) {
-      fn(route);
-    } else if (_registry['list']) {
-      _registry['list']();
-    }
+/**
+ * Navigate to a resolved route using the registry.
+ * Falls back to 'list' if no handler registered.
+ */
+function navigateToRoute(route) {
+  if (!route) return;
+  const fn = _registry[route.view];
+  if (fn) {
+    fn(route);
+  } else if (_registry['list']) {
+    _registry['list']();
   }
+}
 
-  // ─── View switching ─────────────────────────────────────────
+// ─── View switching ─────────────────────────────────────────
 
-  function _ensureCached() {
-    if (!_viewEls) _viewEls = document.querySelectorAll('.view');
-    if (!_navBtns) _navBtns = document.querySelectorAll('.topbar-nav-btn');
-  }
+function _ensureCached() {
+  if (!_viewEls) _viewEls = document.querySelectorAll('.view');
+  if (!_navBtns) _navBtns = document.querySelectorAll('.topbar-nav-btn');
+}
 
-  function showView(name) {
-    _ensureCached();
-    const popstateNav = Store.get('isPopstateNavigation');
-    const isFirstCall = !Store.get('showViewCalled');
-    const currentView = Store.get('view');
-    const alreadyActive = Store.get('showViewCalled') && currentView === name;
-    Store.set('showViewCalled', true);
+function showView(name) {
+  _ensureCached();
+  const popstateNav = Store.get('isPopstateNavigation');
+  const isFirstCall = !Store.get('showViewCalled');
+  const currentView = Store.get('view');
+  const alreadyActive = Store.get('showViewCalled') && currentView === name;
+  Store.set('showViewCalled', true);
 
-    const swap = () => {
-      if (!alreadyActive) {
-        if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
-        if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
-        if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) _callHook('cleanupPractice');
-        // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
-        if (name !== 'detail' && typeof App !== 'undefined' && App.showVolume) App.showVolume(false);
-        // Remove view-specific topbar buttons when leaving
-        document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions').forEach(el => el.remove());
-        _viewEls.forEach(v => v.classList.remove('active'));
-        const el = document.getElementById(`view-${name}`);
-        if (el) {
-          el.classList.add('active');
-          el.scrollTop = 0;
-          // Focus management for accessibility — move focus to new view
-          if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
-          requestAnimationFrame(() => el.focus({ preventScroll: true }));
-          if (name === 'list') {
-            const sw = document.getElementById('song-list-scroll');
-            if (sw) sw.scrollTop = 0;
-          }
+  const swap = () => {
+    if (!alreadyActive) {
+      if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
+      if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
+      if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) _callHook('cleanupPractice');
+      // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
+      if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
+      // Remove view-specific topbar buttons when leaving
+      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions').forEach(el => el.remove());
+      _viewEls.forEach(v => v.classList.remove('active'));
+      const el = document.getElementById(`view-${name}`);
+      if (el) {
+        el.classList.add('active');
+        el.scrollTop = 0;
+        // Focus management for accessibility — move focus to new view
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => el.focus({ preventScroll: true }));
+        if (name === 'list') {
+          const sw = document.getElementById('song-list-scroll');
+          if (sw) sw.scrollTop = 0;
         }
       }
-      Store.set('view', name);
-      // Update URL hash for deep linking (don't push on popstate-driven navigation)
-      if (!popstateNav) {
-        const hash = viewToHash(name, Store.get('currentRouteParams'));
-        if (hash === '#' || hash === '') {
-          if (location.hash) {
-            try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
-          }
-        } else if (location.hash !== hash) {
-          try { history.pushState(null, '', hash); } catch (_) {}
+    }
+    Store.set('view', name);
+    // Update URL hash for deep linking (don't push on popstate-driven navigation)
+    if (!popstateNav) {
+      const hash = viewToHash(name, Store.get('currentRouteParams'));
+      if (hash === '#' || hash === '') {
+        if (location.hash) {
+          try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
         }
+      } else if (location.hash !== hash) {
+        try { history.pushState(null, '', hash); } catch (_) {}
       }
-      // aria-current on active nav button
-      _navBtns.forEach(btn => btn.removeAttribute('aria-current'));
-      if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
-        document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
-      } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
-        document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
-      }
-      // Show topbar refresh on setlists/practice top-level views
-      const showRefresh = name === 'setlists' || name === 'practice' || name === 'practice-detail';
-      document.getElementById('btn-topbar-refresh')?.classList.toggle('hidden', !showRefresh);
-    };
-
-    const skipTransition = Store.get('skipViewTransition');
-    if (skipTransition) Store.set('skipViewTransition', false);
-    if (alreadyActive || isFirstCall || _prefersReducedMotion.matches || skipTransition) {
-      swap();
-    } else if (document.startViewTransition) {
-      try { document.startViewTransition(swap); } catch (_) { swap(); }
-    } else {
-      swap();
     }
-  }
-
-  function setTopbar(title, showBack, isHtml, isHome) {
-    const el = document.getElementById('topbar-title');
-    if (el) {
-      if (!(isHome && el.classList.contains('title-home'))) {
-        if (isHtml) el.innerHTML = title; else el.textContent = title;
-      } else {
-        const badge = el.querySelector('#admin-version-badge');
-        const ver = Store.get('APP_VERSION');
-        if (badge && badge.textContent !== ver) badge.textContent = ver;
-      }
-      el.classList.toggle('title-home', !!isHome);
+    // aria-current on active nav button
+    _navBtns.forEach(btn => btn.removeAttribute('aria-current'));
+    if (name === 'setlists' || name === 'setlist-detail' || name === 'setlist-edit' || name === 'setlist-live') {
+      document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
+    } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
+      document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
     }
-    document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
-    document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
-    document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
-  }
-
-  function pushNav(renderFn) {
-    const stack = Store.get('navStack');
-    stack.push(renderFn);
-    // Cap stack depth to prevent memory leaks from deep navigation chains
-    if (stack.length > 20) stack.splice(0, stack.length - 20);
-  }
-
-  function navigateBack() {
-    if (typeof Metronome !== 'undefined' && Metronome.isPlaying()) Metronome.stop();
-    Player.stopAll();
-    // Clean up live mode if active
-    if (Store.get('liveModeActive') && Store.get('exitLiveModeRef')) {
-      Store.get('exitLiveModeRef')();
-      return;
-    }
-    document.body.classList.remove('live-mode-active');
-    document.documentElement.classList.remove('live-mode-active');
-    document.body.classList.remove('practice-mode-active');
-    const navStack = Store.get('navStack');
-    if (navStack.length > 0) {
-      const prev = navStack.pop();
-      if (typeof prev === 'function') prev();
-      else if (_registry['list']) _registry['list']();
-    } else if (_registry['list']) {
-      _registry['list']();
-    }
-  }
-
-  /**
-   * Re-render the current view (e.g. after sync).
-   * Uses the registry to find the appropriate render function.
-   */
-  function rerenderCurrentView() {
-    const view = Store.get('view');
-    const fn = _registry[view];
-    if (fn) fn({ rerender: true });
-  }
-
-  // ─── Public API ─────────────────────────────────────────────
-
-  return {
-    register,
-    registerHook,
-    viewToHash,
-    resolveHash,
-    navigateToRoute,
-    showView,
-    setTopbar,
-    pushNav,
-    navigateBack,
-    rerenderCurrentView,
+    // Show topbar refresh on setlists/practice top-level views
+    const showRefresh = name === 'setlists' || name === 'practice' || name === 'practice-detail';
+    document.getElementById('btn-topbar-refresh')?.classList.toggle('hidden', !showRefresh);
   };
 
-})();
+  const skipTransition = Store.get('skipViewTransition');
+  if (skipTransition) Store.set('skipViewTransition', false);
+  if (alreadyActive || isFirstCall || _prefersReducedMotion.matches || skipTransition) {
+    swap();
+  } else if (document.startViewTransition) {
+    try { document.startViewTransition(swap); } catch (_) { swap(); }
+  } else {
+    swap();
+  }
+}
+
+function setTopbar(title, showBack, isHtml, isHome) {
+  const el = document.getElementById('topbar-title');
+  if (el) {
+    if (!(isHome && el.classList.contains('title-home'))) {
+      if (isHtml) el.innerHTML = title; else el.textContent = title;
+    } else {
+      const badge = el.querySelector('#admin-version-badge');
+      const ver = Store.get('APP_VERSION');
+      if (badge && badge.textContent !== ver) badge.textContent = ver;
+    }
+    el.classList.toggle('title-home', !!isHome);
+  }
+  document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
+  document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
+  document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
+}
+
+function pushNav(renderFn) {
+  const stack = Store.get('navStack');
+  stack.push(renderFn);
+  // Cap stack depth to prevent memory leaks from deep navigation chains
+  if (stack.length > 20) stack.splice(0, stack.length - 20);
+}
+
+function navigateBack() {
+  if (Metronome.isPlaying()) Metronome.stop();
+  Player.stopAll();
+  // Clean up live mode if active
+  if (Store.get('liveModeActive') && Store.get('exitLiveModeRef')) {
+    Store.get('exitLiveModeRef')();
+    return;
+  }
+  document.body.classList.remove('live-mode-active');
+  document.documentElement.classList.remove('live-mode-active');
+  document.body.classList.remove('practice-mode-active');
+  const navStack = Store.get('navStack');
+  if (navStack.length > 0) {
+    const prev = navStack.pop();
+    if (typeof prev === 'function') prev();
+    else if (_registry['list']) _registry['list']();
+  } else if (_registry['list']) {
+    _registry['list']();
+  }
+}
+
+/**
+ * Re-render the current view (e.g. after sync).
+ * Uses the registry to find the appropriate render function.
+ */
+function rerenderCurrentView() {
+  const view = Store.get('view');
+  const fn = _registry[view];
+  if (fn) fn({ rerender: true });
+}
+
+// ─── Public API ─────────────────────────────────────────────
+
+export { register, registerHook, viewToHash, resolveHash, navigateToRoute, showView, setTopbar, pushNav, navigateBack, rerenderCurrentView };

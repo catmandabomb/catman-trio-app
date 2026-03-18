@@ -1,0 +1,136 @@
+CATMAN TRIO v19.98 — DEPLOYMENT & FIX INSTRUCTIONS
+===================================================
+Date: March 18, 2026
+
+WHAT CHANGED IN v19.98
+----------------------
+- All 19 IIFE modules converted to ES modules (import/export)
+- CORS config cleaned up (trio.catmanbeats.com as primary domain)
+- Cloudflare Worker lockout email indentation bug fixed
+- index.html: single <script type="module"> entry point (was 19 script tags)
+- Circular dependency fix in router.js (lazy dynamic import)
+- Duplicate function declarations removed (strict mode compatibility)
+
+
+=============================================
+1. FIX LOGIN "INTERNAL ERROR" ISSUE
+=============================================
+
+The "Internal error" on login is most likely caused by the Cloudflare Worker
+needing redeployment with the updated CORS config. The CORS origin list was
+cleaned up to explicitly include trio.catmanbeats.com.
+
+STEPS:
+
+  a) Open a terminal and navigate to the worker directory:
+
+     cd "C:\Users\catremblay\Documents\PERSONAL\CLAUDE\Catman Trio App\cloudflare-worker"
+
+  b) Deploy the worker:
+
+     wrangler deploy
+
+  c) Test login at https://trio.catmanbeats.com
+     - Try admin login (Administraitor1!)
+     - Try a non-admin user login
+
+  d) If login STILL fails after deploy, check the error log:
+
+     wrangler d1 execute catman-db --command "SELECT * FROM error_log ORDER BY ts DESC LIMIT 10"
+
+     Or via the API (if you have an admin endpoint):
+     curl https://<your-worker-url>/admin/errors
+
+     The error_log table captures the actual stack trace from the
+     top-level catch handler (index.js line ~1112). That will tell
+     you the exact cause.
+
+
+=============================================
+2. SET UP EMAIL_FROM_PERSONAL VARIABLE
+=============================================
+
+The email setlist feature (v19.96+) uses a "from" address when sending
+setlist emails via Resend. There are two env vars:
+
+  - EMAIL_FROM          = used for all system emails (login alerts,
+                          password reset, verification, lockout alerts)
+  - EMAIL_FROM_PERSONAL = used ONLY for the "email setlist" feature
+                          (line 992 of index.js). Falls back to
+                          EMAIL_FROM if not set.
+
+This lets you send setlist emails from your personal address (e.g.
+"Cat <cat@catmanbeats.com>") while system emails come from a
+no-reply address.
+
+STEPS:
+
+  a) Set EMAIL_FROM (if not already set):
+
+     wrangler secret put EMAIL_FROM
+     > Enter value: Catman Trio <noreply@catmanbeats.com>
+
+  b) Set EMAIL_FROM_PERSONAL:
+
+     wrangler secret put EMAIL_FROM_PERSONAL
+     > Enter value: Cat <cat@catmanbeats.com>
+
+     (Use whatever personal "from" address you want recipients to see
+      when they get emailed setlists.)
+
+  NOTE: Both of these require a verified domain in Resend. If you're
+  using catmanbeats.com, make sure it's verified in your Resend dashboard
+  at https://resend.com/domains. The fallback "onboarding@resend.dev"
+  works without verification but looks generic.
+
+  c) After setting secrets, redeploy:
+
+     wrangler deploy
+
+
+=============================================
+3. GIT COMMIT & PUSH (after login is confirmed working)
+=============================================
+
+  cd "C:\Users\catremblay\Documents\PERSONAL\CLAUDE\Catman Trio App"
+  git add -A
+  git commit -m "v19.98: ES modules conversion, CORS cleanup, worker fixes"
+  git push origin main
+
+
+=============================================
+4. OTHER OUTSTANDING ITEMS
+=============================================
+
+FROM PREVIOUS CONVERSATIONS:
+
+  a) USERNAME MAX LENGTH
+     Reduce from 50 to 25 chars.
+     - Server: cloudflare-worker/src/index.js (registration endpoint)
+     - Client: admin.js (input validation)
+     Status: NOT DONE YET
+
+  b) PER-USERNAME RATE LIMITING (Roadmap item #9)
+     Login tracking + lockout alerts exist, but actual block logic
+     (return 429 after 5 fails) is not implemented yet.
+     Status: NOT DONE YET
+
+  c) AUDIT LOGGING (Security Phase 3)
+     error_log table is done. audit_log table for tracking user
+     actions (login, data changes, admin operations) is NOT yet built.
+     Legacy admin hash is still supported alongside PBKDF2.
+     Status: PARTIAL
+
+  d) CLASSIC 4 — LIVE MODE BUGS (iOS)
+     1. All black pages (PDFs don't render)
+     2. No swiping (swipe gestures don't work)
+     3. Page forward: black screen (indicator updates)
+     4. Page back: brief flash then black
+     Root cause: zero-width container on carousel init
+     Status: NOT FIXED — needs dedicated session
+
+  e) BARREL AUDIT IN PROGRESS
+     4 parallel audit agents are currently reviewing all 25 modified
+     files. Leaf modules came back CLEAN. Mid-tier, views, and worker
+     audits are still running. Any issues found will be fixed before
+     the git commit.

@@ -1,41 +1,50 @@
 /**
- * app.js — Main application logic
+ * app.js — Main application logic (ES module entry point)
  */
 
-const App = (() => {
+import * as Store from './js/store.js';
+import { esc, deepClone, timeAgo, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform, isHybridKey } from './js/utils.js';
+import * as Modal from './js/modal.js';
+import * as Router from './js/router.js';
+import * as Sync from './js/sync.js';
+import * as Drive from './drive.js';
+import * as GitHub from './github.js';
+import * as Admin from './admin.js';
+import * as Auth from './auth.js';
+import * as Player from './player.js';
+import * as Songs from './js/songs.js';
+import * as Setlists from './js/setlists.js';
+import * as Practice from './js/practice.js';
+import * as Dashboard from './js/dashboard.js';
+import * as Migrate from './js/migrate.js';
+import * as IDB from './idb.js';
+import * as Metronome from './metronome.js';
+import * as PDFViewer from './pdf-viewer.js';
 
-  // Phase 1: Version + schema live in Store; local alias for backward compat
-  const APP_VERSION = Store.get('APP_VERSION');
+const APP_VERSION = Store.get('APP_VERSION');
 
-  let _songs      = [];
-  let _setlists   = [];
-  let _view       = 'list';
-  let _showViewCalled = false;
-  let _searchText = '';
-  let _activeTags = [];
-  let _activeKeys = [];
-  let _blobCache  = {};
-  let _playerRefs = [];
-  let _navStack   = [];
-  let _activeSetlist = null;
-  let _practice = [];
-  let _activePracticeList = null;
+let _songs      = [];
+let _setlists   = [];
+let _view       = 'list';
+let _showViewCalled = false;
+let _searchText = '';
+let _activeTags = [];
+let _activeKeys = [];
+let _blobCache  = {};
+let _playerRefs = [];
+let _navStack   = [];
+let _activeSetlist = null;
+let _practice = [];
+let _activePracticeList = null;
 
-  // ─── Hash routing (delegated to Router module) ──────────────
-  let _isPopstateNavigation = false;
-  let _currentRouteParams = {};
-  function _setRouteParams(p) { _currentRouteParams = p; Store.set('currentRouteParams', p); }
-  const _viewToHash      = Router.viewToHash;
-  const _resolveHash     = Router.resolveHash;
-  function _navigateToRoute(route) { Router.navigateToRoute(route); }
-  let _cachedPdfSet = new Set();
-
-  // ─── Utility (delegated to Utils module) ────────────────────
-  const esc           = Utils.esc;
-  const deepClone     = Utils.deepClone;
-  const _timeAgo      = Utils.timeAgo;
-  const haptic        = Utils.haptic;
-  const showToast     = Utils.showToast;
+// ─── Hash routing (delegated to Router module) ──────────────
+let _isPopstateNavigation = false;
+let _currentRouteParams = {};
+function _setRouteParams(p) { _currentRouteParams = p; Store.set('currentRouteParams', p); }
+const _viewToHash      = Router.viewToHash;
+const _resolveHash     = Router.resolveHash;
+function _navigateToRoute(route) { Router.navigateToRoute(route); }
+let _cachedPdfSet = new Set();
 
   // ─── Blob cache (LRU, max 30 entries) ────────────────────
 
@@ -67,7 +76,7 @@ const App = (() => {
     const accountBtn = document.getElementById('btn-account');
     const setlistsBtn = document.getElementById('btn-setlists');
     const practiceBtn = document.getElementById('btn-practice');
-    const loggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
+    const loggedIn = Auth.isLoggedIn();
 
     // Toggle body classes for CSS-driven auth gating
     document.body.classList.toggle('authed', loggedIn);
@@ -236,7 +245,7 @@ const App = (() => {
 
   // ─── Download helper ────────────────────────────────────
 
-  const _isIOS = Utils.isIOS;
+  const _isIOS = isIOS;
 
   async function _downloadFile(driveId, filename, btnEl) {
     btnEl.disabled = true;
@@ -343,7 +352,7 @@ const App = (() => {
   function _allKeys() { return Songs.allKeys(); }
   function _filteredSongs() { return Songs.filteredSongs(); }
   function _exitSelectionMode() { Songs.exitSelectionMode(); }
-  const _isHybridKey = Utils.isHybridKey;
+  const _isHybridKey = isHybridKey;
 
 
   // (Song list/detail/edit code extracted to js/songs.js)
@@ -352,13 +361,11 @@ const App = (() => {
   function renderSetlists(skipNavReset) { Setlists.renderSetlists(skipNavReset); }
   function renderSetlistDetail(setlist, skipNavPush) { Setlists.renderSetlistDetail(setlist, skipNavPush); }
   function renderSetlistEdit(setlist, isNew, backToList) { Setlists.renderSetlistEdit(setlist, isNew, backToList); }
-  async function loadSetlistsInstant() { await Sync.loadSetlistsInstant(); _setlists = Store.get('setlists'); }
-  async function saveSetlists(toastMsg) { Store.set('setlists', _setlists); return Sync.saveSetlists(toastMsg); }
 
   // ─── ACCOUNT MANAGEMENT ─────────────────────────────────────
 
   function renderAccount() {
-    if (typeof App !== 'undefined' && App.cleanupPlayers) App.cleanupPlayers();
+    _cleanupPlayers();
     Store.set('navStack', []);
     Router.pushNav(() => renderList());
     Router.showView('account');
@@ -396,7 +403,7 @@ const App = (() => {
         <div class="acct-avatar">
           <i data-lucide="circle-user" style="width:64px;height:64px;color:var(--accent);"></i>
         </div>
-        <div class="acct-username" style="font-size:18px;font-weight:600;margin-top:8px;">@${Utils.esc(user.username)}</div>
+        <div class="acct-username" style="font-size:18px;font-weight:600;margin-top:8px;">@${esc(user.username)}</div>
         <div class="acct-verify-status">
           ${user.emailVerified
             ? '<span class="acct-verified"><i data-lucide="badge-check" style="width:14px;height:14px;"></i> Verified</span>'
@@ -561,10 +568,10 @@ const App = (() => {
         sessContainer.innerHTML = sessions.map(s => `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
             <div>
-              <div style="font-size:13px;color:var(--text);">${Utils.esc(s.deviceInfo || 'Unknown device')}</div>
-              <div style="font-size:11px;color:var(--text-3);">Last active: ${Utils.timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
+              <div style="font-size:13px;color:var(--text);">${esc(s.deviceInfo || 'Unknown device')}</div>
+              <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
             </div>
-            ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${Utils.esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
+            ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
           </div>
         `).join('');
         sessContainer.querySelectorAll('[data-revoke-session]').forEach(btn => {
@@ -727,7 +734,7 @@ const App = (() => {
   // ─── EMAIL VERIFICATION GUARD ──────────────────────────────
 
   function _checkEmailVerified(featureName) {
-    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) return false;
+    if (!Auth.isLoggedIn()) return false;
     if (Auth.isEmailVerified()) return true;
     // Owner with hardcoded email is auto-verified
     const user = Auth.getUser();
@@ -739,7 +746,7 @@ const App = (() => {
   // ─── PASSWORD EXPIRY CHECK ────────────────────────────────
 
   function _checkPasswordExpiry() {
-    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) return;
+    if (!Auth.isLoggedIn()) return;
     if (!Auth.isPasswordExpired()) return;
     // Show a one-time toast and redirect to account page
     showToast('Your password has expired — please change it');
@@ -762,9 +769,9 @@ const App = (() => {
 
   // ─── PWA Install Gate ──────────────────────────────────────
 
-  const _isPWAInstalled = Utils.isPWAInstalled;
-  const _isMobile       = Utils.isMobile;
-  const _detectPlatform = Utils.detectPlatform;
+  const _isPWAInstalled = isPWAInstalled;
+  const _isMobile       = isMobileUtil;
+  const _detectPlatform = detectPlatform;
 
   function _showInstallGate() {
     const platform = _detectPlatform();
@@ -952,7 +959,7 @@ const App = (() => {
     navigator.clearAppBadge?.()?.catch?.(() => {});
 
     // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
-    if (typeof Migrate !== 'undefined') Migrate.runAll();
+    Migrate.runAll();
     // Safety: dismiss splash after 2.5s no matter what (don't strand user)
     const _splashSafety = setTimeout(() => {
       const s = document.getElementById('splash-screen');
@@ -967,24 +974,18 @@ const App = (() => {
     }
 
     // Refresh auth session (non-blocking — uses cached data if offline)
-    if (typeof Auth !== 'undefined') {
-      Auth.refreshSession().catch(e => console.warn('Auth refresh failed:', e));
-    }
+    Auth.refreshSession().catch(e => console.warn('Auth refresh failed:', e));
 
     // Initialize IndexedDB (before loading data) — with timeout to prevent hanging
-    if (typeof IDB !== 'undefined') {
-      try {
-        await Promise.race([
-          IDB.open(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('IDB timeout')), 5000))
-        ]);
-      } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
-    }
+    try {
+      await Promise.race([
+        IDB.open(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('IDB timeout')), 5000))
+      ]);
+    } catch (e) { console.warn('IDB init failed, using localStorage fallback', e); }
 
     // Restore pending writes AFTER IDB is open (avoids race where IDB data is missed)
-    if (typeof GitHub !== 'undefined') {
-      await GitHub.init();
-    }
+    await GitHub.init();
 
     // Register SW early so the install prompt can work
     if ('serviceWorker' in navigator) {
@@ -1118,14 +1119,14 @@ const App = (() => {
     // Auth toggle: Log In / Log Out
     document.getElementById('btn-auth-toggle').addEventListener('click', async () => {
       haptic.double();
-      if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+      if (Auth.isLoggedIn()) {
         // Logged in — log out
         await Auth.logout();
         Admin.resetAdminMode(false);
         _updateAuthUI();
         renderList();
         showToast('Logged out');
-      } else if (typeof Auth !== 'undefined' && typeof GitHub !== 'undefined' && GitHub.useWorker) {
+      } else if (GitHub.useWorker) {
         // User accounts available — show login modal
         Admin.showLoginModal(() => {
           Admin.resetAdminMode();
@@ -1145,7 +1146,7 @@ const App = (() => {
     // Title click: admin on desktop + songs page → dashboard; otherwise → home
     document.getElementById('topbar-title').addEventListener('click', () => {
       const onSongList = Store.get('view') === 'list';
-      const isAdmin = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs();
+      const isAdmin = Auth.isLoggedIn() && Auth.canEditSongs();
       const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       if (onSongList && isAdmin && !isMobile) {
         renderDashboard();
@@ -1155,7 +1156,7 @@ const App = (() => {
     });
 
     document.getElementById('btn-account').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+      if (Auth.isLoggedIn()) {
         renderAccount();
       }
     });
@@ -1196,7 +1197,7 @@ const App = (() => {
 
     // Unauth: clicking the search bar area shows a login prompt
     document.getElementById('search-bar')?.addEventListener('click', (e) => {
-      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+      if (!Auth.isLoggedIn()) {
         showToast('Log in to search and browse songs');
       }
     });
@@ -1382,7 +1383,7 @@ const App = (() => {
       const SW_EDGE_ZONE = 0.4;     // left 40% of screen
 
       appEl.addEventListener('touchstart', (e) => {
-        if (!_navStack.length || _liveModeActive) return;
+        if (!_navStack.length || Setlists.isLiveModeActive()) return;
         const t = e.touches[0];
         // Only start from the left edge zone
         if (t.clientX > window.innerWidth * SW_EDGE_ZONE) return;
@@ -1475,7 +1476,7 @@ const App = (() => {
 
     // Setlists button (auth-gated + email verification)
     document.getElementById('btn-setlists').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+      if (!Auth.isLoggedIn()) {
         showToast('Log in to view setlists');
         return;
       }
@@ -1486,7 +1487,7 @@ const App = (() => {
 
     // Practice button (auth-gated + email verification)
     document.getElementById('btn-practice').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+      if (!Auth.isLoggedIn()) {
         showToast('Log in to view practice lists');
         return;
       }
@@ -1599,7 +1600,7 @@ const App = (() => {
 
     function _updateQueueBadge() {
       const online = navigator.onLine;
-      const ghOk = typeof GitHub !== 'undefined' && GitHub.isConfigured();
+      const ghOk = GitHub.isConfigured();
       let status = null; // null = hidden
 
       if (!online) {
@@ -1645,7 +1646,7 @@ const App = (() => {
 
     // Tap-to-retry on error/pending state
     badge.addEventListener('click', () => {
-      if (typeof GitHub !== 'undefined' && GitHub.flushNow) {
+      if (GitHub.flushNow) {
         GitHub.flushNow();
         showToast('Retrying sync…');
         _updateQueueBadge();
@@ -1658,7 +1659,7 @@ const App = (() => {
       clearTimeout(_onlineDebounce);
       _onlineDebounce = setTimeout(() => {
         showToast('Back online');
-        if (typeof GitHub !== 'undefined' && GitHub.getWriteQueueStatus && GitHub.getWriteQueueStatus().hasPending) {
+        if (GitHub.getWriteQueueStatus && GitHub.getWriteQueueStatus().hasPending) {
           GitHub.flushNow();
         }
       }, 1500);
@@ -1672,7 +1673,7 @@ const App = (() => {
     let _qiInterval = null;
     let _qiActive = false;
     function _scheduleQueuePoll() {
-      const ghOk = typeof GitHub !== 'undefined' && GitHub.isConfigured();
+      const ghOk = GitHub.isConfigured();
       const wq = ghOk ? GitHub.getWriteQueueStatus() : {};
       const needsActive = !!(wq.hasPending || wq.flushing || wq.lastError || !navigator.onLine);
       if (needsActive && !_qiActive) {
@@ -1747,27 +1748,35 @@ const App = (() => {
   // practice, practice-detail registrations handled by js/practice.js
   // dashboard registration handled by js/dashboard.js
 
-  return {
-    init, showToast, updateAuthUI: _updateAuthUI,
-    renderList, renderDetail, renderEdit,
-    renderSetlists, renderPractice, renderPracticeListDetail,
-    renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
-    handleVerifyEmail, checkEmailVerified: _checkEmailVerified, runDiagnostics,
-    hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap,
-    showVolume(visible) {
-      const vw = document.getElementById('master-volume');
-      if (vw && !_isMobile()) vw.classList.toggle('visible', visible);
-    },
-    revokeBlobCache: _revokeBlobCache,
-    cleanupPlayers: _cleanupPlayers,
-    getBlobUrl: _getBlobUrl,
-    trackPlayerRef(ref) { _playerRefs.push(ref); },
-    downloadFile: _downloadFile,
-    isPdfCached: _isPdfCached,
-    syncAll: _syncAllFromDrive,
-  };
+// ─── Public API (exported for other modules) ──────────────
+function updateAuthUI() { _updateAuthUI(); }
+const hapticHeavy = haptic.heavy;
+const hapticSuccess = haptic.success;
+const hapticTap = haptic.tap;
+function showVolume(visible) {
+  const vw = document.getElementById('master-volume');
+  if (vw && !_isMobile()) vw.classList.toggle('visible', visible);
+}
+function revokeBlobCache() { _revokeBlobCache(); }
+function cleanupPlayers() { _cleanupPlayers(); }
+function getBlobUrl(driveId) { return _getBlobUrl(driveId); }
+function trackPlayerRef(ref) { _playerRefs.push(ref); }
+function downloadFile(driveId, filename, btnEl) { return _downloadFile(driveId, filename, btnEl); }
+function isPdfCached(driveId) { return _isPdfCached(driveId); }
+function syncAll(force) { return _syncAllFromDrive(force); }
+function checkEmailVerified(featureName) { return _checkEmailVerified(featureName); }
 
-})();
+export {
+  init, showToast, updateAuthUI,
+  renderList, renderDetail, renderEdit,
+  renderSetlists, renderPractice, renderPracticeListDetail,
+  renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
+  handleVerifyEmail, checkEmailVerified, runDiagnostics,
+  hapticHeavy, hapticSuccess, hapticTap,
+  showVolume,
+  revokeBlobCache, cleanupPlayers, getBlobUrl, trackPlayerRef,
+  downloadFile, isPdfCached, syncAll,
+};
 
 // ─── Global error capture for dashboard error log ──────────
 window.onerror = function(msg, source, line) {
@@ -1787,11 +1796,12 @@ window.addEventListener('unhandledrejection', (e) => {
   } catch (_) {}
 });
 
+// ─── Bootstrap (module scripts are deferred, DOM is parsed) ──────
 document.addEventListener('DOMContentLoaded', () => {
   // GIS only on desktop — mobile never writes to Drive (uses GitHub for metadata)
-  const isMobile = /iPad|iPhone|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  const isMobileBoot = /iPad|iPhone|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (!isMobile && Drive.isWriteConfigured() && !document.getElementById('gis-script')) {
+  if (!isMobileBoot && Drive.isWriteConfigured() && !document.getElementById('gis-script')) {
     const s = document.createElement('script');
     s.id    = 'gis-script';
     s.src   = 'https://accounts.google.com/gsi/client';
@@ -1799,16 +1809,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.head.appendChild(s);
   }
 
-  // Wire GitHub callbacks and init crash recovery
-  if (typeof GitHub !== 'undefined') {
-    GitHub.onFlushError = (msg) => App.showToast(msg, 4000);
-    GitHub.onFlushSuccess = () => { localStorage.setItem('ct_last_synced', Date.now().toString()); };
-    GitHub.onRateLimitWarning = (msg) => App.showToast(msg, 5000);
-    GitHub.onDataChanged = (types) => {
-      App.showToast('Data synced from another tab — pull down to refresh', 3000);
-    };
-    // init() is called inside App.init() after IDB.open() — see below
-  }
+  // Wire GitHub callbacks
+  GitHub.setOnFlushError((msg) => showToast(msg, 4000));
+  GitHub.setOnFlushSuccess(() => { localStorage.setItem('ct_last_synced', Date.now().toString()); });
+  GitHub.setOnRateLimitWarning((msg) => showToast(msg, 5000));
+  GitHub.setOnDataChanged((types) => {
+    showToast('Data synced from another tab — pull down to refresh', 3000);
+  });
 
-  App.init();
+  init();
 });

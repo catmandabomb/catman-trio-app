@@ -206,23 +206,23 @@ export default {
               const alreadySent = await env.CATMAN_RATE.get(lockoutEmailKey);
               if (!alreadySent) {
                 await env.CATMAN_RATE.put(lockoutEmailKey, '1', { expirationTtl: 86400 }); // 24h cooldown
-              const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-              const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
-              fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  from: fromAddr, to: [user.email],
-                  subject: 'Security Alert: Multiple failed login attempts',
-                  html: `<p>Hi ${_escHtml(user.display_name || user.username)},</p>
-                    <p>We detected <strong>5 failed login attempts</strong> on your Catman Trio account in the last hour.</p>
-                    <p><strong>IP address:</strong> ${_escHtml(ip)}</p>
-                    <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-                    <p>If this was you, no action is needed. If not, consider changing your password immediately.</p>
-                    <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
-                }),
-              }).then(() => _trackEmailSend(env)).catch(() => {}); // fire-and-forget
-              } // end if (!alreadySent)
+                const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+                const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
+                fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    from: fromAddr, to: [user.email],
+                    subject: 'Security Alert: Multiple failed login attempts',
+                    html: `<p>Hi ${_escHtml(user.display_name || user.username)},</p>
+                      <p>We detected <strong>5 failed login attempts</strong> on your Catman Trio account in the last hour.</p>
+                      <p><strong>IP address:</strong> ${_escHtml(ip)}</p>
+                      <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+                      <p>If this was you, no action is needed. If not, consider changing your password immediately.</p>
+                      <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
+                  }),
+                }).then(() => _trackEmailSend(env)).catch(() => {}); // fire-and-forget
+              }
             }
           } catch (_) {}
         }

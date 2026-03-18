@@ -13,462 +13,437 @@
  * After sign-in, access token stored in memory only (never persisted).
  */
 
-const Drive = (() => {
+const SONGS_FILENAME    = 'catmantrio_songs.json';
+const SETLISTS_FILENAME = 'catmantrio_setlists.json';
+const PRACTICE_FILENAME = 'catmantrio_practice.json';
+const SCOPES = 'https://www.googleapis.com/auth/drive';
 
-  const SONGS_FILENAME    = 'catmantrio_songs.json';
-  const SETLISTS_FILENAME = 'catmantrio_setlists.json';
-  const PRACTICE_FILENAME = 'catmantrio_practice.json';
-  const SCOPES = 'https://www.googleapis.com/auth/drive';
+let _accessToken = null;
+let _tokenExpiry = 0;  // Unix ms when token expires
+let _tokenClient = null;
+let _tokenPromise = null;
 
-  let _accessToken = null;
-  let _tokenExpiry = 0;  // Unix ms when token expires
-  let _tokenClient = null;
-  let _tokenPromise = null;
+function _persistToken(token, expiresIn) {
+  _accessToken = token;
+  _tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
+  try {
+    localStorage.setItem('ct_access_token', token);
+    localStorage.setItem('ct_token_expiry', String(_tokenExpiry));
+  } catch (_) {}
+}
 
-  function _persistToken(token, expiresIn) {
-    _accessToken = token;
-    _tokenExpiry = Date.now() + (expiresIn * 1000) - 60000; // 1 min buffer
-    try {
-      localStorage.setItem('ct_access_token', token);
-      localStorage.setItem('ct_token_expiry', String(_tokenExpiry));
-    } catch (_) {}
-  }
-
-  function _loadPersistedToken() {
-    try {
-      const token = localStorage.getItem('ct_access_token');
-      const expiry = parseInt(localStorage.getItem('ct_token_expiry') || '0', 10);
-      if (token && expiry > Date.now()) {
-        _accessToken = token;
-        _tokenExpiry = expiry;
-      }
-    } catch (_) {}
-  }
-
-  function _clearPersistedToken() {
-    _accessToken = null;
-    _tokenExpiry = 0;
-    try {
-      localStorage.removeItem('ct_access_token');
-      localStorage.removeItem('ct_token_expiry');
-    } catch (_) {}
-  }
-
-  // Load on module init
-  _loadPersistedToken();
-
-  // ─── Config ───────────────────────────────────────────────
-
-  // Default credentials — public read access, no sign-in needed
-  const DEFAULT_API_KEY   = 'AIzaSyBFWR3pLbXn-9Ime9PLMRKxIZVEdoi5qeo';
-  const DEFAULT_FOLDER_ID = '101APHEiSfaRofwi6e58bfhMbarek4w-y';
-
-  function getConfig() {
-    return {
-      apiKey:   localStorage.getItem('ct_api_key')   || DEFAULT_API_KEY,
-      clientId: localStorage.getItem('ct_client_id') || '',
-      folderId: localStorage.getItem('ct_folder_id') || DEFAULT_FOLDER_ID,
-    };
-  }
-
-  function saveConfig({ apiKey, clientId, folderId }) {
-    localStorage.setItem('ct_api_key',   apiKey.trim());
-    localStorage.setItem('ct_client_id', clientId.trim());
-    localStorage.setItem('ct_folder_id', folderId.trim());
-  }
-
-  function isConfigured() {
-    const c = getConfig();
-    return !!(c.apiKey && c.folderId);
-  }
-
-  function isWriteConfigured() {
-    const c = getConfig();
-    return !!(c.apiKey && c.clientId && c.folderId);
-  }
-
-  // ─── Auth ──────────────────────────────────────────────────
-
-  /**
-   * Ensure we have a valid access token. Returns a promise that
-   * resolves with the token string.
-   */
-  function ensureToken() {
-    // Reuse valid persisted token
-    if (_accessToken && _tokenExpiry > Date.now()) {
-      return Promise.resolve(_accessToken);
+function _loadPersistedToken() {
+  try {
+    const token = localStorage.getItem('ct_access_token');
+    const expiry = parseInt(localStorage.getItem('ct_token_expiry') || '0', 10);
+    if (token && expiry > Date.now()) {
+      _accessToken = token;
+      _tokenExpiry = expiry;
     }
-    // Token expired — clear it so we refresh
-    if (_accessToken && _tokenExpiry <= Date.now()) {
-      _clearPersistedToken();
+  } catch (_) {}
+}
+
+function _clearPersistedToken() {
+  _accessToken = null;
+  _tokenExpiry = 0;
+  try {
+    localStorage.removeItem('ct_access_token');
+    localStorage.removeItem('ct_token_expiry');
+  } catch (_) {}
+}
+
+// Load on module init
+_loadPersistedToken();
+
+// --- Config -----------------------------------------------------------
+
+// Default credentials -- public read access, no sign-in needed
+const DEFAULT_API_KEY   = 'AIzaSyBFWR3pLbXn-9Ime9PLMRKxIZVEdoi5qeo';
+const DEFAULT_FOLDER_ID = '101APHEiSfaRofwi6e58bfhMbarek4w-y';
+
+function getConfig() {
+  return {
+    apiKey:   localStorage.getItem('ct_api_key')   || DEFAULT_API_KEY,
+    clientId: localStorage.getItem('ct_client_id') || '',
+    folderId: localStorage.getItem('ct_folder_id') || DEFAULT_FOLDER_ID,
+  };
+}
+
+function saveConfig({ apiKey, clientId, folderId }) {
+  localStorage.setItem('ct_api_key',   apiKey.trim());
+  localStorage.setItem('ct_client_id', clientId.trim());
+  localStorage.setItem('ct_folder_id', folderId.trim());
+}
+
+function isConfigured() {
+  const c = getConfig();
+  return !!(c.apiKey && c.folderId);
+}
+
+function isWriteConfigured() {
+  const c = getConfig();
+  return !!(c.apiKey && c.clientId && c.folderId);
+}
+
+// --- Auth -------------------------------------------------------------
+
+/**
+ * Ensure we have a valid access token. Returns a promise that
+ * resolves with the token string.
+ */
+function ensureToken() {
+  // Reuse valid persisted token
+  if (_accessToken && _tokenExpiry > Date.now()) {
+    return Promise.resolve(_accessToken);
+  }
+  // Token expired -- clear it so we refresh
+  if (_accessToken && _tokenExpiry <= Date.now()) {
+    _clearPersistedToken();
+  }
+  if (_tokenPromise) return _tokenPromise;
+  _tokenPromise = new Promise((resolve, reject) => {
+    const { clientId } = getConfig();
+    if (!clientId) { _tokenPromise = null; return reject(new Error('Drive not configured')); }
+
+    if (!_tokenClient) {
+      _tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: SCOPES,
+        callback: (resp) => {
+          _tokenPromise = null;
+          if (resp.error) {
+            return reject(new Error(resp.error));
+          }
+          _persistToken(resp.access_token, resp.expires_in || 3600);
+          resolve(_accessToken);
+        },
+      });
     }
-    if (_tokenPromise) return _tokenPromise;
-    _tokenPromise = new Promise((resolve, reject) => {
-      const { clientId } = getConfig();
-      if (!clientId) { _tokenPromise = null; return reject(new Error('Drive not configured')); }
 
-      if (!_tokenClient) {
-        _tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: SCOPES,
-          callback: (resp) => {
-            _tokenPromise = null;
-            if (resp.error) {
-              return reject(new Error(resp.error));
-            }
-            _persistToken(resp.access_token, resp.expires_in || 3600);
-            resolve(_accessToken);
-          },
-        });
-      }
+    // Silent refresh -- no popup if consent was previously granted
+    _tokenClient.requestAccessToken({ prompt: '' });
+  });
+  return _tokenPromise;
+}
 
-      // Silent refresh — no popup if consent was previously granted
-      _tokenClient.requestAccessToken({ prompt: '' });
-    });
-    return _tokenPromise;
+function signOut() {
+  if (_accessToken) {
+    google.accounts.oauth2.revoke(_accessToken);
+    _clearPersistedToken();
   }
+}
 
-  function signOut() {
-    if (_accessToken) {
-      google.accounts.oauth2.revoke(_accessToken);
-      _clearPersistedToken();
-    }
+// --- Core fetch helper ------------------------------------------------
+
+async function driveRequest(url, options = {}, _retry = false) {
+  const token = await ensureToken();
+  const resp = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  // If 401 and we haven't retried, clear token and try once more
+  if (resp.status === 401 && !_retry) {
+    _clearPersistedToken();
+    return driveRequest(url, options, true);
   }
-
-  // ─── Core fetch helper ─────────────────────────────────────
-
-  async function driveRequest(url, options = {}, _retry = false) {
-    const token = await ensureToken();
-    const resp = await fetch(url, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-    // If 401 and we haven't retried, clear token and try once more
-    if (resp.status === 401 && !_retry) {
-      _clearPersistedToken();
-      return driveRequest(url, options, true);
-    }
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Drive API ${resp.status}: ${text}`);
-    }
-    return resp;
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Drive API ${resp.status}: ${text}`);
   }
+  return resp;
+}
 
-  // ─── Find file by name in folder ──────────────────────────
+// --- Find file by name in folder --------------------------------------
 
-  function _escQuery(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function _escQuery(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 
-  async function findFile(name) {
-    const { folderId, apiKey } = getConfig();
-    const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
-    const resp = await driveRequest(url);
-    const data = await resp.json();
-    return data.files && data.files.length > 0 ? data.files[0] : null;
-  }
+async function findFile(name) {
+  const { folderId, apiKey } = getConfig();
+  const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
+  const resp = await driveRequest(url);
+  const data = await resp.json();
+  return data.files && data.files.length > 0 ? data.files[0] : null;
+}
 
-  // ─── Public read (no auth, folder must be shared) ────────
+// --- Public read (no auth, folder must be shared) ---------------------
 
-  async function findFilePublic(name) {
-    const { folderId, apiKey } = getConfig();
-    const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
-    const data = await resp.json();
-    return data.files && data.files.length > 0 ? data.files[0] : null;
-  }
+async function findFilePublic(name) {
+  const { folderId, apiKey } = getConfig();
+  const q = encodeURIComponent(`name='${_escQuery(name)}' and '${_escQuery(folderId)}' in parents and trashed=false`);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
+  const data = await resp.json();
+  return data.files && data.files.length > 0 ? data.files[0] : null;
+}
 
-  // ─── Songs JSON ────────────────────────────────────────────
+// --- Songs JSON -------------------------------------------------------
 
-  async function loadSongs() {
-    if (!isConfigured()) return null;
-    try {
-      const file = await findFilePublic(SONGS_FILENAME);
-      if (!file) return [];
-      const { apiKey } = getConfig();
-      const resp = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
-      );
-      if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
-      return await resp.json();
-    } catch (e) {
-      console.error('loadSongs error', e);
-      throw e;
-    }
-  }
-
-  async function saveSongs(songs) {
-    await _saveJsonFile(SONGS_FILENAME, songs);
-  }
-
-  // ─── Setlists JSON ──────────────────────────────────────
-
-  async function loadSetlists() {
-    if (!isConfigured()) return null;
-    try {
-      const file = await findFilePublic(SETLISTS_FILENAME);
-      if (!file) return [];
-      const { apiKey } = getConfig();
-      const resp = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
-      );
-      if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
-      return await resp.json();
-    } catch (e) {
-      console.error('loadSetlists error', e);
-      throw e;
-    }
-  }
-
-  async function saveSetlists(setlists) {
-    await _saveJsonFile(SETLISTS_FILENAME, setlists);
-  }
-
-  // ─── Practice JSON ──────────────────────────────────────
-
-  async function loadPractice() {
-    if (!isConfigured()) return null;
-    try {
-      const file = await findFilePublic(PRACTICE_FILENAME);
-      if (!file) return [];
-      const { apiKey } = getConfig();
-      const resp = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
-      );
-      if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
-      return await resp.json();
-    } catch (e) {
-      console.error('loadPractice error', e);
-      throw e;
-    }
-  }
-
-  async function savePractice(practice) {
-    await _saveJsonFile(PRACTICE_FILENAME, practice);
-  }
-
-  // ─── Combined load (single list query → fewer API calls) ──
-
-  async function loadAllData() {
-    if (!isConfigured()) return { songs: null, setlists: null, practice: null };
-    const { folderId, apiKey } = getConfig();
-    const q = encodeURIComponent(
-      `(name='${_escQuery(SONGS_FILENAME)}' or name='${_escQuery(SETLISTS_FILENAME)}' or name='${_escQuery(PRACTICE_FILENAME)}') and '${_escQuery(folderId)}' in parents and trashed=false`
-    );
-    const listResp = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`
-    );
-    if (!listResp.ok) throw new Error(`Drive API ${listResp.status}`);
-    const { files } = await listResp.json();
-
-    const songsFile    = (files || []).find(f => f.name === SONGS_FILENAME);
-    const setlistsFile = (files || []).find(f => f.name === SETLISTS_FILENAME);
-    const practiceFile = (files || []).find(f => f.name === PRACTICE_FILENAME);
-
-    // Fetch each file independently — one failure should not block others
-    const _fetch = async (file) => {
-      if (!file) return [];
-      try {
-        const r = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`);
-        if (!r.ok) { console.warn(`Drive fetch ${file.name}: HTTP ${r.status}`); return null; }
-        return await r.json();
-      } catch (e) {
-        console.warn(`Drive fetch ${file.name} failed:`, e.message || e);
-        return null; // null = fetch failed, [] = file doesn't exist
-      }
-    };
-
-    const [songs, setlists, practice] = await Promise.all([
-      _fetch(songsFile), _fetch(setlistsFile), _fetch(practiceFile),
-    ]);
-
-    return { songs, setlists, practice };
-  }
-
-  // ─── Shared JSON save helper ─────────────────────────────
-
-  async function _ensurePublic(fileId) {
-    try {
-      // Check if file already has public permissions
-      const permResp = await driveRequest(
-        `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(type,role)`
-      );
-      const perms = await permResp.json();
-      const hasPublic = (perms.permissions || []).some(p => p.type === 'anyone');
-      if (hasPublic) return; // already public
-      // Set public read permission
-      await driveRequest(
-        `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-        }
-      );
-    } catch (e) {
-      console.warn('Could not ensure public sharing:', e);
-    }
-  }
-
-  async function _saveJsonFile(filename, data) {
-    const { folderId } = getConfig();
-    const existing = await findFile(filename);
-    const content = JSON.stringify(data, null, 2);
-    const blob = new Blob([content], { type: 'application/json' });
-
-    if (existing) {
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
-      form.append('file', blob);
-      await driveRequest(
-        `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
-        { method: 'PATCH', body: form }
-      );
-      // Ensure existing file is publicly readable
-      await _ensurePublic(existing.id);
-    } else {
-      const form = new FormData();
-      const meta = { name: filename, parents: [folderId], mimeType: 'application/json' };
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', blob);
-      const resp = await driveRequest(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        { method: 'POST', body: form }
-      );
-      const created = await resp.json();
-      if (created && created.id) {
-        await _ensurePublic(created.id);
-      }
-    }
-  }
-
-  /**
-   * Save a raw string to a named file on Drive (for non-JSON payloads like encrypted configs).
-   */
-  async function saveRawFile(filename, rawContent) {
-    const { folderId } = getConfig();
-    const existing = await findFile(filename);
-    const blob = new Blob([rawContent], { type: 'application/octet-stream' });
-
-    if (existing) {
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
-      form.append('file', blob);
-      await driveRequest(
-        `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
-        { method: 'PATCH', body: form }
-      );
-      await _ensurePublic(existing.id);
-    } else {
-      const form = new FormData();
-      const meta = { name: filename, parents: [folderId], mimeType: 'application/octet-stream' };
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', blob);
-      const resp = await driveRequest(
-        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        { method: 'POST', body: form }
-      );
-      const created = await resp.json();
-      if (created && created.id) {
-        await _ensurePublic(created.id);
-      }
-    }
-  }
-
-  // ─── File upload ───────────────────────────────────────────
-
-  /**
-   * Upload a File object to the Drive folder.
-   * Returns { id, name } of the created Drive file.
-   */
-  async function uploadFile(file) {
-    const { folderId } = getConfig();
-    const meta = { name: file.name, parents: [folderId] };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    form.append('file', file);
-    const resp = await driveRequest(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name',
-      { method: 'POST', body: form }
-    );
-    return await resp.json();
-  }
-
-  /**
-   * Delete a file from Drive by ID.
-   */
-  async function deleteFile(fileId) {
-    await driveRequest(
-      `https://www.googleapis.com/drive/v3/files/${fileId}`,
-      { method: 'DELETE' }
-    );
-  }
-
-  // ─── File fetch → blob URL ─────────────────────────────────
-
-  /**
-   * Fetch a Drive file by ID and return a temporary blob URL.
-   * Caller is responsible for revoking: URL.revokeObjectURL(url)
-   */
-  async function fetchFileAsBlob(fileId) {
+async function loadSongs() {
+  if (!isConfigured()) return null;
+  try {
+    const file = await findFilePublic(SONGS_FILENAME);
+    if (!file) return [];
     const { apiKey } = getConfig();
     const resp = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
     );
     if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
-    const blob = await resp.blob();
-    return URL.createObjectURL(blob);
-  }
-
-  /**
-   * Get a direct download URL for a Drive file (no fetch, no blob).
-   * Works reliably on iOS Safari for audio playback.
-   * Returns null if fileId is missing.
-   */
-  function getDirectUrl(fileId) {
-    if (!fileId) return null;
-    const { apiKey } = getConfig();
-    return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
-  }
-
-  // ─── Get file metadata ─────────────────────────────────────
-
-  async function getFileMeta(fileId) {
-    const { apiKey } = getConfig();
-    const resp = await driveRequest(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,size&key=${apiKey}`
-    );
     return await resp.json();
+  } catch (e) {
+    console.error('loadSongs error', e);
+    throw e;
   }
+}
 
-  // ─── Public API ────────────────────────────────────────────
+async function saveSongs(songs) {
+  await _saveJsonFile(SONGS_FILENAME, songs);
+}
 
-  return {
-    getConfig,
-    saveConfig,
-    isConfigured,
-    isWriteConfigured,
-    ensureToken,
-    signOut,
-    loadSongs,
-    saveSongs,
-    loadSetlists,
-    saveSetlists,
-    loadPractice,
-    savePractice,
-    loadAllData,
-    saveRawFile,
-    findFilePublic,
-    uploadFile,
-    deleteFile,
-    fetchFileAsBlob,
-    getDirectUrl,
-    getFileMeta,
+// --- Setlists JSON ----------------------------------------------------
+
+async function loadSetlists() {
+  if (!isConfigured()) return null;
+  try {
+    const file = await findFilePublic(SETLISTS_FILENAME);
+    if (!file) return [];
+    const { apiKey } = getConfig();
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
+    );
+    if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    console.error('loadSetlists error', e);
+    throw e;
+  }
+}
+
+async function saveSetlists(setlists) {
+  await _saveJsonFile(SETLISTS_FILENAME, setlists);
+}
+
+// --- Practice JSON ----------------------------------------------------
+
+async function loadPractice() {
+  if (!isConfigured()) return null;
+  try {
+    const file = await findFilePublic(PRACTICE_FILENAME);
+    if (!file) return [];
+    const { apiKey } = getConfig();
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
+    );
+    if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
+    return await resp.json();
+  } catch (e) {
+    console.error('loadPractice error', e);
+    throw e;
+  }
+}
+
+async function savePractice(practice) {
+  await _saveJsonFile(PRACTICE_FILENAME, practice);
+}
+
+// --- Combined load (single list query -> fewer API calls) -------------
+
+async function loadAllData() {
+  if (!isConfigured()) return { songs: null, setlists: null, practice: null };
+  const { folderId, apiKey } = getConfig();
+  const q = encodeURIComponent(
+    `(name='${_escQuery(SONGS_FILENAME)}' or name='${_escQuery(SETLISTS_FILENAME)}' or name='${_escQuery(PRACTICE_FILENAME)}') and '${_escQuery(folderId)}' in parents and trashed=false`
+  );
+  const listResp = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&key=${apiKey}`
+  );
+  if (!listResp.ok) throw new Error(`Drive API ${listResp.status}`);
+  const { files } = await listResp.json();
+
+  const songsFile    = (files || []).find(f => f.name === SONGS_FILENAME);
+  const setlistsFile = (files || []).find(f => f.name === SETLISTS_FILENAME);
+  const practiceFile = (files || []).find(f => f.name === PRACTICE_FILENAME);
+
+  // Fetch each file independently -- one failure should not block others
+  const _fetch = async (file) => {
+    if (!file) return [];
+    try {
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`);
+      if (!r.ok) { console.warn(`Drive fetch ${file.name}: HTTP ${r.status}`); return null; }
+      return await r.json();
+    } catch (e) {
+      console.warn(`Drive fetch ${file.name} failed:`, e.message || e);
+      return null; // null = fetch failed, [] = file doesn't exist
+    }
   };
 
-})();
+  const [songs, setlists, practice] = await Promise.all([
+    _fetch(songsFile), _fetch(setlistsFile), _fetch(practiceFile),
+  ]);
+
+  return { songs, setlists, practice };
+}
+
+// --- Shared JSON save helper ------------------------------------------
+
+async function _ensurePublic(fileId) {
+  try {
+    // Check if file already has public permissions
+    const permResp = await driveRequest(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=permissions(type,role)`
+    );
+    const perms = await permResp.json();
+    const hasPublic = (perms.permissions || []).some(p => p.type === 'anyone');
+    if (hasPublic) return; // already public
+    // Set public read permission
+    await driveRequest(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+      }
+    );
+  } catch (e) {
+    console.warn('Could not ensure public sharing:', e);
+  }
+}
+
+async function _saveJsonFile(filename, data) {
+  const { folderId } = getConfig();
+  const existing = await findFile(filename);
+  const content = JSON.stringify(data, null, 2);
+  const blob = new Blob([content], { type: 'application/json' });
+
+  if (existing) {
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
+    form.append('file', blob);
+    await driveRequest(
+      `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
+      { method: 'PATCH', body: form }
+    );
+    // Ensure existing file is publicly readable
+    await _ensurePublic(existing.id);
+  } else {
+    const form = new FormData();
+    const meta = { name: filename, parents: [folderId], mimeType: 'application/json' };
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', blob);
+    const resp = await driveRequest(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      { method: 'POST', body: form }
+    );
+    const created = await resp.json();
+    if (created && created.id) {
+      await _ensurePublic(created.id);
+    }
+  }
+}
+
+/**
+ * Save a raw string to a named file on Drive (for non-JSON payloads like encrypted configs).
+ */
+async function saveRawFile(filename, rawContent) {
+  const { folderId } = getConfig();
+  const existing = await findFile(filename);
+  const blob = new Blob([rawContent], { type: 'application/octet-stream' });
+
+  if (existing) {
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
+    form.append('file', blob);
+    await driveRequest(
+      `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`,
+      { method: 'PATCH', body: form }
+    );
+    await _ensurePublic(existing.id);
+  } else {
+    const form = new FormData();
+    const meta = { name: filename, parents: [folderId], mimeType: 'application/octet-stream' };
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', blob);
+    const resp = await driveRequest(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      { method: 'POST', body: form }
+    );
+    const created = await resp.json();
+    if (created && created.id) {
+      await _ensurePublic(created.id);
+    }
+  }
+}
+
+// --- File upload ------------------------------------------------------
+
+/**
+ * Upload a File object to the Drive folder.
+ * Returns { id, name } of the created Drive file.
+ */
+async function uploadFile(file) {
+  const { folderId } = getConfig();
+  const meta = { name: file.name, parents: [folderId] };
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+  form.append('file', file);
+  const resp = await driveRequest(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name',
+    { method: 'POST', body: form }
+  );
+  return await resp.json();
+}
+
+/**
+ * Delete a file from Drive by ID.
+ */
+async function deleteFile(fileId) {
+  await driveRequest(
+    `https://www.googleapis.com/drive/v3/files/${fileId}`,
+    { method: 'DELETE' }
+  );
+}
+
+// --- File fetch -> blob URL -------------------------------------------
+
+/**
+ * Fetch a Drive file by ID and return a temporary blob URL.
+ * Caller is responsible for revoking: URL.revokeObjectURL(url)
+ */
+async function fetchFileAsBlob(fileId) {
+  const { apiKey } = getConfig();
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`
+  );
+  if (!resp.ok) throw new Error(`Drive API ${resp.status}`);
+  const blob = await resp.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Get a direct download URL for a Drive file (no fetch, no blob).
+ * Works reliably on iOS Safari for audio playback.
+ * Returns null if fileId is missing.
+ */
+function getDirectUrl(fileId) {
+  if (!fileId) return null;
+  const { apiKey } = getConfig();
+  return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${apiKey}`;
+}
+
+// --- Get file metadata ------------------------------------------------
+
+async function getFileMeta(fileId) {
+  const { apiKey } = getConfig();
+  const resp = await driveRequest(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,size&key=${apiKey}`
+  );
+  return await resp.json();
+}
+
+// --- Public API -------------------------------------------------------
+
+export { getConfig, saveConfig, isConfigured, isWriteConfigured, ensureToken, signOut, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadAllData, saveRawFile, findFilePublic, uploadFile, deleteFile, fetchFileAsBlob, getDirectUrl, getFileMeta };

@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v19.97';
+const CACHE_NAME = 'catmantrio-v19.98';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -37,6 +37,10 @@ const SHELL_ASSETS = [
   '/workers/levenshtein-worker.js',
   '/workers/metronome-processor.js',
   '/workers/pdf-render-worker.js',
+  '/workers/crypto-worker.js',
+  '/lib/pdf.min.js',
+  '/lib/pdf.worker.min.js',
+  '/lib/Sortable.min.js',
   '/manifest.json',
   '/img/icon-192.png',
   '/img/icon-512.png',
@@ -327,23 +331,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // CDN scripts (pdf.js, SortableJS): cache-first for offline support
-  if (e.request.url.includes('cdnjs.cloudflare.com') ||
-      e.request.url.includes('cdn.jsdelivr.net')) {
-    e.respondWith(
-      caches.match(e.request).then(cached => {
-        if (cached) return cached;
-        return fetch(e.request).then(resp => {
-          if (resp.status === 200) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-          }
-          return resp;
-        });
-      }).catch(() => caches.match(e.request))
-    );
-    return;
-  }
+  // (CDN scripts now self-hosted in /lib/ — cached as shell assets)
 
   // Don't intercept external API calls
   if (e.request.url.includes('googleapis.com') ||

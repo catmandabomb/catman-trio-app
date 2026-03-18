@@ -5238,15 +5238,14 @@ body:not(.authed) #ptr-indicator {
   cursor: default;
 }
 
-/* When not authed, show footer and fill remaining space gracefully */
+/* When not authed, show footer below the gate message */
 body:not(.authed) #song-list-scroll {
-  min-height: calc(100vh - 200px);
   display: flex !important;
   flex-direction: column;
 }
 body:not(.authed) #list-footer {
   display: block !important;
-  margin-top: auto;
+  margin-top: 40px;
 }
 
 /* Disable search bar for unauth */
