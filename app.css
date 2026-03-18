@@ -537,7 +537,7 @@ body.is-mobile .search-refresh-btn { display: none; }
 }
 .admin-buttons {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   justify-content: end;
   align-items: center;
   gap: 4px;
@@ -545,6 +545,15 @@ body.is-mobile .search-refresh-btn { display: none; }
   margin-left: auto;
   min-height: 36px; /* Match icon-btn height so row doesn't shift when + appears */
 }
+#btn-account {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#btn-account svg { width: 18px; height: 18px; }
 .admin-toggle-btn {
   font-size: 12px;
   padding: 4px 10px;
@@ -568,21 +577,17 @@ body.is-mobile .search-refresh-btn { display: none; }
   align-items: center;
   gap: 4px;
 }
-.dash-exit-admin {
-  align-self: flex-end;
+.dash-header-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.dash-header-actions .text-btn {
   font-size: 12px;
   padding: 4px 10px;
   letter-spacing: 0.03em;
   white-space: nowrap;
-  margin-bottom: 8px;
-}
-@media (max-width: 360px) {
-  .dash-exit-admin {
-    white-space: normal;
-    max-width: 130px;
-    text-align: right;
-    line-height: 1.3;
-  }
 }
 .dash-header p {
   font-size: 13px;
@@ -1322,10 +1327,11 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--text-3);
   opacity: 0.35;
   transition: color 0.2s, opacity 0.2s;
+  pointer-events: none;
 }
 .pdf-cached-badge.cached {
   color: var(--accent);
-  opacity: 1;
+  opacity: 0.8;
 }
 
 .file-item-arrow {
@@ -1711,7 +1717,7 @@ body.is-mobile .search-refresh-btn { display: none; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg), 0 0 12px rgba(232,195,115,0.06);
 }
-.form-input::placeholder { color: var(--text-3); }
+.form-input::placeholder { color: rgba(145,141,135,0.5); }
 
 textarea.form-input {
   resize: vertical;
@@ -1770,12 +1776,12 @@ textarea.form-input {
   background: none;
   border: none;
   outline: none;
-  font-size: 16px;
+  font-size: 12px;
   color: var(--text);
   min-width: 80px;
   flex: 1;
 }
-.tag-inline-input::placeholder { color: var(--text-3); }
+.tag-inline-input::placeholder { color: rgba(145,141,135,0.5); }
 
 .tag-input-wrap { position: relative; }
 .tag-suggest-dropdown {
@@ -1892,15 +1898,10 @@ textarea.form-input {
 .edit-form-actions {
   display: flex;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: 24px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
-}
-
-.delete-zone {
-  margin-top: 12px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
+  justify-content: center;
 }
 
 /* ═══════════════════════════════════════════
@@ -2776,7 +2777,7 @@ textarea.form-input {
 }
 
 /* Hide nav in practice mode */
-.practice-mode-active #btn-edit-mode,
+.practice-mode-active #btn-auth-toggle,
 .practice-mode-active #btn-add-song,
 .practice-mode-active #btn-setlists,
 .practice-mode-active #btn-practice,
@@ -4167,6 +4168,253 @@ html.live-mode-active { overflow: hidden; }
   min-width: 0;
 }
 
+/* ─── User Management (Dashboard) ──────── */
+.dash-users-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dash-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.dash-user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.dash-user-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-user-role {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dash-user-meta {
+  flex-shrink: 0;
+}
+.dash-user-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* User Management subpage */
+.um-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.um-user-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s;
+}
+.um-user-card.um-inactive {
+  opacity: 0.5;
+}
+.um-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-3);
+}
+.um-user-details {
+  flex: 1;
+  min-width: 0;
+}
+.um-user-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.um-user-display {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.um-user-role {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.um-disabled-tag {
+  font-size: 9px;
+  font-weight: 700;
+  color: #e87c6a;
+  letter-spacing: 0.5px;
+}
+.um-user-username {
+  font-size: 11px;
+  color: var(--text-3);
+  display: block;
+  margin-top: 1px;
+}
+.um-user-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════
+   ACCOUNT PAGE
+═══════════════════════════════════════════ */
+
+.acct-page {
+  max-width: 420px;
+  margin: 0 auto;
+  text-align: center;
+}
+.acct-avatar {
+  margin: 12px 0 8px;
+}
+.acct-name {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.acct-role {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 2px 0 4px;
+}
+.acct-username {
+  font-size: 14px;
+  color: var(--text-3);
+  margin-bottom: 28px;
+}
+.acct-section {
+  text-align: left;
+  margin-bottom: 24px;
+}
+.acct-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.acct-field {
+  margin-bottom: 12px;
+}
+.acct-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.acct-section .btn-primary {
+  width: 100%;
+  margin-top: 8px;
+}
+.acct-logout-section {
+  text-align: center;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.acct-logout-section .btn-secondary {
+  min-width: 140px;
+}
+
+/* ═══════════════════════════════════════════
+   EMAIL SETLIST MODAL
+═══════════════════════════════════════════ */
+
+.esl-modal { padding: 4px 0; }
+.esl-label { margin: 0 0 8px; font-size: 14px; color: var(--text-2); }
+.esl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.esl-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--bg-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+.esl-user-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.esl-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
+}
+.esl-user-row:last-child { border-bottom: none; }
+.esl-user-row:hover { background: rgba(255,255,255,0.03); }
+.esl-user-row.esl-selected { background: rgba(212,180,120,0.08); }
+.esl-user-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.esl-user-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-1);
+  flex: 1;
+}
+.esl-user-email {
+  font-size: 12px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.esl-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
 /* ═══════════════════════════════════════════
    BATCH SELECTION MODE
 ═══════════════════════════════════════════ */
@@ -4768,63 +5016,67 @@ html.live-mode-active { overflow: hidden; }
 /* ═══════════════════════════════════════════
    DETAIL SECTION ANCHOR BAR
 ═══════════════════════════════════════════ */
-.detail-anchor-bar {
+/* Detail anchor bar removed — sidebar scroll shortcuts no longer used */
+
+/* ─── Practice jump-to-song sidebar ────────────────────────── */
+.practice-jump-bar {
   position: fixed;
-  right: 10px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px 4px;
-  background: rgba(30, 30, 30, 0.65);
+  gap: 3px;
+  padding: 5px 3px;
+  background: rgba(30, 30, 30, 0.7);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-radius: 20px;
+  border-radius: 16px;
   border: 1px solid var(--border);
   z-index: 90;
-  opacity: 0.4;
+  opacity: 0.5;
   transition: opacity 0.25s ease;
+  max-height: 80vh;
+  overflow-y: auto;
 }
-.detail-anchor-bar:hover,
-.detail-anchor-bar:active {
-  opacity: 0.75;
+.practice-jump-bar:hover,
+.practice-jump-bar:active {
+  opacity: 0.9;
 }
-.detail-anchor-dot {
+.practice-jump-dot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  border: none;
+  border: 1.5px solid var(--text-3);
   background: transparent;
   color: var(--text-3);
+  font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
   padding: 0;
-  transition: color 0.2s ease, background 0.2s ease;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  flex-shrink: 0;
 }
-.detail-anchor-dot svg {
-  width: 13px;
-  height: 13px;
-}
-.detail-anchor-dot:hover {
+.practice-jump-dot:hover {
   color: var(--text);
+  border-color: var(--text);
   background: var(--bg-4);
 }
-.detail-anchor-dot.active {
+.practice-jump-dot.active {
   color: var(--accent);
+  border-color: var(--accent);
   background: rgba(212, 180, 120, 0.15);
 }
-/* Hide on narrow screens to avoid overlapping content */
-@media (max-width: 380px) {
-  .detail-anchor-bar { display: none; }
+/* Hide on very narrow screens */
+@media (max-width: 340px) {
+  .practice-jump-bar { display: none; }
 }
-/* On wide screens, position relative to the content area */
+/* On wide screens, position relative to content area */
 @media (min-width: 900px) {
-  .detail-anchor-bar {
-    right: calc(15vw - 40px);
-  }
+  .practice-jump-bar { right: calc(15vw - 35px); }
 }
 
 /* ═══════════════════════════════════════════

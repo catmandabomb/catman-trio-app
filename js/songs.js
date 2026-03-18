@@ -18,7 +18,6 @@ const Songs = (() => {
   const _getChartOrderNum = Utils.getChartOrderNum;
   const _isHybridKey    = Utils.isHybridKey;
   const _isIOS          = Utils.isIOS;
-  const _parseDurationInput = Utils.parseDurationInput;
 
   // ─── Levenshtein worker (local to Songs) ────────────────────
   let _levWorker = null;
@@ -451,11 +450,15 @@ const Songs = (() => {
         _toggleSongSelection(song.id, card);
       });
     } else {
-      card.addEventListener('click', () => { haptic.tap(); renderDetail(song); });
-      // Long-press to enter selection mode — available to all users (admin: Add to Setlist, non-admin: Add to Practice List)
+      card.addEventListener('click', () => {
+        if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) { Utils.showToast('Log in to view song details'); return; }
+        haptic.tap(); renderDetail(song);
+      });
+      // Long-press to enter selection mode — available to all authenticated users
       let lpTimer = null;
       card.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
+        if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) { Utils.showToast('Log in to select songs'); return; }
         lpTimer = setTimeout(() => { lpTimer = null; e.preventDefault(); _enterSelectionMode(song.id); }, 500);
       });
       const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
@@ -628,80 +631,11 @@ const Songs = (() => {
 
   // ─── DETAIL VIEW ────────────────────────────────────────────
 
-  function cleanupDetailAnchors() {
-    const obs = Store.get('detailAnchorObserver');
-    if (obs) {
-      obs.disconnect();
-      Store.set('detailAnchorObserver', null);
-    }
-    document.getElementById('detail-anchor-bar')?.remove();
-  }
-
-  function _setupDetailAnchors() {
-    cleanupDetailAnchors();
-    const scrollRoot = document.getElementById('view-detail');
-    if (!scrollRoot) return;
-
-    const sectionDefs = [
-      { id: 'detail-notes',  icon: 'notebook-pen', label: 'Notes' },
-      { id: 'detail-charts', icon: 'file-text',    label: 'Charts' },
-      { id: 'detail-audio',  icon: 'music',        label: 'Audio' },
-      { id: 'detail-links',  icon: 'link',         label: 'Links' },
-    ];
-
-    const activeSections = sectionDefs.filter(s => document.getElementById(s.id));
-    if (activeSections.length < 2) return;
-
-    const bar = document.createElement('div');
-    bar.id = 'detail-anchor-bar';
-    bar.className = 'detail-anchor-bar';
-    bar.innerHTML = activeSections.map(s =>
-      `<button class="detail-anchor-dot" data-anchor-target="${s.id}" aria-label="Jump to ${s.label}" title="${s.label}">
-        <i data-lucide="${s.icon}"></i>
-      </button>`
-    ).join('');
-
-    scrollRoot.appendChild(bar);
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bar] });
-
-    bar.querySelectorAll('.detail-anchor-dot').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        haptic.tap();
-        const target = document.getElementById(btn.dataset.anchorTarget);
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    });
-
-    const dots = bar.querySelectorAll('.detail-anchor-dot');
-    const sectionEls = activeSections.map(s => document.getElementById(s.id));
-    const visibleRatios = new Map();
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        visibleRatios.set(entry.target.id, entry.intersectionRatio);
-      });
-      let bestId = null;
-      let bestRatio = 0;
-      visibleRatios.forEach((ratio, id) => {
-        if (ratio > bestRatio) { bestRatio = ratio; bestId = id; }
-      });
-      dots.forEach(dot => {
-        dot.classList.toggle('active', dot.dataset.anchorTarget === bestId);
-      });
-    }, {
-      root: scrollRoot,
-      threshold: [0, 0.1, 0.25, 0.5, 0.75, 1.0],
-    });
-
-    Store.set('detailAnchorObserver', observer);
-    sectionEls.forEach(el => { if (el) observer.observe(el); });
-  }
+  // Detail anchor bar removed — sidebar scroll shortcuts no longer used in song detail
 
   function renderDetail(song, skipNavPush) {
     App.cleanupPlayers();
     Player.stopAll();
-    cleanupDetailAnchors();
     Store.set('activeSong', song);
     Store.set('currentRouteParams', { songId: song.id });
     if (!skipNavPush) {
@@ -716,7 +650,18 @@ const Songs = (() => {
     container.innerHTML = _buildDetailHTML(song);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    _setupDetailAnchors();
+    // Email verification gate: hide PDF charts and audio for unverified users
+    // Owner is exempt, unverified non-owners see placeholder
+    const _authUser = typeof Auth !== 'undefined' && Auth.getUser();
+    const emailOk = !_authUser || _authUser.role === 'owner' || (typeof Auth !== 'undefined' && Auth.isEmailVerified());
+    if (!emailOk) {
+      // Hide chart and audio sections, show verify message
+      container.querySelectorAll('#detail-charts, #detail-audio').forEach(el => {
+        el.innerHTML = '<p class="muted" style="padding:12px;text-align:center;font-size:13px;">Verify your email to access charts and audio files.</p>';
+      });
+    }
+
+    // Detail anchor bar removed (user requested)
 
     if (Admin.isEditMode()) {
       container.querySelector('.btn-edit-song')?.addEventListener('click', () => renderEdit(song, false));
@@ -743,8 +688,9 @@ const Songs = (() => {
       App.getBlobUrl(id).catch(() => {});
     });
 
-    // Chart order star toggles (edit mode only)
-    if (Admin.isEditMode()) {
+    // Chart order star toggles (any logged-in user can favorite, max 6)
+    const _canFavorite = Admin.isEditMode() || (typeof Auth !== 'undefined' && Auth.isLoggedIn());
+    if (_canFavorite) {
       container.querySelectorAll('.chart-order-star').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -754,9 +700,15 @@ const Songs = (() => {
           if (!song.chartOrder) song.chartOrder = [];
           const existing = song.chartOrder.findIndex(o => o.driveId === driveId);
           if (existing !== -1) {
+            // Unfavorite: remove and renumber
             song.chartOrder.splice(existing, 1);
             song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
           } else {
+            // Favorite: enforce max 6 cap
+            if (song.chartOrder.length >= 6) {
+              showToast('Max 6 favorites per song');
+              return;
+            }
             const maxOrder = song.chartOrder.reduce((m, o) => Math.max(m, o.order), 0);
             song.chartOrder.push({ driveId, order: maxOrder + 1 });
           }
@@ -891,7 +843,6 @@ const Songs = (() => {
           ${song.bpm ? `<div class="detail-meta-item"><span class="detail-meta-label">BPM</span><span class="detail-meta-value">${esc(String(song.bpm))}</span></div>` : ''}
           ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
         </div>
-        ${(song.tags||[]).length ? `<div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
       <div class="detail-quick-add">
         ${Admin.isEditMode() ? `<button class="btn-ghost btn-add-to-setlist detail-quick-add-btn">
@@ -914,10 +865,12 @@ const Songs = (() => {
         <div class="file-list">
           ${charts.map(c => {
             const orderNum = _getChartOrderNum(song, c.driveId);
+            const _loggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
+            const canStar = Admin.isEditMode() || _loggedIn;
             return `
             <div class="file-item-row">
               <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
-                <span class="chart-order-star${orderNum ? ' active' : ''}${Admin.isEditMode() ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode">
+                <span class="chart-order-star${orderNum ? ' active' : ''}${canStar ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode">
                   <i data-lucide="star" style="width:16px;height:16px;${orderNum ? 'fill:var(--accent);' : ''}"></i>
                   ${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}
                 </span>
@@ -926,7 +879,7 @@ const Songs = (() => {
                 </div>
                 <span class="file-item-name">${esc(c.name)}</span>
                 <span class="pdf-cached-badge${_isPdfCached(c.driveId) ? ' cached' : ''}" data-cache-id="${esc(c.driveId)}" title="${_isPdfCached(c.driveId) ? 'Available offline' : 'Not cached'}">
-                  <i data-lucide="cloud-download" style="width:14px;height:14px;"></i>
+                  <i data-lucide="${_isPdfCached(c.driveId) ? 'cloud-check' : 'cloud'}" style="width:14px;height:14px;"></i>
                 </span>
                 <i data-lucide="chevron-right" class="file-item-arrow"></i>
               </button>
@@ -962,6 +915,13 @@ const Songs = (() => {
         <div class="embed-list">
           ${links.map(l => _buildEmbedHTML(l)).join('')}
         </div>
+      </div>`;
+    }
+
+    if ((song.tags||[]).length) {
+      html += `<div class="detail-section">
+        <div class="detail-section-label">Tags</div>
+        <div class="detail-tags">${song.tags.map(t=>`<span class="detail-tag">${esc(t)}</span>`).join('')}</div>
       </div>`;
     }
 
@@ -1052,20 +1012,8 @@ const Songs = (() => {
             <input class="form-input" id="ef-bpm" type="number" value="${esc(String(song.bpm||''))}" placeholder="120" min="1" max="999" />
           </div>
           <div class="form-field">
-            <label class="form-label">Time Sig</label>
+            <label class="form-label">Time</label>
             <input class="form-input" id="ef-timesig" type="text" value="${esc(song.timeSig||'')}" placeholder="4/4" />
-          </div>
-          <div class="form-field">
-            <label class="form-label">Duration</label>
-            <input class="form-input" id="ef-duration" type="text" value="${song.duration ? Math.floor(song.duration/60)+':'+String(Math.floor(song.duration%60)).padStart(2,'0') : ''}" placeholder="e.g. 4:30" />
-          </div>
-        </div>
-        <div class="form-field">
-          <label class="form-label">Tags <span class="muted" style="font-weight:400">(Enter or comma)</span></label>
-          <div class="tag-input-wrap" id="ef-tag-wrap">
-            ${(song.tags||[]).map(t=>`<span class="tag-chip" data-tag="${esc(t)}">${esc(t)}<span class="tag-chip-remove" role="button">\u00d7</span></span>`).join('')}
-            <input class="tag-inline-input" id="ef-tag-input" placeholder="rock, ballad\u2026" type="text" autocomplete="off" />
-            <div class="tag-suggest-dropdown hidden" id="ef-tag-suggest"></div>
           </div>
         </div>
       </div>
@@ -1106,12 +1054,22 @@ const Songs = (() => {
         <button class="btn-ghost" id="ef-add-link">+ Add Link</button>
       </div>
 
-      <div class="edit-form-actions">
-        <button class="btn-primary" id="ef-save">Save Song</button>
-        <button class="btn-secondary" id="ef-cancel">Cancel</button>
+      <div class="edit-section">
+        <div class="edit-section-title">Tags</div>
+        <div class="form-field">
+          <div class="tag-input-wrap" id="ef-tag-wrap">
+            ${(song.tags||[]).map(t=>`<span class="tag-chip" data-tag="${esc(t)}">${esc(t)}<span class="tag-chip-remove" role="button">\u00d7</span></span>`).join('')}
+            <input class="tag-inline-input" id="ef-tag-input" placeholder="rock, ballad\u2026" type="text" autocomplete="off" />
+            <div class="tag-suggest-dropdown hidden" id="ef-tag-suggest"></div>
+          </div>
+        </div>
       </div>
 
-      ${!isNew ? `<div class="delete-zone"><button class="btn-danger" id="ef-delete">Delete Song</button></div>` : ''}
+      <div class="edit-form-actions">
+        <button class="btn-primary" id="ef-save">Save</button>
+        ${!isNew ? `<button class="btn-danger" id="ef-delete">Delete</button>` : ''}
+        <button class="btn-secondary" id="ef-cancel">Cancel</button>
+      </div>
     `;
   }
 
@@ -1152,9 +1110,6 @@ const Songs = (() => {
         }
       }, 300);
     });
-
-    const durationInput = document.getElementById('ef-duration');
-    window._editSongDurationInput = durationInput;
 
     // Tags
     const tagWrap  = document.getElementById('ef-tag-wrap');
@@ -1221,6 +1176,7 @@ const Songs = (() => {
           song.chartOrder.splice(existingIdx, 1);
           song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
         } else {
+          if (song.chartOrder.length >= 6) { showToast('Max 6 favorites per song'); return; }
           const maxOrder = song.chartOrder.reduce((m, o) => Math.max(m, o.order), 0);
           song.chartOrder.push({ driveId, order: maxOrder + 1 });
         }
@@ -1330,13 +1286,17 @@ const Songs = (() => {
       song.key      = document.getElementById('ef-key').value.trim();
       song.bpm      = parseInt(document.getElementById('ef-bpm').value) || null;
       song.timeSig  = document.getElementById('ef-timesig').value.trim();
-      song.duration = _parseDurationInput(document.getElementById('ef-duration').value);
       song.notes    = document.getElementById('ef-notes').value.trim();
       assets.links  = assets.links
         .map(l => ({ ...l, url: l.url||'', embedId: _extractEmbedId(l.type, l.url||'') }))
         .filter(l => l.url);
 
       if (!song.title) { showToast('Title is required.'); document.getElementById('ef-title').focus(); return; }
+
+      // Auto-favorite first chart if song had no charts before and now has one+
+      if (assets.charts.length > 0 && (!song.chartOrder || song.chartOrder.length === 0)) {
+        song.chartOrder = [{ driveId: assets.charts[0].driveId, order: 1 }];
+      }
 
       async function _doSaveSong() {
         Store.set('savingSongs', true);
@@ -1439,7 +1399,6 @@ const Songs = (() => {
   }));
 
   // Register cleanup hook
-  Router.registerHook('cleanupDetailAnchors', cleanupDetailAnchors);
   Router.registerHook('cleanupSelection', () => {
     if (Store.get('selectionMode')) _exitSelectionMode();
   });
@@ -1453,7 +1412,6 @@ const Songs = (() => {
     allTags,
     allKeys,
     filteredSongs,
-    cleanupDetailAnchors,
     exitSelectionMode: _exitSelectionMode,
   };
 

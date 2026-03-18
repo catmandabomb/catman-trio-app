@@ -236,6 +236,10 @@ const Setlists = (() => {
   }
 
   function renderSetlists(skipNavReset) {
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) {
+      if (typeof showToast !== 'undefined') showToast('Log in to view setlists');
+      return;
+    }
     _revokeBlobCache();
     _setRouteParams({});
     _syncFromStore();
@@ -405,7 +409,7 @@ const Setlists = (() => {
       ${isAdmin ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
-      ${songs.length > 0 ? '<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button></div>' : ''}
+      ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${isAdmin ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}</div>` : ''}
     </div>`;
 
     if (songs.length === 0) {
@@ -577,6 +581,11 @@ const Setlists = (() => {
     // Wire Share Setlist button
     container.querySelector('.btn-share-setlist')?.addEventListener('click', () => {
       _shareSetlist(setlist, _songs);
+    });
+
+    // Wire Email Setlist button (admin only)
+    container.querySelector('.btn-email-setlist')?.addEventListener('click', () => {
+      _showEmailSetlistModal(setlist, _songs);
     });
   }
 
@@ -791,6 +800,167 @@ const Setlists = (() => {
     } else {
       _fallbackCopy(text);
     }
+  }
+
+  // ─── EMAIL SETLIST ──────────────────────────────────────────────
+
+  async function _showEmailSetlistModal(setlist, allSongs) {
+    const songs = setlist.songs || [];
+    if (!songs.length) { showToast('Setlist is empty'); return; }
+
+    // Fetch users and filter out placeholder emails
+    let users = [];
+    try {
+      users = await Auth.listAllUsers();
+    } catch (e) {
+      showToast('Could not load users');
+      return;
+    }
+    const realUsers = users.filter(u =>
+      u.email && u.email !== 'xxx@xxx.com' && !u.email.endsWith('@placeholder.local') && u.email.includes('@')
+    );
+    if (realUsers.length === 0) {
+      showToast('No users with email addresses');
+      return;
+    }
+
+    const selected = new Set();
+
+    function _renderRecipients() {
+      const list = document.getElementById('esl-user-list');
+      const chips = document.getElementById('esl-selected-chips');
+      if (!list || !chips) return;
+
+      list.innerHTML = realUsers.map(u => {
+        const checked = selected.has(u.id);
+        return `<label class="esl-user-row${checked ? ' esl-selected' : ''}" data-uid="${esc(u.id)}">
+          <input type="checkbox" ${checked ? 'checked' : ''} />
+          <span class="esl-user-name">${esc(u.display_name || u.displayName || u.username)}</span>
+          <span class="esl-user-email">${esc(u.email)}</span>
+        </label>`;
+      }).join('');
+
+      if (selected.size > 0) {
+        const names = realUsers.filter(u => selected.has(u.id))
+          .map(u => esc(u.display_name || u.displayName || u.username));
+        chips.innerHTML = names.map(n => `<span class="esl-chip">${n}</span>`).join('');
+        chips.classList.remove('hidden');
+      } else {
+        chips.innerHTML = '';
+        chips.classList.add('hidden');
+      }
+
+      // Update send button state
+      const sendBtn = document.getElementById('esl-send');
+      if (sendBtn) sendBtn.disabled = selected.size === 0;
+    }
+
+    // Build setlist HTML for email body
+    function _buildEmailHtml() {
+      let html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">`;
+      html += `<h2 style="margin:0 0 4px;">${esc(setlist.name || 'Setlist')}</h2>`;
+      if (setlist.gigDate) html += `<p style="margin:0 0 16px;color:#888;">${esc(setlist.gigDate)}</p>`;
+      html += `<table style="width:100%;border-collapse:collapse;">`;
+      songs.forEach((entry, i) => {
+        const isEven = i % 2 === 0;
+        const bgColor = isEven ? '#f9f9f9' : '#ffffff';
+        if (entry.freetext) {
+          const meta = [];
+          if (entry.key) meta.push(esc(entry.key));
+          if (entry.bpm) meta.push(esc(String(entry.bpm)) + ' BPM');
+          html += `<tr style="background:${bgColor};">
+            <td style="padding:8px 12px;color:#999;width:30px;text-align:right;vertical-align:top;">${i + 1}</td>
+            <td style="padding:8px 12px;">
+              <strong>${esc(entry.title || 'Untitled')}</strong>
+              ${meta.length ? `<br><span style="color:#888;font-size:13px;">${meta.join(' &middot; ')}</span>` : ''}
+              ${entry.notes ? `<br><span style="color:#666;font-size:13px;font-style:italic;">${esc(entry.notes)}</span>` : ''}
+              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">→ ${esc(entry.comment)}</span>` : ''}
+            </td>
+          </tr>`;
+        } else {
+          const song = allSongs.find(s => s.id === entry.id);
+          if (!song) return;
+          const meta = [];
+          if (song.key) meta.push(esc(song.key));
+          if (song.bpm) meta.push(esc(String(song.bpm)) + ' BPM');
+          if (song.timeSig) meta.push(esc(song.timeSig));
+          html += `<tr style="background:${bgColor};">
+            <td style="padding:8px 12px;color:#999;width:30px;text-align:right;vertical-align:top;">${i + 1}</td>
+            <td style="padding:8px 12px;">
+              <strong>${esc(song.title)}</strong>
+              ${meta.length ? `<br><span style="color:#888;font-size:13px;">${meta.join(' &middot; ')}</span>` : ''}
+              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">→ ${esc(entry.comment)}</span>` : ''}
+            </td>
+          </tr>`;
+        }
+      });
+      html += `</table>`;
+      html += `<p style="margin:16px 0 0;color:#888;font-size:13px;">${songs.length} song${songs.length !== 1 ? 's' : ''}</p>`;
+      html += `<p style="margin:8px 0 0;color:#aaa;font-size:12px;">Sent from Catman Trio App</p>`;
+      html += `</div>`;
+      return html;
+    }
+
+    // Show modal
+    const handle = Modal.create({
+      id: 'modal-email-setlist',
+      content: `
+        <h2>Email Setlist</h2>
+        <div class="esl-modal">
+          <p class="esl-label">Select recipients:</p>
+          <div id="esl-selected-chips" class="esl-chips hidden"></div>
+          <div id="esl-user-list" class="esl-user-list"></div>
+          <div class="esl-actions">
+            <button class="btn-primary" id="esl-send" disabled>Send</button>
+            <button class="btn-secondary" id="esl-cancel">Cancel</button>
+          </div>
+        </div>
+      `,
+    });
+
+    _renderRecipients();
+
+    // Toggle user selection
+    document.getElementById('esl-user-list')?.addEventListener('change', (e) => {
+      const row = e.target.closest('.esl-user-row');
+      if (!row) return;
+      const uid = row.dataset.uid;
+      if (selected.has(uid)) {
+        selected.delete(uid);
+      } else {
+        selected.add(uid);
+      }
+      _renderRecipients();
+    });
+
+    // Send
+    document.getElementById('esl-send')?.addEventListener('click', async () => {
+      const sendBtn = document.getElementById('esl-send');
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending...'; }
+
+      const toEmails = realUsers
+        .filter(u => selected.has(u.id))
+        .map(u => u.email);
+
+      const result = await Auth.sendEmail({
+        to: toEmails,
+        subject: `Setlist: ${setlist.name || 'Untitled'}`,
+        html: _buildEmailHtml(),
+      });
+
+      if (result.ok) {
+        handle.hide();
+        showToast(`Setlist emailed to ${toEmails.length} recipient${toEmails.length !== 1 ? 's' : ''}`);
+      } else {
+        showToast(result.error || 'Failed to send email');
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
+      }
+    });
+
+    // Cancel
+    document.getElementById('esl-cancel')?.addEventListener('click', () => {
+      handle.hide();
+    });
   }
 
   // ─── SETLIST LIVE MODE (ForScore-style charts + pedal support) ──

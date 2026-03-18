@@ -12,7 +12,7 @@ const Admin = (() => {
   // Default password hash — SHA-256 of "Administraitor1!" (legacy, for migration)
   const DEFAULT_HASH = 'e5c128a06031c45577c71b9a49a5fffa3a93e077354ce609bd616b5cf70d32f4';
 
-  let _editMode = false;
+  let _adminModeActive = true; // Defaults to true on each login; toggle via dashboard
 
   // ─── Brute Force Protection ─────────────────────────────────
   let _failedAttempts = 0;
@@ -113,32 +113,50 @@ const Admin = (() => {
     localStorage.setItem('ct_pw_hash', hash);
   }
 
-  // ─── Edit mode ────────────────────────────────────────────
+  // ─── Password Complexity Validation ────────────────────────
 
-  function isEditMode() { return _editMode; }
+  /**
+   * Validate password meets complexity requirements.
+   * @returns {string|null} Error message, or null if valid.
+   */
+  function validatePassword(password) {
+    if (!password || password.length < 8) return 'Password must be at least 8 characters.';
+    if (!/[a-z]/.test(password)) return 'Password must contain at least one lowercase letter.';
+    if (!/[A-Z]/.test(password)) return 'Password must contain at least one uppercase letter.';
+    if (!/[0-9]/.test(password)) return 'Password must contain at least one number.';
+    if (!/[^a-zA-Z0-9]/.test(password)) return 'Password must contain at least one special character.';
+    return null;
+  }
+
+  // ─── Edit mode (Auth-based shim) ──────────────────────────
+
+  /** Backward-compat shim: all existing Admin.isEditMode() calls work without mass-renaming */
+  function isEditMode() {
+    // When Worker/auth is configured, use session-based auth
+    if (typeof GitHub !== 'undefined' && GitHub.useWorker) {
+      return typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs() && _adminModeActive;
+    }
+    // Legacy fallback: password-based edit mode (when Worker not configured)
+    return _adminModeActive && !!localStorage.getItem('ct_pw_hash');
+  }
 
   function enterEditMode() {
-    _editMode = true;
-    try { sessionStorage.setItem('ct_admin_active', '1'); } catch (_) {}
+    _adminModeActive = true;
     document.getElementById('btn-add-song')?.classList.remove('hidden');
   }
 
   function exitEditMode() {
-    _editMode = false;
-    try { sessionStorage.removeItem('ct_admin_active'); } catch (_) {}
+    _adminModeActive = false;
     document.getElementById('btn-add-song')?.classList.add('hidden');
   }
 
-  /** Restore admin mode from sessionStorage (survives refresh, not tab close) */
-  function restoreEditMode() {
-    try {
-      if (sessionStorage.getItem('ct_admin_active') === '1') {
-        enterEditMode();
-        return true;
-      }
-    } catch (_) { /* sessionStorage unavailable */ }
-    return false;
+  /** Reset admin mode to true — called on fresh login */
+  function resetAdminMode() {
+    _adminModeActive = true;
   }
+
+  /** Expose internal toggle state for dashboard UI */
+  function isAdminModeActive() { return _adminModeActive; }
 
   // ─── ID generation ────────────────────────────────────────
 
@@ -214,10 +232,13 @@ const Admin = (() => {
     const error   = document.getElementById('password-error');
 
     input.value = '';
+    input.disabled = false;
+    document.getElementById('btn-password-confirm').disabled = false;
     error.classList.add('hidden');
     overlay.classList.remove('hidden');
     const _ft = _trapFocus(overlay);
 
+    let _lockTimer = null;
     // Show lockout message if already locked out
     if (_isLockedOut()) {
       const secs = _getRemainingLockout();
@@ -225,9 +246,10 @@ const Admin = (() => {
       error.classList.remove('hidden');
       input.disabled = true;
       document.getElementById('btn-password-confirm').disabled = true;
-      const _lockTimer = setInterval(() => {
+      _lockTimer = setInterval(() => {
         if (!_isLockedOut()) {
           clearInterval(_lockTimer);
+          _lockTimer = null;
           error.classList.add('hidden');
           error.textContent = 'Incorrect password.';
           input.disabled = false;
@@ -247,6 +269,7 @@ const Admin = (() => {
       try {
         const ok = await checkPassword(input.value);
         if (ok) {
+          input.value = '';
           overlay.classList.add('hidden');
           if (_ft) _ft.release();
           cleanup();
@@ -257,9 +280,11 @@ const Admin = (() => {
             error.textContent = `Too many attempts. Try again in ${secs}s.`;
             input.disabled = true;
             document.getElementById('btn-password-confirm').disabled = true;
-            const _lockTimer = setInterval(() => {
+            if (_lockTimer) clearInterval(_lockTimer);
+            _lockTimer = setInterval(() => {
               if (!_isLockedOut()) {
                 clearInterval(_lockTimer);
+                _lockTimer = null;
                 error.textContent = 'Incorrect password.';
                 input.disabled = false;
                 document.getElementById('btn-password-confirm').disabled = false;
@@ -302,6 +327,7 @@ const Admin = (() => {
     overlay.addEventListener('click', backdropClick);
 
     function cleanup() {
+      if (_lockTimer) { clearInterval(_lockTimer); _lockTimer = null; }
       document.getElementById('btn-password-confirm').removeEventListener('click', confirm);
       document.getElementById('btn-password-cancel').removeEventListener('click', cancel);
       input.removeEventListener('keydown', keydown);
@@ -464,7 +490,7 @@ const Admin = (() => {
       const pat   = patInput.value.trim();
       const owner = ownerInput.value.trim();
       const repo  = repoInput.value.trim();
-      if (!pat) {
+      if (!pat && !(typeof GitHub !== 'undefined' && GitHub.useWorker)) {
         resultEl.className = 'github-test-result error';
         resultEl.textContent = 'Personal Access Token is required.';
         return;
@@ -511,6 +537,207 @@ const Admin = (() => {
     _ghCleanup = cleanup;
   }
 
+  // ─── Login modal (user accounts) ─────────────────────────
+
+  let _loginCleanup = null;
+  async function showLoginModal(onSuccess, opts) {
+    if (_loginCleanup) _loginCleanup();
+    const overlay  = document.getElementById('modal-login');
+    if (!overlay) {
+      showPasswordModal(onSuccess);
+      return;
+    }
+    const titleEl    = document.getElementById('modal-login-title');
+    const subtextEl  = document.getElementById('login-subtext');
+    const username   = document.getElementById('login-username');
+    const password   = document.getElementById('login-password');
+    const confirmPw  = document.getElementById('login-confirm-password');
+    const emailInput = document.getElementById('login-email');
+    const confirmEmail = document.getElementById('login-confirm-email');
+    const honeypot   = document.getElementById('login-hp');
+    const error      = document.getElementById('login-error');
+    const confirmBtn = document.getElementById('btn-login-confirm');
+    const forgotLink = document.getElementById('login-forgot');
+    const forgotBtn  = document.getElementById('btn-login-forgot');
+    const confirmPwRow = document.getElementById('login-confirm-pw-row');
+    const emailRow     = document.getElementById('login-email-row');
+    const confirmEmailRow = document.getElementById('login-confirm-email-row');
+
+    // Detect first-run setup
+    let _setupMode = false;
+    if (typeof Auth !== 'undefined' && Auth.checkNeedsSetup) {
+      try { _setupMode = await Auth.checkNeedsSetup(); } catch (_) {}
+    }
+
+    // Reset all fields
+    username.value = '';
+    password.value = '';
+    confirmPw.value = '';
+    if (emailInput) emailInput.value = '';
+    if (confirmEmail) confirmEmail.value = '';
+    if (honeypot) honeypot.value = '';
+    error.classList.add('hidden');
+    error.textContent = '';
+
+    // Show/hide fields based on mode
+    if (_setupMode) {
+      titleEl.textContent = 'Create Your Account';
+      subtextEl.textContent = 'First-time setup — choose a username and password.';
+      confirmBtn.textContent = 'Create Account';
+      confirmPwRow?.classList.remove('hidden');
+      // Email hidden for admin setup — hardcoded to christianatremblay@gmail.com
+      emailRow?.classList.add('hidden');
+      confirmEmailRow?.classList.add('hidden');
+      forgotLink?.classList.add('hidden');
+    } else {
+      titleEl.textContent = 'Sign In';
+      subtextEl.textContent = 'Sign in to access edit mode and sync.';
+      confirmBtn.textContent = 'Sign In';
+      confirmPwRow?.classList.add('hidden');
+      emailRow?.classList.add('hidden');
+      confirmEmailRow?.classList.add('hidden');
+      forgotLink?.classList.remove('hidden');
+    }
+
+    // Bot detection: record when modal was opened
+    const _openedAt = Date.now();
+
+    overlay.classList.remove('hidden');
+    const _ft = _trapFocus(overlay);
+    setTimeout(() => username.focus(), 50);
+
+    let _submitting = false;
+    const submit = async () => {
+      if (_submitting) return;
+
+      // Honeypot check — bots fill hidden fields
+      if (honeypot && honeypot.value) {
+        error.textContent = 'Something went wrong. Please try again.';
+        error.classList.remove('hidden');
+        return;
+      }
+
+      // Timing check — reject if submitted in under 2 seconds
+      if (Date.now() - _openedAt < 2000) {
+        error.textContent = 'Please wait a moment before submitting.';
+        error.classList.remove('hidden');
+        return;
+      }
+
+      const u = username.value.trim();
+      const p = password.value;
+      if (!u || !p) {
+        error.textContent = 'Username and password are required.';
+        error.classList.remove('hidden');
+        return;
+      }
+
+      if (_setupMode) {
+        // Password complexity
+        const pwError = validatePassword(p);
+        if (pwError) {
+          error.textContent = pwError;
+          error.classList.remove('hidden');
+          return;
+        }
+        // Confirm password
+        if (p !== confirmPw.value) {
+          error.textContent = 'Passwords do not match.';
+          error.classList.remove('hidden');
+          confirmPw.value = '';
+          confirmPw.focus();
+          return;
+        }
+      }
+
+      _submitting = true;
+      error.textContent = _setupMode ? 'Creating account\u2026' : 'Signing in\u2026';
+      error.className = 'error-msg';
+
+      try {
+        let result;
+        if (_setupMode) {
+          const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
+          const email = 'christianatremblay@gmail.com';
+          result = await Auth.setupInit(u, p, displayName, email);
+        } else {
+          result = await Auth.login(u, p);
+        }
+        if (result.ok) {
+          password.value = '';
+          confirmPw.value = '';
+          overlay.classList.add('hidden');
+          if (_ft) _ft.release();
+          cleanup();
+          onSuccess();
+        } else {
+          error.textContent = result.error || (_setupMode ? 'Setup failed.' : 'Invalid credentials.');
+          error.className = 'error-msg';
+          error.classList.remove('hidden');
+          password.value = '';
+          confirmPw.value = '';
+          password.focus();
+        }
+      } catch (e) {
+        error.textContent = 'Network error — check connection.';
+        error.className = 'error-msg';
+        error.classList.remove('hidden');
+      } finally {
+        _submitting = false;
+      }
+    };
+
+    const cancel = () => {
+      overlay.classList.add('hidden');
+      if (_ft) _ft.release();
+      cleanup();
+    };
+
+    // Forgot password handler
+    const forgotClick = (e) => {
+      e.preventDefault();
+      overlay.classList.add('hidden');
+      if (_ft) _ft.release();
+      cleanup();
+      if (typeof App !== 'undefined' && App.showForgotPasswordModal) {
+        App.showForgotPasswordModal();
+      }
+    };
+
+    const keydown = (e) => {
+      if (e.key === 'Enter') submit();
+      if (e.key === 'Escape') cancel();
+    };
+
+    const backdropClick = (e) => {
+      if (e.target === overlay) cancel();
+    };
+
+    confirmBtn.addEventListener('click', submit);
+    document.getElementById('btn-login-cancel').addEventListener('click', cancel);
+    forgotBtn?.addEventListener('click', forgotClick);
+    username.addEventListener('keydown', keydown);
+    password.addEventListener('keydown', keydown);
+    confirmPw?.addEventListener('keydown', keydown);
+    overlay.addEventListener('click', backdropClick);
+
+    function cleanup() {
+      confirmBtn.removeEventListener('click', submit);
+      document.getElementById('btn-login-cancel').removeEventListener('click', cancel);
+      forgotBtn?.removeEventListener('click', forgotClick);
+      username.removeEventListener('keydown', keydown);
+      password.removeEventListener('keydown', keydown);
+      confirmPw?.removeEventListener('keydown', keydown);
+      overlay.removeEventListener('click', backdropClick);
+      // Reset field visibility
+      confirmPwRow?.classList.add('hidden');
+      emailRow?.classList.add('hidden');
+      confirmEmailRow?.classList.add('hidden');
+      _loginCleanup = null;
+    }
+    _loginCleanup = cleanup;
+  }
+
   // ─── Focus trap (delegated to Modal module) ──────────────
   const _trapFocus = Modal.trapFocus;
 
@@ -518,16 +745,19 @@ const Admin = (() => {
     isEditMode,
     enterEditMode,
     exitEditMode,
-    restoreEditMode,
+    resetAdminMode,
+    isAdminModeActive,
     generateId,
     newSong,
     newSetlist,
     checkPassword,
     setPassword,
     showPasswordModal,
+    showLoginModal,
     showConfirm,
     showDriveModal,
     showGitHubModal,
+    validatePassword,
     _trapFocus,
   };
 

@@ -16,6 +16,11 @@ const Dashboard = (() => {
   // ─── renderDashboard ──────────────────────────────────────
 
   function renderDashboard() {
+    // Auth guard — only logged-in admins/owners can access dashboard
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn() || !Auth.canEditSongs()) {
+      if (typeof showToast !== 'undefined') showToast('Access denied');
+      return;
+    }
     Store.set('currentRouteParams', {});
     if (typeof App !== 'undefined' && App.cleanupPlayers) App.cleanupPlayers();
     Store.set('navStack', []);
@@ -196,11 +201,17 @@ const Dashboard = (() => {
 
     const _codeTag = (code) => `<span class="dash-alert-code">${code}</span>`;
 
+    const isOwnerOrAdmin = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs();
+    const adminModeOn = Admin.isAdminModeActive();
+    const switchBtnText = adminModeOn ? 'Switch to User Mode' : 'Switch to Admin Mode';
+    const switchBtnIcon = adminModeOn ? 'user' : 'shield';
+
     let html = `
       <div class="dash-header">
-        <button class="text-btn dash-exit-admin" id="dash-exit-admin" title="Exit Admin Edit Mode">
-          <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Exit Admin Edit Mode
-        </button>
+        <div class="dash-header-actions">
+          ${isOwnerOrAdmin ? `<button class="text-btn" id="dash-toggle-mode" title="${switchBtnText}"><i data-lucide="${switchBtnIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchBtnText}</button>` : ''}
+          <button class="text-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
+        </div>
         <p>System health and data integrity overview</p>
         <span class="dash-version">${APP_VERSION}</span>
       </div>
@@ -345,44 +356,47 @@ const Dashboard = (() => {
       </div>
     `;
 
-    // Tag Manager section (admin only)
-    if (Admin.isEditMode()) {
-      const tagCounts = {};
-      songs.forEach(s => (s.tags || []).forEach(t => {
-        tagCounts[t] = (tagCounts[t] || 0) + 1;
-      }));
-      const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+    // User Management — link to subpage (owner only)
+    if (typeof Auth !== 'undefined' && Auth.canManageUsers()) {
+      html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
+        <button class="btn-ghost" id="dash-open-user-mgmt" style="font-size:13px;">
+          <i data-lucide="users" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>User Management
+        </button>
+      </div>`;
+    }
 
-      html += `<div class="dash-section"><div class="dash-section-title">Tag Manager</div>`;
-      if (sortedTags.length === 0) {
-        html += `<p class="muted" style="font-size:13px">No tags in use.</p>`;
-      } else {
-        html += `<div class="tag-manager-list">`;
-        sortedTags.forEach(([tag, count]) => {
-          html += `<div class="tag-mgr-row" data-tag="${esc(tag)}">
-            <span class="tag-mgr-name">${esc(tag)}</span>
-            <span class="tag-mgr-count">${count} song${count !== 1 ? 's' : ''}</span>
-            <button class="tag-mgr-btn tag-mgr-rename" data-tag="${esc(tag)}" title="Rename">
-              <i data-lucide="pencil" style="width:12px;height:12px;"></i>
-            </button>
-            <button class="tag-mgr-btn tag-mgr-delete" data-tag="${esc(tag)}" title="Delete">
-              <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
-            </button>
-          </div>`;
-        });
-        html += `</div>`;
-      }
-      html += `</div>`;
+    // Tag Manager — link to subpage (admin only)
+    if (Admin.isEditMode()) {
+      html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
+        <button class="btn-ghost" id="dash-open-tag-mgr" style="font-size:13px;">
+          <i data-lucide="tags" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Tag Manager
+        </button>
+      </div>`;
     }
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    // Wire Exit Admin button
-    document.getElementById('dash-exit-admin')?.addEventListener('click', () => {
-      Admin.exitEditMode();
+    // Wire Switch Mode toggle (admin/owner only)
+    document.getElementById('dash-toggle-mode')?.addEventListener('click', () => {
+      if (Admin.isAdminModeActive()) {
+        Admin.exitEditMode();
+        Utils.showToast('Switched to User Mode');
+      } else {
+        Admin.enterEditMode();
+        Utils.showToast('Switched to Admin Mode');
+      }
+      App.updateAuthUI();
+      renderDashboard(); // Re-render to update button text
+    });
+
+    // Wire Log Out button
+    document.getElementById('dash-logout')?.addEventListener('click', async () => {
+      await Auth.logout();
+      Admin.resetAdminMode();
+      App.updateAuthUI();
       App.renderList();
-      Utils.showToast('Admin mode exited');
+      Utils.showToast('Logged out');
     });
 
     // BUG-28: Wire Remove Orphans buttons
@@ -417,83 +431,14 @@ const Dashboard = (() => {
       });
     });
 
-    // Wire Tag Manager
-    container.querySelectorAll('.tag-mgr-rename').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const oldTag = btn.dataset.tag;
-        const row = btn.closest('.tag-mgr-row');
-        const nameEl = row.querySelector('.tag-mgr-name');
-
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'form-input tag-mgr-input';
-        input.value = oldTag;
-        input.style.cssText = 'font-size:13px;padding:4px 8px;width:120px;';
-        nameEl.replaceWith(input);
-        input.focus();
-        input.select();
-
-        const confirmBtn = document.createElement('button');
-        confirmBtn.className = 'tag-mgr-btn tag-mgr-confirm';
-        confirmBtn.title = 'Confirm rename';
-        confirmBtn.innerHTML = '<i data-lucide="check" style="width:12px;height:12px;"></i>';
-        btn.replaceWith(confirmBtn);
-        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [confirmBtn] });
-
-        async function doRename() {
-          const newTag = input.value.trim();
-          if (!newTag || newTag === oldTag) { renderDashboard(); return; }
-          const currentSongs = Store.get('songs');
-          let changed = 0;
-          currentSongs.forEach(s => {
-            const tags = s.tags || [];
-            const idx = tags.indexOf(oldTag);
-            if (idx > -1) {
-              tags.splice(idx, 1);
-              if (!tags.includes(newTag)) tags.push(newTag);
-              s.tags = tags;
-              changed++;
-            }
-          });
-          if (changed) {
-            Store.set('songs', currentSongs);
-            await Sync.saveSongs();
-            showToast('Renamed "' + oldTag + '" to "' + newTag + '" in ' + changed + ' song' + (changed !== 1 ? 's' : ''));
-          }
-          renderDashboard();
-        }
-
-        confirmBtn.addEventListener('click', doRename);
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') doRename();
-          if (e.key === 'Escape') renderDashboard();
-        });
-      });
+    // Wire Tag Manager button
+    document.getElementById('dash-open-tag-mgr')?.addEventListener('click', () => {
+      renderTagManager();
     });
 
-    container.querySelectorAll('.tag-mgr-delete').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tag = btn.dataset.tag;
-        Admin.showConfirm('Delete Tag', 'Remove "' + tag + '" from all songs?', async () => {
-          const currentSongs = Store.get('songs');
-          let changed = 0;
-          currentSongs.forEach(s => {
-            const tags = s.tags || [];
-            const idx = tags.indexOf(tag);
-            if (idx > -1) {
-              tags.splice(idx, 1);
-              s.tags = tags;
-              changed++;
-            }
-          });
-          if (changed) {
-            Store.set('songs', currentSongs);
-            await Sync.saveSongs();
-            showToast('Removed "' + tag + '" from ' + changed + ' song' + (changed !== 1 ? 's' : ''));
-          }
-          renderDashboard();
-        });
-      });
+    // Wire User Management button
+    document.getElementById('dash-open-user-mgmt')?.addEventListener('click', () => {
+      renderUserManagement();
     });
 
     // Wire GitHub dashboard buttons
@@ -572,6 +517,411 @@ const Dashboard = (() => {
 
     // Async Drive check
     _renderDriveSection(container, songs, setlists, practice, _codeTag);
+
+  }
+
+  // ─── Tag Manager (subpage) ──────────────────────────────
+
+  function renderTagManager() {
+    Router.pushNav(() => renderDashboard());
+    Router.showView('dashboard');
+    Router.setTopbar('Tag Manager', true);
+
+    const container = document.getElementById('dashboard-content');
+    const songs = Store.get('songs');
+    const tagCounts = {};
+    songs.forEach(s => (s.tags || []).forEach(t => {
+      tagCounts[t] = (tagCounts[t] || 0) + 1;
+    }));
+    const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+
+    let html = '';
+    if (sortedTags.length === 0) {
+      html += `<div class="empty-state" style="padding:40px 20px">
+        <p>No tags in use.</p>
+        <p class="muted">Tags will appear here as you add them to songs.</p>
+      </div>`;
+    } else {
+      html += `<div class="tag-manager-list">`;
+      sortedTags.forEach(([tag, count]) => {
+        html += `<div class="tag-mgr-row" data-tag="${esc(tag)}">
+          <span class="tag-mgr-name">${esc(tag)}</span>
+          <span class="tag-mgr-count">${count} song${count !== 1 ? 's' : ''}</span>
+          <button class="tag-mgr-btn tag-mgr-rename" data-tag="${esc(tag)}" title="Rename">
+            <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+          </button>
+          <button class="tag-mgr-btn tag-mgr-delete" data-tag="${esc(tag)}" title="Delete">
+            <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+          </button>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Wire rename buttons
+    container.querySelectorAll('.tag-mgr-rename').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const oldTag = btn.dataset.tag;
+        const row = btn.closest('.tag-mgr-row');
+        const nameEl = row.querySelector('.tag-mgr-name');
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-input tag-mgr-input';
+        input.value = oldTag;
+        input.style.cssText = 'font-size:13px;padding:4px 8px;width:120px;';
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'tag-mgr-btn tag-mgr-confirm';
+        confirmBtn.title = 'Confirm rename';
+        confirmBtn.innerHTML = '<i data-lucide="check" style="width:12px;height:12px;"></i>';
+        btn.replaceWith(confirmBtn);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [confirmBtn] });
+
+        async function doRename() {
+          const newTag = input.value.trim();
+          if (!newTag || newTag === oldTag) { renderTagManager(); return; }
+          const currentSongs = Store.get('songs');
+          let changed = 0;
+          currentSongs.forEach(s => {
+            const tags = s.tags || [];
+            const idx = tags.indexOf(oldTag);
+            if (idx > -1) {
+              tags.splice(idx, 1);
+              if (!tags.includes(newTag)) tags.push(newTag);
+              s.tags = tags;
+              changed++;
+            }
+          });
+          if (changed) {
+            Store.set('songs', currentSongs);
+            await Sync.saveSongs();
+            showToast('Renamed "' + oldTag + '" to "' + newTag + '" in ' + changed + ' song' + (changed !== 1 ? 's' : ''));
+          }
+          renderTagManager();
+        }
+
+        confirmBtn.addEventListener('click', doRename);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') doRename();
+          if (e.key === 'Escape') renderTagManager();
+        });
+      });
+    });
+
+    // Wire delete buttons
+    container.querySelectorAll('.tag-mgr-delete').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+        Admin.showConfirm('Delete Tag', 'Remove "' + tag + '" from all songs?', async () => {
+          const currentSongs = Store.get('songs');
+          let changed = 0;
+          currentSongs.forEach(s => {
+            const tags = s.tags || [];
+            const idx = tags.indexOf(tag);
+            if (idx > -1) {
+              tags.splice(idx, 1);
+              s.tags = tags;
+              changed++;
+            }
+          });
+          if (changed) {
+            Store.set('songs', currentSongs);
+            await Sync.saveSongs();
+            showToast('Removed "' + tag + '" from ' + changed + ' song' + (changed !== 1 ? 's' : ''));
+          }
+          renderTagManager();
+        });
+      });
+    });
+  }
+
+  // ─── User Management (subpage) ─────────────────────────────
+
+  async function renderUserManagement() {
+    Router.pushNav(() => renderDashboard());
+    Router.showView('dashboard');
+    Router.setTopbar('User Management', true);
+
+    const container = document.getElementById('dashboard-content');
+    container.innerHTML = `<div class="dash-users-loading" style="text-align:center;padding:40px 20px;color:var(--text-3);">Loading users\u2026</div>`;
+
+    try {
+      const users = await Auth.listAllUsers();
+      const roleColors = { owner: 'var(--accent)', admin: '#60a5fa', member: 'var(--text-2)', guest: 'var(--text-3)' };
+      const roleIcons = { owner: 'crown', admin: 'shield', member: 'user', guest: 'eye' };
+
+      let html = `<div style="text-align:center;margin-bottom:16px;">
+        <button class="btn-primary" id="um-add-user" style="font-size:12px;padding:8px 18px;">
+          <i data-lucide="user-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Add User
+        </button>
+      </div>`;
+
+      if (!users || users.length === 0) {
+        html += `<div class="empty-state" style="padding:40px 20px;">
+          <p>No users yet.</p>
+          <p class="muted">Create the first user above.</p>
+        </div>`;
+      } else {
+        html += `<div class="um-user-list">`;
+        users.forEach(u => {
+          const roleColor = roleColors[u.role] || 'var(--text-3)';
+          const roleIcon = roleIcons[u.role] || 'user';
+          const inactive = u.isActive === false;
+          html += `
+            <div class="um-user-card${inactive ? ' um-inactive' : ''}" data-user-id="${esc(u.id)}">
+              <div class="um-user-avatar" style="border-color:${roleColor}">
+                <i data-lucide="${roleIcon}" style="width:18px;height:18px;color:${roleColor}"></i>
+              </div>
+              <div class="um-user-details">
+                <div class="um-user-name-row">
+                  <span class="um-user-display">${esc(u.displayName || u.username)}</span>
+                  <span class="um-user-role" style="color:${roleColor}">${esc(u.role)}</span>
+                  ${inactive ? '<span class="um-disabled-tag">DISABLED</span>' : ''}
+                </div>
+                <span class="um-user-username">@${esc(u.username)}</span>
+              </div>
+              <div class="um-user-actions">
+                ${u.role !== 'owner' ? `
+                  <button class="tag-mgr-btn um-edit-user" data-user-id="${esc(u.id)}" title="Edit user">
+                    <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+                  </button>
+                  <button class="tag-mgr-btn um-delete-user" data-user-id="${esc(u.id)}" data-username="${esc(u.username)}" title="Delete user">
+                    <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+                  </button>
+                ` : ''}
+              </div>
+            </div>`;
+        });
+        html += `</div>`;
+      }
+
+      container.innerHTML = html;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+      // Wire Add User
+      document.getElementById('um-add-user')?.addEventListener('click', () => _showAddUserModal());
+
+      // Wire Edit buttons
+      container.querySelectorAll('.um-edit-user').forEach(btn => {
+        btn.addEventListener('click', () => _showEditUserModal(btn.dataset.userId));
+      });
+
+      // Wire Delete buttons
+      container.querySelectorAll('.um-delete-user').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const username = btn.dataset.username;
+          const userId = btn.dataset.userId;
+          Admin.showConfirm('Delete User', `Permanently delete user "${username}"? This cannot be undone.`, async () => {
+            try {
+              await Auth.deleteExistingUser(userId);
+              showToast(`User "${username}" deleted`);
+              renderUserManagement();
+            } catch (e) {
+              showToast('Delete failed: ' + (e.message || 'unknown error'));
+            }
+          });
+        });
+      });
+
+    } catch (e) {
+      container.innerHTML = `<div class="empty-state" style="padding:40px 20px;">
+        <p style="color:#e87c6a">Failed to load users</p>
+        <p class="muted">${esc(e.message || 'Unknown error')}</p>
+      </div>`;
+    }
+  }
+
+  function _showAddUserModal() {
+    const practice = Store.get('practice') || [];
+    const personaOptions = practice.map(p =>
+      `<option value="${esc(p.id)}">${esc(p.name)}</option>`
+    ).join('');
+
+    const handle = Modal.create({
+      id: 'modal-add-user',
+      content: `
+        <h3>Add User</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;margin:16px 0;">
+          <div>
+            <label class="form-label">Username</label>
+            <input type="text" id="mu-username" class="form-input" placeholder="username" autocomplete="off" maxlength="30">
+          </div>
+          <div>
+            <label class="form-label">Display Name</label>
+            <input type="text" id="mu-display" class="form-input" placeholder="Display Name" maxlength="50">
+          </div>
+          <div>
+            <label class="form-label">Email</label>
+            <input type="email" id="mu-email" class="form-input" placeholder="user@example.com" autocomplete="off" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label">Confirm Email</label>
+            <input type="email" id="mu-email-confirm" class="form-input" placeholder="Re-enter email" autocomplete="off" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label">Password</label>
+            <input type="password" id="mu-password" class="form-input" placeholder="Min 8 chars, mixed case + number + special" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label">Confirm Password</label>
+            <input type="password" id="mu-password-confirm" class="form-input" placeholder="Re-enter password" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label">Role</label>
+            <select id="mu-role" class="form-input">
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+              <option value="guest">Guest (read-only)</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="mu-cancel">Cancel</button>
+          <button class="btn-primary" id="mu-confirm">Create User</button>
+        </div>
+      `,
+    });
+
+    document.getElementById('mu-cancel')?.addEventListener('click', () => handle.hide());
+    document.getElementById('mu-confirm')?.addEventListener('click', async () => {
+      const username = document.getElementById('mu-username').value.trim();
+      const displayName = document.getElementById('mu-display').value.trim();
+      const password = document.getElementById('mu-password').value;
+      const passwordConfirm = document.getElementById('mu-password-confirm').value;
+      const email = document.getElementById('mu-email').value.trim();
+      const emailConfirm = document.getElementById('mu-email-confirm').value.trim();
+      const role = document.getElementById('mu-role').value;
+
+      if (!username || !password || !email) {
+        showToast('Username, email, and password are required');
+        return;
+      }
+      if (email !== emailConfirm) {
+        showToast('Email addresses do not match');
+        return;
+      }
+      const pwError = Admin.validatePassword(password);
+      if (pwError) {
+        showToast(pwError);
+        return;
+      }
+      if (password !== passwordConfirm) {
+        showToast('Passwords do not match');
+        return;
+      }
+
+      const btn = document.getElementById('mu-confirm');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+
+      try {
+        await Auth.createNewUser({ username, password, displayName, email, role });
+        handle.hide();
+        showToast(`User "${username}" created`);
+        renderUserManagement();
+      } catch (e) {
+        showToast('Create failed: ' + (e.message || 'unknown error'));
+        btn.disabled = false;
+        btn.textContent = 'Create User';
+      }
+    });
+    document.getElementById('mu-username')?.focus();
+  }
+
+  async function _showEditUserModal(userId) {
+    let users;
+    try {
+      users = await Auth.listAllUsers();
+    } catch (e) {
+      showToast('Failed to load user');
+      return;
+    }
+    const user = users.find(u => u.id === userId);
+    if (!user) { showToast('User not found'); return; }
+
+    const handle = Modal.create({
+      id: 'modal-edit-user',
+      content: `
+        <h3>Edit User: ${esc(user.displayName || user.username)}</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;margin:16px 0;">
+          <div>
+            <label class="form-label">Username</label>
+            <input type="text" class="form-input" value="${esc(user.username)}" disabled style="opacity:0.5">
+          </div>
+          <div>
+            <label class="form-label">Display Name</label>
+            <input type="text" id="mu-display" class="form-input" value="${esc(user.displayName || '')}" maxlength="50">
+          </div>
+          <div>
+            <label class="form-label">Email</label>
+            <input type="email" id="mu-email" class="form-input" value="${esc(user.email || '')}" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label">Role</label>
+            <select id="mu-role" class="form-input">
+              <option value="member" ${user.role === 'member' ? 'selected' : ''}>Member</option>
+              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+              <option value="guest" ${user.role === 'guest' ? 'selected' : ''}>Guest (read-only)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">New Password (leave blank to keep current)</label>
+            <input type="password" id="mu-password" class="form-input" placeholder="New password" maxlength="100">
+          </div>
+          <div>
+            <label class="form-label" style="display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="mu-active" ${user.isActive !== false ? 'checked' : ''}>
+              Account active
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="mu-cancel">Cancel</button>
+          <button class="btn-primary" id="mu-confirm">Save Changes</button>
+        </div>
+      `,
+    });
+
+    document.getElementById('mu-cancel')?.addEventListener('click', () => handle.hide());
+    document.getElementById('mu-confirm')?.addEventListener('click', async () => {
+      const displayName = document.getElementById('mu-display').value.trim();
+      const email = document.getElementById('mu-email').value.trim();
+      const role = document.getElementById('mu-role').value;
+      const password = document.getElementById('mu-password').value;
+      const isActive = document.getElementById('mu-active').checked;
+
+      const updates = { displayName, email, role, isActive };
+      if (password) {
+        const pwError = Admin.validatePassword(password);
+        if (pwError) {
+          showToast(pwError);
+          return;
+        }
+        updates.password = password;
+      }
+
+      const btn = document.getElementById('mu-confirm');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        await Auth.updateExistingUser(userId, updates);
+        handle.hide();
+        showToast('User updated');
+        renderUserManagement();
+      } catch (e) {
+        showToast('Update failed: ' + (e.message || 'unknown error'));
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+      }
+    });
   }
 
   function _renderDriveSection(container, songs, setlists, practice, _codeTag) {
@@ -1378,6 +1728,8 @@ const Dashboard = (() => {
 
   return {
     renderDashboard,
+    renderTagManager,
+    renderUserManagement,
     runDiagnostics,
   };
 

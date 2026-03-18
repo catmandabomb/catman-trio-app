@@ -52,7 +52,17 @@ const Router = (() => {
 
   function resolveHash(hash) {
     if (!hash || hash === '#' || hash === '') return { view: 'list' };
-    const parts = hash.replace(/^#/, '').split('/');
+    const raw = hash.replace(/^#/, '');
+    // Handle routes with query params (e.g. reset-password?token=...)
+    const [routePart, queryPart] = raw.split('?');
+    const params = {};
+    if (queryPart) {
+      for (const pair of queryPart.split('&')) {
+        const [k, v] = pair.split('=');
+        if (k) params[decodeURIComponent(k)] = v ? decodeURIComponent(v) : '';
+      }
+    }
+    const parts = routePart.split('/');
     switch (parts[0]) {
       case 'song': return { view: 'detail', songId: parts[1] };
       case 'setlists': return { view: 'setlists' };
@@ -61,6 +71,8 @@ const Router = (() => {
         if (parts[1]) return { view: 'practice-detail', personaId: parts[1] };
         return { view: 'practice' };
       case 'dashboard': return { view: 'dashboard' };
+      case 'reset-password': return { view: 'reset-password', token: params.token };
+      case 'verify-email': return { view: 'verify-email', token: params.token };
       default: return { view: 'list' };
     }
   }
@@ -96,8 +108,6 @@ const Router = (() => {
 
     const swap = () => {
       if (!alreadyActive) {
-        // Clean up detail anchor bar when leaving detail view
-        if (currentView === 'detail' && name !== 'detail') _callHook('cleanupDetailAnchors');
         if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
         if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
         if ((currentView === 'practice-detail' || currentView === 'practice-edit') && !name.startsWith('practice')) _callHook('cleanupPractice');

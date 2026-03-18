@@ -61,6 +61,29 @@ const App = (() => {
     Player.stopAll();
   }
 
+  // ─── Auth UI helper ─────────────────────────────────────────
+  function _updateAuthUI() {
+    const btn = document.getElementById('btn-auth-toggle');
+    const addBtn = document.getElementById('btn-add-song');
+    const accountBtn = document.getElementById('btn-account');
+    const setlistsBtn = document.getElementById('btn-setlists');
+    const practiceBtn = document.getElementById('btn-practice');
+    const loggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
+    if (loggedIn) {
+      if (btn) { btn.textContent = 'Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); }
+      addBtn?.classList.toggle('hidden', !Auth.canEditSongs());
+      accountBtn?.classList.remove('hidden');
+      setlistsBtn?.classList.remove('hidden');
+      practiceBtn?.classList.remove('hidden');
+    } else {
+      if (btn) { btn.textContent = 'Log In'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); }
+      addBtn?.classList.add('hidden');
+      accountBtn?.classList.add('hidden');
+      setlistsBtn?.classList.add('hidden');
+      practiceBtn?.classList.add('hidden');
+    }
+  }
+
   function _evictBlobCache() {
     // Collect blob URLs actively used by players — never evict these
     const activeUrls = new Set();
@@ -135,8 +158,15 @@ const App = (() => {
       });
       _cachedPdfSet.add(driveId);
       // Update any visible badges for this driveId
-      document.querySelectorAll(`.pdf-cached-badge[data-cache-id="${driveId}"]`).forEach(el => {
+      document.querySelectorAll(`.pdf-cached-badge[data-cache-id="${CSS.escape(driveId)}"]`).forEach(el => {
         el.classList.add('cached');
+        el.title = 'Available offline';
+        // Swap icon from cloud to cloud-check
+        const icon = el.querySelector('[data-lucide]');
+        if (icon) {
+          icon.setAttribute('data-lucide', 'cloud-check');
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [el] });
+        }
       });
     } catch (err) {
       console.warn('PDF cache send failed:', err);
@@ -298,8 +328,6 @@ const App = (() => {
   function _allKeys() { return Songs.allKeys(); }
   function _filteredSongs() { return Songs.filteredSongs(); }
   function _exitSelectionMode() { Songs.exitSelectionMode(); }
-  function _cleanupDetailAnchors() { Songs.cleanupDetailAnchors(); }
-
   const _isHybridKey = Utils.isHybridKey;
 
 
@@ -311,6 +339,327 @@ const App = (() => {
   function renderSetlistEdit(setlist, isNew, backToList) { Setlists.renderSetlistEdit(setlist, isNew, backToList); }
   async function loadSetlistsInstant() { await Sync.loadSetlistsInstant(); _setlists = Store.get('setlists'); }
   async function saveSetlists(toastMsg) { Store.set('setlists', _setlists); return Sync.saveSetlists(toastMsg); }
+
+  // ─── ACCOUNT MANAGEMENT ─────────────────────────────────────
+
+  function renderAccount() {
+    if (typeof App !== 'undefined' && App.cleanupPlayers) App.cleanupPlayers();
+    Store.set('navStack', []);
+    Router.pushNav(() => renderList());
+    Router.showView('account');
+    Router.setTopbar('My Account', true);
+
+    const user = Auth.getUser();
+    if (!user) return;
+
+    const container = document.getElementById('account-content');
+    const roleLabel = { owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[user.role] || user.role;
+
+    container.innerHTML = `
+      <div class="acct-page">
+        <div class="acct-avatar">
+          <i data-lucide="circle-user" style="width:64px;height:64px;color:var(--accent);"></i>
+        </div>
+        <div class="acct-name">${Utils.esc(user.displayName || user.username)}</div>
+        <div class="acct-role">${Utils.esc(roleLabel)}</div>
+        <div class="acct-username">@${Utils.esc(user.username)}</div>
+
+        <div class="acct-section">
+          <div class="acct-section-title">Email</div>
+          <div class="acct-email-status" style="margin-bottom:8px;">
+            ${user.emailVerified
+              ? '<span style="color:#7ec87e;">Verified</span>'
+              : '<span style="color:#e8a96a;">Not verified</span> — <a href="#" id="acct-resend-verify" style="color:var(--accent);">Resend verification</a>'}
+          </div>
+          <div class="acct-field">
+            <label for="acct-new-email">New Email</label>
+            <input type="email" id="acct-new-email" class="form-input" placeholder="new@email.com" autocomplete="email" maxlength="100" />
+          </div>
+          <div class="acct-field">
+            <label for="acct-confirm-email">Confirm Email</label>
+            <input type="email" id="acct-confirm-email" class="form-input" placeholder="Re-enter email" autocomplete="email" maxlength="100" />
+          </div>
+          <div class="acct-field">
+            <label for="acct-email-pw">Current Password</label>
+            <input type="password" id="acct-email-pw" class="form-input" placeholder="Verify your identity" autocomplete="current-password" />
+          </div>
+          <button class="btn-primary" id="acct-change-email">Update Email</button>
+        </div>
+
+        <div class="acct-section">
+          <div class="acct-section-title">Change Password</div>
+          <div class="acct-field">
+            <label for="acct-current-pw">Current Password</label>
+            <input type="password" id="acct-current-pw" class="form-input" placeholder="Enter current password" autocomplete="current-password" />
+          </div>
+          <div class="acct-field">
+            <label for="acct-new-pw">New Password</label>
+            <input type="password" id="acct-new-pw" class="form-input" placeholder="Min 8 characters" autocomplete="new-password" />
+          </div>
+          <div class="acct-field">
+            <label for="acct-confirm-pw">Confirm New Password</label>
+            <input type="password" id="acct-confirm-pw" class="form-input" placeholder="Repeat new password" autocomplete="new-password" />
+          </div>
+          <button class="btn-primary" id="acct-change-pw">Change Password</button>
+        </div>
+
+        <div class="acct-section acct-logout-section">
+          <button class="btn-secondary" id="acct-logout">Log Out</button>
+        </div>
+      </div>
+    `;
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Resend verification handler
+    container.querySelector('#acct-resend-verify')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const result = await Auth.resendVerification();
+      showToast(result.ok ? 'Verification email sent!' : (result.error || 'Failed'));
+    });
+
+    // Change email handler
+    container.querySelector('#acct-change-email')?.addEventListener('click', async () => {
+      const newEmail = document.getElementById('acct-new-email').value.trim();
+      const confirmEmail = document.getElementById('acct-confirm-email').value.trim();
+      const emailPw = document.getElementById('acct-email-pw').value;
+      if (!newEmail) { showToast('Enter a new email'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) { showToast('Enter a valid email address'); return; }
+      if (newEmail !== confirmEmail) { showToast('Email addresses do not match'); return; }
+      if (!emailPw) { showToast('Enter your current password to change email'); return; }
+      const btn = container.querySelector('#acct-change-email');
+      btn.disabled = true;
+      btn.textContent = 'Updating...';
+      try {
+        const result = await Auth.changeEmail(newEmail, emailPw);
+        if (result.ok) {
+          showToast('Email updated — check your inbox to verify');
+          renderAccount(); // re-render to show new status
+        } else {
+          showToast(result.error || 'Failed to update email');
+          btn.disabled = false;
+          btn.textContent = 'Update Email';
+        }
+      } catch (e) {
+        showToast('Network error — check connection');
+        btn.disabled = false;
+        btn.textContent = 'Update Email';
+      }
+    });
+
+    // Change password handler
+    container.querySelector('#acct-change-pw')?.addEventListener('click', async () => {
+      const currentPw = document.getElementById('acct-current-pw').value;
+      const newPw = document.getElementById('acct-new-pw').value;
+      const confirmPw = document.getElementById('acct-confirm-pw').value;
+
+      if (!currentPw || !newPw) {
+        showToast('Please fill in all password fields');
+        return;
+      }
+      const pwError = Admin.validatePassword(newPw);
+      if (pwError) {
+        showToast(pwError);
+        return;
+      }
+      if (newPw !== confirmPw) {
+        showToast('New passwords do not match');
+        return;
+      }
+
+      const btn = container.querySelector('#acct-change-pw');
+      btn.disabled = true;
+      btn.textContent = 'Changing...';
+
+      try {
+        const result = await Auth.changePassword(currentPw, newPw);
+        if (result.ok) {
+          showToast('Password changed — please log in again');
+          _updateAuthUI();
+          renderList();
+        } else {
+          showToast(result.error || 'Failed to change password');
+          btn.disabled = false;
+          btn.textContent = 'Change Password';
+        }
+      } catch (e) {
+        showToast('Network error — check connection');
+        btn.disabled = false;
+        btn.textContent = 'Change Password';
+      }
+    });
+
+    // Log out handler
+    container.querySelector('#acct-logout')?.addEventListener('click', async () => {
+      await Auth.logout();
+      Admin.resetAdminMode();
+      _updateAuthUI();
+      renderList();
+      showToast('Logged out');
+    });
+  }
+
+  // ─── RESET PASSWORD VIEW ────────────────────────────────────
+
+  function renderResetPassword(token) {
+    Router.showView('account');
+    Router.setTopbar('Reset Password', false);
+
+    const container = document.getElementById('account-content');
+    container.innerHTML = `
+      <div class="acct-page">
+        <div class="acct-avatar">
+          <i data-lucide="key-round" style="width:48px;height:48px;color:var(--accent);"></i>
+        </div>
+        <div class="acct-name" style="margin-bottom:16px;">Set a New Password</div>
+        <div class="acct-section">
+          <div class="acct-field">
+            <label for="reset-new-pw">New Password</label>
+            <input type="password" id="reset-new-pw" class="form-input" placeholder="Min 8 chars, mixed case + number + special" autocomplete="new-password" />
+          </div>
+          <div class="acct-field">
+            <label for="reset-confirm-pw">Confirm Password</label>
+            <input type="password" id="reset-confirm-pw" class="form-input" placeholder="Re-enter password" autocomplete="new-password" />
+          </div>
+          <button class="btn-primary" id="reset-submit">Reset Password</button>
+          <div id="reset-error" style="color:#e87c6a;margin-top:8px;display:none;"></div>
+        </div>
+      </div>
+    `;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    container.querySelector('#reset-submit')?.addEventListener('click', async () => {
+      const newPw = document.getElementById('reset-new-pw').value;
+      const confirmPw = document.getElementById('reset-confirm-pw').value;
+      const errorEl = document.getElementById('reset-error');
+      errorEl.style.display = 'none';
+
+      const pwError = Admin.validatePassword(newPw);
+      if (pwError) {
+        errorEl.textContent = pwError;
+        errorEl.style.display = 'block';
+        return;
+      }
+      if (newPw !== confirmPw) {
+        errorEl.textContent = 'Passwords do not match';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const btn = container.querySelector('#reset-submit');
+      btn.disabled = true;
+      btn.textContent = 'Resetting...';
+
+      try {
+        const result = await Auth.resetPassword(token, newPw);
+        if (result.ok) {
+          showToast('Password reset! Please log in.');
+          location.hash = '#';
+          renderList();
+        } else {
+          errorEl.textContent = result.error || 'Reset failed';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Reset Password';
+        }
+      } catch (e) {
+        errorEl.textContent = 'Network error — check connection';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Reset Password';
+      }
+    });
+  }
+
+  // ─── VERIFY EMAIL VIEW ──────────────────────────────────────
+
+  async function handleVerifyEmail(token) {
+    showToast('Verifying email...');
+    const result = await Auth.verifyEmailToken(token);
+    if (result.ok) {
+      showToast('Email verified!');
+      _updateAuthUI();
+    } else {
+      showToast(result.error || 'Verification failed');
+    }
+    location.hash = '#';
+    renderList();
+  }
+
+  // ─── FORGOT PASSWORD MODAL ─────────────────────────────────
+
+  function showForgotPasswordModal() {
+    const handle = Modal.create({
+      id: 'modal-forgot-password',
+      content: `
+        <h3>Forgot Password</h3>
+        <p class="muted" style="margin:8px 0 16px;">Enter your email and we'll send a reset link.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <input type="email" id="forgot-email" class="form-input" placeholder="your@email.com" autocomplete="email" maxlength="100" />
+          <div id="forgot-msg" style="display:none;margin-top:4px;"></div>
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+          <button class="btn-secondary" id="forgot-cancel">Cancel</button>
+          <button class="btn-primary" id="forgot-submit">Send Reset Link</button>
+        </div>
+      `,
+    });
+
+    document.getElementById('forgot-cancel')?.addEventListener('click', () => handle.hide());
+    document.getElementById('forgot-submit')?.addEventListener('click', async () => {
+      const email = document.getElementById('forgot-email').value.trim();
+      const msgEl = document.getElementById('forgot-msg');
+      if (!email) {
+        msgEl.textContent = 'Please enter your email';
+        msgEl.style.color = '#e87c6a';
+        msgEl.style.display = 'block';
+        return;
+      }
+      const btn = document.getElementById('forgot-submit');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+      try {
+        const result = await Auth.forgotPassword(email);
+        if (result.ok) {
+          msgEl.textContent = result.message || 'If that email is registered, a reset link has been sent.';
+          msgEl.style.color = '#7ec87e';
+        } else {
+          msgEl.textContent = result.error || 'Something went wrong';
+          msgEl.style.color = '#e87c6a';
+        }
+        msgEl.style.display = 'block';
+      } catch (e) {
+        msgEl.textContent = 'Network error — check connection';
+        msgEl.style.color = '#e87c6a';
+        msgEl.style.display = 'block';
+      }
+      btn.textContent = 'Send Reset Link';
+      btn.disabled = false;
+    });
+    document.getElementById('forgot-email')?.focus();
+  }
+
+  // ─── EMAIL VERIFICATION GUARD ──────────────────────────────
+
+  function _checkEmailVerified(featureName) {
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) return false;
+    if (Auth.isEmailVerified()) return true;
+    // Owner with hardcoded email is auto-verified
+    const user = Auth.getUser();
+    if (user && user.role === 'owner') return true;
+    showToast(`Please verify your email to access ${featureName}`);
+    return false;
+  }
+
+  // ─── PASSWORD EXPIRY CHECK ────────────────────────────────
+
+  function _checkPasswordExpiry() {
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) return;
+    if (!Auth.isPasswordExpired()) return;
+    // Show a one-time toast and redirect to account page
+    showToast('Your password has expired — please change it');
+    renderAccount();
+  }
 
   // ─── ADMIN DASHBOARD ────────────────────────────────────────
 
@@ -532,6 +881,11 @@ const App = (() => {
       songList.innerHTML = Array(6).fill('<div class="skeleton-card"></div>').join('');
     }
 
+    // Refresh auth session (non-blocking — uses cached data if offline)
+    if (typeof Auth !== 'undefined') {
+      Auth.refreshSession().catch(e => console.warn('Auth refresh failed:', e));
+    }
+
     // Initialize IndexedDB (before loading data) — with timeout to prevent hanging
     if (typeof IDB !== 'undefined') {
       try {
@@ -665,16 +1019,43 @@ const App = (() => {
       _navigateBack();
     });
 
-    document.getElementById('btn-edit-mode').addEventListener('click', () => {
-      haptic.double(); // mode toggle
-      if (Admin.isEditMode()) {
-        // Already authenticated — go straight to dashboard
-        renderDashboard();
+    // Auth toggle: Log In / Log Out
+    document.getElementById('btn-auth-toggle').addEventListener('click', async () => {
+      haptic.double();
+      if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+        // Logged in — log out
+        await Auth.logout();
+        Admin.resetAdminMode();
+        _updateAuthUI();
+        renderList();
+        showToast('Logged out');
+      } else if (typeof Auth !== 'undefined' && typeof GitHub !== 'undefined' && GitHub.useWorker) {
+        // User accounts available — show login modal
+        Admin.showLoginModal(() => {
+          Admin.resetAdminMode();
+          _updateAuthUI();
+          renderList();
+        });
       } else {
+        // Legacy password flow
         Admin.showPasswordModal(() => {
           Admin.enterEditMode();
-          renderDashboard();
+          _updateAuthUI();
+          renderList();
         });
+      }
+    });
+
+    // Title click: admin/owner → dashboard (invisible click target)
+    document.getElementById('topbar-title').addEventListener('click', () => {
+      if (typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs()) {
+        renderDashboard();
+      }
+    });
+
+    document.getElementById('btn-account').addEventListener('click', () => {
+      if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+        renderAccount();
       }
     });
 
@@ -984,14 +1365,18 @@ const App = (() => {
       }, { passive: true });
     }
 
-    // Setlists button
+    // Setlists button (auth-gated + email verification)
     document.getElementById('btn-setlists').addEventListener('click', () => {
+      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) return;
+      if (!_checkEmailVerified('Setlists')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
       renderSetlists();
     });
 
-    // Practice button
+    // Practice button (auth-gated + email verification)
     document.getElementById('btn-practice').addEventListener('click', () => {
+      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) return;
+      if (!_checkEmailVerified('Practice')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
       renderPractice();
     });
@@ -1060,11 +1445,18 @@ const App = (() => {
     // Deep link: if URL has a hash, navigate to it after data loads
     if (location.hash && location.hash !== '#') {
       const route = _resolveHash(location.hash);
-      if (route.view !== 'list') {
+      if (route.view === 'reset-password' && route.token) {
+        setTimeout(() => renderResetPassword(route.token), 0);
+      } else if (route.view === 'verify-email' && route.token) {
+        setTimeout(() => handleVerifyEmail(route.token), 0);
+      } else if (route.view !== 'list') {
         setTimeout(() => _navigateToRoute(route), 0);
       }
     }
-    Admin.restoreEditMode();
+    // Restore auth UI from Auth login state (replaces old sessionStorage restore)
+    _updateAuthUI();
+    // Check password expiry after auth restore
+    setTimeout(() => _checkPasswordExpiry(), 500);
     _initQueueIndicator();
 
     // Feature 2: iOS Safari install hint (no beforeinstallprompt support)
@@ -1247,10 +1639,11 @@ const App = (() => {
   // dashboard registration handled by js/dashboard.js
 
   return {
-    init, showToast,
+    init, showToast, updateAuthUI: _updateAuthUI,
     renderList, renderDetail, renderEdit,
     renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail,
-    renderDashboard, runDiagnostics,
+    renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
+    handleVerifyEmail, checkEmailVerified: _checkEmailVerified, runDiagnostics,
     hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap,
     revokeBlobCache: _revokeBlobCache,
     cleanupPlayers: _cleanupPlayers,

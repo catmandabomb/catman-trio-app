@@ -245,6 +245,10 @@ const Practice = (() => {
   // ─── PRACTICE -- Persona List View ────────────────────────
 
   function renderPractice(skipNavReset) {
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) {
+      if (typeof showToast !== 'undefined') showToast('Log in to view practice lists');
+      return;
+    }
     _syncFromStore();
     _setRouteParams({});
     App.cleanupPlayers();
@@ -255,39 +259,41 @@ const Practice = (() => {
     _setTopbar('Practice Lists', true);
 
     const container = document.getElementById('practice-list');
+
+    // Collect all practice lists across all personas (flattened)
+    const allLists = [];
+    _practice.forEach(p => {
+      (p.practiceLists || []).filter(l => !l.archived).forEach(pl => {
+        allLists.push({ ...pl, _personaId: p.id, _personaName: p.name });
+      });
+    });
+
     let html = `<div class="view-refresh-row">
       <button class="icon-btn view-refresh-btn" id="btn-refresh-practice" title="Sync from Drive" aria-label="Refresh">
         <i data-lucide="refresh-cw"></i>
       </button>
     </div>`;
 
-    if (Admin.isEditMode()) {
-      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-persona">+ New Persona</button>`;
+    // "Create Practice List" button for authenticated users
+    if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
+      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-practice-list">+ Create Practice List</button>`;
     }
 
-    if (_practice.length === 0) {
+    if (allLists.length === 0) {
       html += `<div class="empty-state" style="padding:40px 20px">
-        <p>No practice personas yet.</p>
-        <p class="muted">${Admin.isEditMode() ? 'Create one above.' : 'Practice personas will appear here.'}</p>
+        <p>No practice lists yet.</p>
+        <p class="muted">${(typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? 'Create one above to get started.' : 'Log in to create practice lists.'}</p>
       </div>`;
     } else {
-      _practice.forEach(p => {
-        const color = safeColor(p.color || hslFromName(p.name));
-        const pLists = (p.practiceLists || []).filter(l => !l.archived);
-        const listCount = pLists.length;
-        const adminBtns = Admin.isEditMode()
-          ? `<button class="song-card-edit-btn persona-edit-btn" data-edit-persona="${esc(p.id)}" title="Edit" aria-label="Edit persona"><i data-lucide="pencil"></i></button>` +
-            `<button class="song-card-edit-btn persona-delete-btn" data-delete-persona="${esc(p.id)}" title="Delete" aria-label="Delete persona"><i data-lucide="trash-2"></i></button>`
-          : '';
+      allLists.forEach(pl => {
+        const songCount = (pl.songs || []).length;
         html += `
-          <div class="persona-card" data-persona-id="${esc(p.id)}">
-            <div class="persona-avatar" style="background:${color}">${personaInitials(p.name)}</div>
-            <div class="persona-card-info">
+          <div class="persona-card practice-list-card" data-practice-list-id="${esc(pl.id)}" data-persona-id="${esc(pl._personaId)}">
+            <div class="persona-card-info" style="padding-left:4px">
               <div class="persona-card-title-row">
-                <span class="persona-card-name">${esc(p.name)}</span>
-                ${adminBtns}
+                <span class="persona-card-name">${esc(pl.name || 'Untitled')}</span>
               </div>
-              <span class="persona-card-count">${listCount} practice list${listCount !== 1 ? 's' : ''}</span>
+              <span class="persona-card-count">${songCount} song${songCount !== 1 ? 's' : ''}</span>
             </div>
           </div>`;
       });
@@ -301,11 +307,50 @@ const Practice = (() => {
       _doSyncRefresh(() => renderPractice(true));
     });
 
-    container.querySelectorAll('.persona-card').forEach(card => {
+    // Wire "Create Practice List" — creates under first persona or new one
+    document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
+      // If no personas exist yet, create a default one
+      if (_practice.length === 0) {
+        const user = (typeof Auth !== 'undefined' && Auth.getUser()) || {};
+        _practice.push({
+          id: Admin.generateId(_practice),
+          name: user.displayName || user.username || 'My Practice',
+          color: '',
+          practiceLists: [],
+        });
+        _syncToStore();
+      }
+      const persona = _practice[0];
+      const newList = {
+        id: Admin.generateId(persona.practiceLists || []),
+        name: '',
+        songs: [],
+        archived: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (!persona.practiceLists) persona.practiceLists = [];
+      persona.practiceLists.push(newList);
+      _syncToStore();
+      savePractice();
+      _editPracticeList = deepClone(newList);
+      _editPracticeListIsNew = true;
+      _activePersona = persona;
+      _renderPracticeListEdit(persona, newList, true);
+    });
+
+    // Wire practice list card clicks
+    container.querySelectorAll('.practice-list-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.persona-edit-btn') || e.target.closest('.persona-delete-btn')) return;
-        const p = _practice.find(x => x.id === card.dataset.personaId);
-        if (p) renderPracticeDetail(p);
+        const personaId = card.dataset.personaId;
+        const listId = card.dataset.practiceListId;
+        const persona = _practice.find(x => x.id === personaId);
+        if (!persona) return;
+        const pl = (persona.practiceLists || []).find(l => l.id === listId);
+        if (pl) {
+          _activePersona = persona;
+          renderPracticeListDetail(persona, pl);
+        }
       });
     });
 
@@ -1082,10 +1127,48 @@ const Practice = (() => {
     });
     html += `</div>`;
 
+    // Numbered jump-to-song sidebar (circled numbers for quick navigation)
+    if (plSongs.length > 1) {
+      html += `<div class="practice-jump-bar" id="practice-jump-bar">`;
+      plSongs.forEach((entry, i) => {
+        const song = songs.find(s => s.id === entry.songId);
+        if (!song) return;
+        html += `<button class="practice-jump-dot" data-jump-idx="${i}" title="${esc(song.title)}">${i + 1}</button>`;
+      });
+      html += `</div>`;
+    }
+
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
     // FEAT-24: Wire metronome in practice mode
     _wireMetronome();
+
+    // Wire jump-to-song sidebar
+    container.querySelectorAll('.practice-jump-dot').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        haptic.tap();
+        const idx = parseInt(btn.dataset.jumpIdx, 10);
+        const item = container.querySelector(`.practice-accordion-item[data-practice-idx="${idx}"]`);
+        if (item) {
+          // Auto-expand the target accordion item
+          const body = item.querySelector('.practice-accordion-body');
+          const chevron = item.querySelector('.accordion-chevron');
+          if (body && body.classList.contains('hidden')) {
+            body.classList.remove('hidden');
+            if (chevron) chevron.style.transform = 'rotate(180deg)';
+            const entry = plSongs[idx];
+            if (entry) { accState.openSet.add(entry.songId); accState.touched = true; }
+          }
+          requestAnimationFrame(() => {
+            item.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+          // Highlight active dot
+          container.querySelectorAll('.practice-jump-dot').forEach(d => d.classList.remove('active'));
+          btn.classList.add('active');
+        }
+      });
+    });
 
     // Per-list accordion state (persists across re-renders within session)
     const listKey = (persona.id || '') + '/' + (practiceList.id || practiceList.name || '');
@@ -1377,6 +1460,7 @@ const Practice = (() => {
   function _exitPracticeMode() {
     _flushPendingNotesSave();
     document.body.classList.remove('practice-mode-active');
+    document.getElementById('practice-jump-bar')?.remove();
     _practicePersona = null;
     _practiceList = null;
     _navigateBack();

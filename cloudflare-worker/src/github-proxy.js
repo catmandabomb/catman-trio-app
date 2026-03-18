@@ -3,10 +3,17 @@
  *
  * Strips the /github prefix, forwards to api.github.com with the
  * server-side PAT, and strips rate-limit headers from the response.
+ *
+ * SECURITY: Only allows access to repos/{OWNER}/{REPO}/ paths.
  */
 
 const GITHUB_API = 'https://api.github.com';
 const FETCH_TIMEOUT_MS = 30000;
+
+// Only allow API paths scoped to the app's repo
+const ALLOWED_OWNER = 'catmandabomb';
+const ALLOWED_REPO  = 'catmantrio';
+const ALLOWED_PREFIX = `/repos/${ALLOWED_OWNER}/${ALLOWED_REPO}/`;
 
 // Headers to strip from GitHub's response (don't leak server PAT rate limits)
 const STRIP_HEADERS = [
@@ -25,7 +32,7 @@ const STRIP_HEADERS = [
  */
 async function proxyToGitHub(request, env) {
   if (!env.GITHUB_PAT) {
-    return new Response(JSON.stringify({ error: 'GitHub PAT not configured' }), {
+    return new Response(JSON.stringify({ error: 'Server configuration error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -34,6 +41,22 @@ async function proxyToGitHub(request, env) {
   // Strip /github prefix to get the real GitHub API path
   const url = new URL(request.url);
   const githubPath = url.pathname.replace(/^\/github/, '') + url.search;
+
+  // SECURITY: Only allow access to the app's repo
+  const pathOnly = url.pathname.replace(/^\/github/, '');
+  // Reject path traversal attempts
+  if (pathOnly.includes('..') || decodeURIComponent(pathOnly).includes('..')) {
+    return new Response(JSON.stringify({ error: 'Forbidden: invalid path' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (!pathOnly.startsWith(ALLOWED_PREFIX)) {
+    return new Response(JSON.stringify({ error: 'Forbidden: path not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   // Build proxied request
   const headers = new Headers();
@@ -70,8 +93,8 @@ async function proxyToGitHub(request, env) {
       statusText: ghResp.statusText,
       headers: respHeaders,
     });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: 'GitHub API request failed', detail: e.message }), {
+  } catch (_) {
+    return new Response(JSON.stringify({ error: 'GitHub API request failed' }), {
       status: 502,
       headers: { 'Content-Type': 'application/json' },
     });
