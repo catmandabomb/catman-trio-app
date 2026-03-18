@@ -377,7 +377,7 @@ function _buildSetlistTimingHTML(songEntries) {
       missingCount++;
     }
   });
-  if (totalSecs === 0 && missingCount === 0) return '';
+  if (totalSecs === 0) return '';
   let timeStr;
   if (totalSecs >= 3600) {
     const h = Math.floor(totalSecs / 3600);
