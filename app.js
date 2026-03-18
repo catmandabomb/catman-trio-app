@@ -959,7 +959,13 @@ const App = (() => {
       _navStack = []; // Clear in-app nav stack to prevent desync with browser history
       try {
         const route = _resolveHash(location.hash);
-        _navigateToRoute(route);
+        if (route.view === 'verify-email' && route.token) {
+          handleVerifyEmail(route.token);
+        } else if (route.view === 'reset-password' && route.token) {
+          renderResetPassword(route.token);
+        } else {
+          _navigateToRoute(route);
+        }
       } finally {
         _isPopstateNavigation = false;
         Store.set('isPopstateNavigation', false);
