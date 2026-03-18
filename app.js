@@ -1429,6 +1429,10 @@ const App = (() => {
       _showWelcomeOverlay();
     }
 
+    // Capture deep link BEFORE renderList (which clears the hash)
+    const startHash = location.hash;
+    const startRoute = (startHash && startHash !== '#') ? _resolveHash(startHash) : null;
+
     renderList();
 
     // Dismiss splash immediately — fade out and remove
@@ -1439,15 +1443,14 @@ const App = (() => {
       setTimeout(() => splash.remove(), 300);
     }
 
-    // Deep link: if URL has a hash, navigate to it after data loads
-    if (location.hash && location.hash !== '#') {
-      const route = _resolveHash(location.hash);
-      if (route.view === 'reset-password' && route.token) {
-        setTimeout(() => renderResetPassword(route.token), 0);
-      } else if (route.view === 'verify-email' && route.token) {
-        setTimeout(() => handleVerifyEmail(route.token), 0);
-      } else if (route.view !== 'list') {
-        setTimeout(() => _navigateToRoute(route), 0);
+    // Deep link: navigate to captured hash route after data loads
+    if (startRoute) {
+      if (startRoute.view === 'reset-password' && startRoute.token) {
+        setTimeout(() => renderResetPassword(startRoute.token), 0);
+      } else if (startRoute.view === 'verify-email' && startRoute.token) {
+        setTimeout(() => handleVerifyEmail(startRoute.token), 0);
+      } else if (startRoute.view !== 'list') {
+        setTimeout(() => _navigateToRoute(startRoute), 0);
       }
     }
     // Restore auth UI from Auth login state (replaces old sessionStorage restore)
