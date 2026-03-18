@@ -1535,8 +1535,25 @@ function _renderLiveMode(setlist) {
       if (page.half === 'top') chartArea.classList.add('half-top');
       else if (page.half === 'bottom') chartArea.classList.add('half-bottom');
 
-      // Null guard — if PDF not yet loaded, leave as loading state
-      if (!page.pdfDoc) return Promise.resolve();
+      // If PDF not yet loaded, wait for it (up to 12s) then render
+      if (!page.pdfDoc) {
+        return new Promise(resolve => {
+          let waited = 0;
+          const check = () => {
+            if (!_liveModeActive || parseInt(slide.dataset.renderGen, 10) !== gen) { resolve(); return; }
+            const current = _pages[pageIdx];
+            if (current && current.pdfDoc) {
+              _renderPageIntoSlide(slide, pageIdx).then(resolve);
+            } else if (waited < 12000) {
+              waited += 200;
+              setTimeout(check, 200);
+            } else {
+              resolve(); // give up after 12s
+            }
+          };
+          setTimeout(check, 200);
+        });
+      }
 
       return PDFViewer.renderToCanvasCached(page.pdfDoc, page.pageNum, canvas, chartArea, cw)
         .then(() => {

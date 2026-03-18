@@ -3,7 +3,7 @@
  */
 
 import * as Store from './js/store.js';
-import { esc, deepClone, timeAgo, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform, isHybridKey } from './js/utils.js';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js';
 import * as Modal from './js/modal.js';
 import * as Router from './js/router.js';
 import * as Sync from './js/sync.js';
@@ -18,8 +18,6 @@ import * as Practice from './js/practice.js';
 import * as Dashboard from './js/dashboard.js';
 import * as Migrate from './js/migrate.js';
 import * as IDB from './idb.js';
-import * as Metronome from './metronome.js';
-import * as PDFViewer from './pdf-viewer.js';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -352,7 +350,6 @@ let _cachedPdfSet = new Set();
   function _allKeys() { return Songs.allKeys(); }
   function _filteredSongs() { return Songs.filteredSongs(); }
   function _exitSelectionMode() { Songs.exitSelectionMode(); }
-  const _isHybridKey = isHybridKey;
 
 
   // (Song list/detail/edit code extracted to js/songs.js)
