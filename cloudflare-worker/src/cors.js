@@ -6,7 +6,8 @@
  */
 
 const ALLOWED_ORIGINS = [
-  'https://catmandabomb.github.io',
+  'https://trio.catmanbeats.com',
+  'https://catmandabomb.github.io',  // keep during transition
   'http://localhost:8080',      // local dev
   'http://127.0.0.1:8080',
 ];

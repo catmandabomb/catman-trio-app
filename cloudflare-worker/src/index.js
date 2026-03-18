@@ -62,12 +62,12 @@ async function parseBody(request) {
 }
 
 function _safeAppUrl(env) {
-  const raw = env.APP_URL || 'https://catmandabomb.github.io/catmantrio';
+  const raw = env.APP_URL || 'https://trio.catmanbeats.com';
   try {
     const u = new URL(raw);
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'https://catmandabomb.github.io/catmantrio';
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'https://trio.catmanbeats.com';
     return u.origin + u.pathname.replace(/\/+$/, '');
-  } catch { return 'https://catmandabomb.github.io/catmantrio'; }
+  } catch { return 'https://trio.catmanbeats.com'; }
 }
 
 /**
