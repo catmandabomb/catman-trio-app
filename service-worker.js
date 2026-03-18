@@ -347,24 +347,20 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Shell assets: cache-first (ignoreSearch so ?v= params match pre-cached files)
+  // Shell assets: network-first so version bumps take effect immediately;
+  // fall back to cache when offline (ignoreSearch so ?v= params match pre-cached files)
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(cached => {
-      return cached || fetch(e.request).then(resp => {
-        if (e.request.method === 'GET' && resp.status === 200) {
-          const url = new URL(e.request.url);
-          if (SHELL_ASSETS.some(a => url.pathname.endsWith(a) || url.pathname === a)) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-          }
-        }
-        return resp;
-      });
-    }).catch(() => {
-      // Offline fallback for any missed navigation
-      if (e.request.destination === 'document') {
-        return caches.match('/index.html');
+    fetch(e.request).then(resp => {
+      if (e.request.method === 'GET' && resp.status === 200) {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
       }
-    })
+      return resp;
+    }).catch(() =>
+      caches.match(e.request, { ignoreSearch: true }).then(cached => {
+        if (cached) return cached;
+        if (e.request.destination === 'document') return caches.match('/index.html');
+      })
+    )
   );
 });
