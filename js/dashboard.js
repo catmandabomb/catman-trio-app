@@ -497,6 +497,17 @@ function renderDashboard() {
         <span class="muted">Loading…</span>
       </div>
     </div>`;
+
+    // ── Active Sessions ──
+    html += `
+    <div class="dash-section" style="margin-top:24px;">
+      <div class="dash-section-title">
+        <i data-lucide="monitor-smartphone" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Active Sessions
+      </div>
+      <div id="dash-sessions-list" style="margin-top:8px;font-size:13px;">
+        <span class="muted">Loading\u2026</span>
+      </div>
+    </div>`;
   }
 
   container.innerHTML = html;
@@ -878,6 +889,39 @@ function renderDashboard() {
         serverErrorsEl.innerHTML = '<span class="muted">Could not fetch server errors</span>';
       }
     })();
+  }
+
+  // Load active sessions
+  const sessionsEl = document.getElementById('dash-sessions-list');
+  if (sessionsEl && Auth.listSessions) {
+    Auth.listSessions().then(sessions => {
+      if (!sessions || sessions.length === 0) {
+        sessionsEl.innerHTML = '<span class="muted">No active sessions</span>';
+        return;
+      }
+      sessionsEl.innerHTML = sessions.map(s => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:13px;color:var(--text);">${esc(s.deviceInfo || 'Unknown device')}</div>
+            <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
+          </div>
+          ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
+        </div>
+      `).join('');
+      sessionsEl.querySelectorAll('[data-revoke-session]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await Auth.revokeSession(btn.dataset.revokeSession);
+            showToast('Session revoked');
+            btn.closest('div[style]').remove();
+          } catch (e) {
+            showToast(e.message || 'Failed to revoke');
+          }
+        });
+      });
+    }).catch(() => {
+      sessionsEl.innerHTML = '<span class="muted">Could not load sessions</span>';
+    });
   }
 
   // Async Drive check

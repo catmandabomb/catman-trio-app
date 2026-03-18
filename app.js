@@ -448,10 +448,6 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
-        <div class="acct-section" id="acct-sessions-section">
-          <div class="acct-section-title"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>Active Sessions</div>
-          <div id="acct-sessions-list" class="muted" style="font-size:13px;">Loading sessions\u2026</div>
-        </div>
 
       </div>
     `;
@@ -555,39 +551,6 @@ let _cachedPdfSet = new Set();
         btn.textContent = 'Change Password';
       }
     });
-
-    // Load sessions asynchronously
-    if (Auth.listSessions) {
-      Auth.listSessions().then(sessions => {
-        const sessContainer = document.getElementById('acct-sessions-list');
-        if (!sessContainer) return;
-        if (!sessions || sessions.length === 0) {
-          sessContainer.innerHTML = '<p class="muted">No active sessions</p>';
-          return;
-        }
-        sessContainer.innerHTML = sessions.map(s => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
-            <div>
-              <div style="font-size:13px;color:var(--text);">${esc(s.deviceInfo || 'Unknown device')}</div>
-              <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
-            </div>
-            ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
-          </div>
-        `).join('');
-        sessContainer.querySelectorAll('[data-revoke-session]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            try {
-              await Auth.revokeSession(btn.dataset.revokeSession);
-              showToast('Session revoked');
-              btn.closest('div[style]').remove();
-            } catch (e) {
-              showToast(e.message || 'Failed to revoke');
-            }
-          });
-        });
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-      }).catch(() => {});
-    }
 
   }
 
@@ -1147,8 +1110,7 @@ let _cachedPdfSet = new Set();
     document.getElementById('topbar-title').addEventListener('click', () => {
       const onSongList = Store.get('view') === 'list';
       const isAdmin = Auth.isLoggedIn() && Auth.canEditSongs();
-      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      if (onSongList && isAdmin && !isMobile) {
+      if (onSongList && isAdmin) {
         renderDashboard();
       } else {
         renderList();
@@ -1272,6 +1234,7 @@ let _cachedPdfSet = new Set();
 
     // Topbar refresh button (shown on setlists/practice views — syncs data only)
     document.getElementById('btn-topbar-refresh')?.addEventListener('click', () => {
+      if (!Auth.isLoggedIn()) return;
       Sync.doSyncRefresh();
     });
 
@@ -1291,7 +1254,7 @@ let _cachedPdfSet = new Set();
       }
 
       songListScroll.addEventListener('touchstart', (e) => {
-        if (_view !== 'list' || Store.get('selectionMode') || _getScrollTop() > 5) return;
+        if (!Auth.isLoggedIn() || _view !== 'list' || Store.get('selectionMode') || _getScrollTop() > 5) return;
         _ptrStartY = e.touches[0].clientY;
         _ptrActive = true;
         _ptrPulling = false;

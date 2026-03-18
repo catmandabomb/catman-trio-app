@@ -2,10 +2,11 @@
  * users.js — User management endpoints
  *
  * Handles user CRUD operations and password hashing.
- * All passwords are hashed with PBKDF2 (600k iterations, SHA-256).
+ * All passwords are hashed with PBKDF2 (100k iterations, SHA-256).
+ * Note: Cloudflare Workers cap PBKDF2 at 100k iterations.
  */
 
-const PBKDF2_ITERATIONS = 600000;
+const PBKDF2_ITERATIONS = 100000;
 const SESSION_TTL_DAYS = 30;     // Sliding window TTL (reduced from 90d for security)
 const SESSION_MAX_LIFETIME = 365; // Absolute max session lifetime in days (1 year)
 
@@ -32,18 +33,12 @@ async function hashPassword(password) {
   return 'pbkdf2:' + salt + ':' + hashHex;
 }
 
-const LEGACY_ITERATIONS = 100000; // Old iteration count for backward compat
-
 async function verifyPassword(password, stored) {
   if (!stored.startsWith('pbkdf2:')) return false;
   const parts = stored.split(':');
   if (parts.length !== 3) return false;
-  // Try current iteration count first
   const computed = await hashPassword_withIterations(password, parts[1], PBKDF2_ITERATIONS);
   if (timingSafeEqual(computed, stored)) return true;
-  // Fall back to legacy iteration count (100k) for pre-upgrade hashes
-  const legacy = await hashPassword_withIterations(password, parts[1], LEGACY_ITERATIONS);
-  if (timingSafeEqual(legacy, stored)) return 'needs_rehash';
   return false;
 }
 
