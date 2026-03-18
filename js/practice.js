@@ -309,7 +309,11 @@ const Practice = (() => {
 
     // Wire "Create Practice List" — creates under first persona or new one
     document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
-      // If no personas exist yet, create a default one
+      // If no personas exist yet, create a default one (requires edit permission)
+      if (_practice.length === 0 && (!Admin.isEditMode || !Admin.isEditMode())) {
+        Utils.showToast('An admin must create the first persona');
+        return;
+      }
       if (_practice.length === 0) {
         const user = (typeof Auth !== 'undefined' && Auth.getUser()) || {};
         _practice.push({

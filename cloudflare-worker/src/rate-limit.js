@@ -31,8 +31,11 @@ async function checkRateLimit(request, env) {
   const isLogin = url.pathname === '/auth/login' && request.method === 'POST';
   const isRegister = url.pathname === '/auth/register' && request.method === 'POST';
   const isReset = url.pathname === '/auth/forgot-password' && request.method === 'POST';
-  const limit = (isLogin || isRegister) ? LOGIN_RATE_LIMIT : isReset ? RESET_RATE_LIMIT : RATE_LIMIT;
-  const prefix = isLogin ? 'login' : isRegister ? 'register' : isReset ? 'reset' : 'rate';
+  const isResetConsume = url.pathname === '/auth/reset-password' && request.method === 'POST';
+  const isSetup = url.pathname === '/setup/init' && request.method === 'POST';
+  const isSensitive = isLogin || isRegister || isResetConsume || isSetup;
+  const limit = isSensitive ? LOGIN_RATE_LIMIT : isReset ? RESET_RATE_LIMIT : RATE_LIMIT;
+  const prefix = isLogin ? 'login' : isRegister ? 'register' : isReset ? 'reset' : isResetConsume ? 'resetpw' : isSetup ? 'setup' : 'rate';
   const key = `${prefix}:${ip}:${window}`;
 
   try {
@@ -49,7 +52,7 @@ async function checkRateLimit(request, env) {
     });
     // For sensitive endpoints (login, reset), add a secondary D1-based
     // check if available — D1 UPDATE is atomic
-    if ((isLogin || isRegister || isReset) && env.DB) {
+    if ((isSensitive || isReset) && env.DB) {
       try {
         // Atomic increment in D1 as a second line of defense
         await env.DB.prepare(

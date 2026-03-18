@@ -141,6 +141,10 @@ const Admin = (() => {
   }
 
   function enterEditMode() {
+    // Require auth when Worker is active
+    if (typeof GitHub !== 'undefined' && GitHub.useWorker) {
+      if (typeof Auth === 'undefined' || !Auth.isLoggedIn() || !Auth.canEditSongs()) return;
+    }
     _adminModeActive = true;
     document.getElementById('btn-add-song')?.classList.remove('hidden');
   }
@@ -150,9 +154,9 @@ const Admin = (() => {
     document.getElementById('btn-add-song')?.classList.add('hidden');
   }
 
-  /** Reset admin mode to true — called on fresh login */
-  function resetAdminMode() {
-    _adminModeActive = true;
+  /** Reset admin mode — called on login (true) and logout (false) */
+  function resetAdminMode(active) {
+    _adminModeActive = active !== false;
   }
 
   /** Expose internal toggle state for dashboard UI */
@@ -759,9 +763,16 @@ const Admin = (() => {
         }
         if (_cancelled) return;
         if (result.ok) {
-          const successLabel = result.needsLogin
-            ? 'Account created! Please log in.'
-            : (_setupMode || _registerMode) ? 'Account created!' : 'Signed in!';
+          let successLabel;
+          if (result.needsLogin) {
+            successLabel = 'Account created! Please log in.';
+          } else if (_registerMode && result.emailSent === false) {
+            successLabel = 'Account created! Verify email from your profile.';
+          } else if (_setupMode || _registerMode) {
+            successLabel = 'Account created!';
+          } else {
+            successLabel = 'Signed in!';
+          }
           error.textContent = successLabel;
           error.style.color = '#7ec87e';
           password.value = '';

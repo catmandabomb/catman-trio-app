@@ -183,7 +183,7 @@ const Auth = (() => {
       }
       // If server returned 201 but no token (session creation failed),
       // account was still created — user needs to log in manually
-      return { ok: true, user: data.user, needsLogin: !data.token };
+      return { ok: true, user: data.user, needsLogin: !data.token, emailSent: !!data.emailSent };
     } catch (e) {
       return { ok: false, error: e.message || 'Network error' };
     }

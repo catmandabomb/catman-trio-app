@@ -353,23 +353,20 @@ const App = (() => {
     if (!user) return;
 
     const container = document.getElementById('account-content');
-    const roleLabel = { owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[user.role] || user.role;
 
     container.innerHTML = `
       <div class="acct-page">
         <div class="acct-avatar">
           <i data-lucide="circle-user" style="width:64px;height:64px;color:var(--accent);"></i>
         </div>
-        <div class="acct-name">${Utils.esc(user.displayName || user.username)}</div>
-        <div class="acct-role">${Utils.esc(roleLabel)}</div>
-        <div class="acct-username">@${Utils.esc(user.username)}</div>
+        <div class="acct-username" style="font-size:18px;font-weight:600;margin-top:8px;">@${Utils.esc(user.username)}</div>
 
         <div class="acct-section">
           <div class="acct-section-title">Email</div>
           <div class="acct-email-status" style="margin-bottom:8px;">
             ${user.emailVerified
               ? '<span style="color:#7ec87e;">Verified</span>'
-              : '<span style="color:#e8a96a;">Not verified</span> — <a href="#" id="acct-resend-verify" style="color:var(--accent);">Resend verification</a>'}
+              : '<span style="color:#e8a96a;">Not verified</span><button id="acct-resend-verify" class="btn-secondary" style="margin-left:12px;padding:6px 16px;font-size:13px;">Resend Verification Email</button>'}
           </div>
           <div class="acct-field">
             <label for="acct-new-email">New Email</label>
@@ -412,10 +409,14 @@ const App = (() => {
     if (typeof lucide !== 'undefined') lucide.createIcons();
 
     // Resend verification handler
-    container.querySelector('#acct-resend-verify')?.addEventListener('click', async (e) => {
-      e.preventDefault();
+    const resendBtn = container.querySelector('#acct-resend-verify');
+    resendBtn?.addEventListener('click', async () => {
+      resendBtn.disabled = true;
+      resendBtn.textContent = 'Sending\u2026';
       const result = await Auth.resendVerification();
-      showToast(result.ok ? 'Verification email sent!' : (result.error || 'Failed'));
+      showToast(result.ok ? 'Verification email sent!' : (result.error || 'Failed to send email'));
+      resendBtn.textContent = result.ok ? 'Sent!' : 'Resend Verification Email';
+      if (!result.ok) resendBtn.disabled = false;
     });
 
     // Change email handler
@@ -492,7 +493,7 @@ const App = (() => {
     // Log out handler
     container.querySelector('#acct-logout')?.addEventListener('click', async () => {
       await Auth.logout();
-      Admin.resetAdminMode();
+      Admin.resetAdminMode(false);
       _updateAuthUI();
       renderList();
       showToast('Logged out');
@@ -867,12 +868,11 @@ const App = (() => {
   async function init() {
     // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
     if (typeof Migrate !== 'undefined') Migrate.runAll();
-    const _splashStart = Date.now();
-    // Safety: dismiss splash screen after 6s no matter what (don't strand user)
+    // Safety: dismiss splash after 2.5s no matter what (don't strand user)
     const _splashSafety = setTimeout(() => {
       const s = document.getElementById('splash-screen');
       if (s) { s.classList.add('fade-out'); setTimeout(() => s.remove(), 300); }
-    }, 6000);
+    }, 2500);
 
     // Show loading skeleton immediately so the user sees activity on cold start
     // (must happen before any await to avoid black-screen perception)
@@ -1025,7 +1025,7 @@ const App = (() => {
       if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
         // Logged in — log out
         await Auth.logout();
-        Admin.resetAdminMode();
+        Admin.resetAdminMode(false);
         _updateAuthUI();
         renderList();
         showToast('Logged out');
@@ -1425,21 +1425,12 @@ const App = (() => {
 
     renderList();
 
-    // BUG-01: Dismiss splash with minimum hold time + double-rAF paint settling
+    // Dismiss splash immediately — fade out and remove
     clearTimeout(_splashSafety);
     const splash = document.getElementById('splash-screen');
     if (splash) {
-      const elapsed = Date.now() - _splashStart;
-      const minHold = Math.max(0, 800 - elapsed);
-      setTimeout(() => {
-        // Double-rAF ensures layout reflow is complete before fade
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            splash.classList.add('fade-out');
-            setTimeout(() => splash.remove(), 300);
-          });
-        });
-      }, minHold);
+      splash.classList.add('fade-out');
+      setTimeout(() => splash.remove(), 300);
     }
 
     // Deep link: if URL has a hash, navigate to it after data loads

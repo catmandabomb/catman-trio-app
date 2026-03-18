@@ -18,7 +18,8 @@ const Dashboard = (() => {
   function renderDashboard() {
     // Auth guard — only logged-in admins/owners can access dashboard
     if (typeof Auth === 'undefined' || !Auth.isLoggedIn() || !Auth.canEditSongs()) {
-      if (typeof showToast !== 'undefined') showToast('Access denied');
+      if (typeof Utils !== 'undefined') Utils.showToast('Access denied');
+      if (typeof Router !== 'undefined') location.hash = '#';
       return;
     }
     Store.set('currentRouteParams', {});
@@ -393,7 +394,7 @@ const Dashboard = (() => {
     // Wire Log Out button
     document.getElementById('dash-logout')?.addEventListener('click', async () => {
       await Auth.logout();
-      Admin.resetAdminMode();
+      Admin.resetAdminMode(false);
       App.updateAuthUI();
       App.renderList();
       Utils.showToast('Logged out');
@@ -645,6 +646,10 @@ const Dashboard = (() => {
   // ─── User Management (subpage) ─────────────────────────────
 
   async function renderUserManagement() {
+    if (!Auth.canManageUsers()) {
+      Utils.showToast('Access denied');
+      return;
+    }
     Router.pushNav(() => renderDashboard());
     Router.showView('dashboard');
     Router.setTopbar('User Management', true);

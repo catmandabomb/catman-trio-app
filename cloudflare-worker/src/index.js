@@ -97,6 +97,7 @@ async function authenticateRequest(request, env) {
 
 export default {
   async fetch(request, env) {
+    try {
     const url = new URL(request.url);
     const method = request.method;
     const path = url.pathname;
@@ -307,13 +308,14 @@ export default {
         return withCors(request, json({ error: 'Registration failed' }, 400));
       }
       // Send verification email
+      let emailSent = false;
       if (env.RESEND_API_KEY) {
         try {
           const verifyToken = await createEmailVerifyToken(env.DB, user.id);
           const appUrl = _safeAppUrl(env);
           const verifyLink = `${appUrl}#verify-email?token=${verifyToken}`;
           const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
-          await fetch('https://api.resend.com/emails', {
+          const emailResp = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${env.RESEND_API_KEY}`,
@@ -329,7 +331,13 @@ export default {
                 <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
             }),
           });
-        } catch (_) { /* email send failure is non-fatal */ }
+          emailSent = emailResp.ok;
+          if (!emailResp.ok) {
+            console.error('Resend error on register:', await emailResp.text().catch(() => 'unknown'));
+          }
+        } catch (e) {
+          console.error('Email send failed on register:', e.message || e);
+        }
       }
       // Create session
       const deviceInfo = request.headers.get('User-Agent') || null;
@@ -356,6 +364,7 @@ export default {
           emailVerified: false,
           passwordExpired: false,
         },
+        emailSent,
       }, 201));
     }
 
@@ -399,7 +408,13 @@ export default {
         await env.DB.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').bind(user.id).run();
       } catch (_) {}
       const deviceInfo = request.headers.get('User-Agent') || null;
-      const session = await createSession(env.DB, user.id, deviceInfo);
+      let session;
+      try {
+        session = await createSession(env.DB, user.id, deviceInfo);
+      } catch (_) {
+        user.emailVerified = true;
+        return withCors(request, json({ ok: true, message: 'Account created — please log in', user }, 201));
+      }
       user.emailVerified = true;
       return withCors(request, json({ token: session.token, expires: session.expires, user }, 201));
     }
@@ -520,7 +535,7 @@ export default {
           const appUrl = _safeAppUrl(env);
           const verifyLink = `${appUrl}#verify-email?token=${verifyToken}`;
           const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
-          await fetch('https://api.resend.com/emails', {
+          const emailResp = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${env.RESEND_API_KEY}`,
@@ -536,7 +551,16 @@ export default {
                 <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
             }),
           });
-        } catch (_) { /* silently fail */ }
+          if (!emailResp.ok) {
+            console.error('Resend error on resend-verification:', await emailResp.text().catch(() => 'unknown'));
+            return withCors(request, json({ ok: false, error: 'Email service error — try again later' }, 502));
+          }
+        } catch (e) {
+          console.error('Email send failed on resend-verification:', e.message || e);
+          return withCors(request, json({ ok: false, error: 'Email service error — try again later' }, 502));
+        }
+      } else {
+        return withCors(request, json({ ok: false, error: 'Email service not configured' }, 500));
       }
       return withCors(request, json({ ok: true, message: 'Verification email sent' }));
     }
@@ -562,8 +586,11 @@ export default {
       return withCors(request, json({ user: currentUser }));
     }
 
-    // ─── GET /auth/key — encryption key seed ─────────
+    // ─── GET /auth/key — encryption key seed (owner/admin only) ─────────
     if (path === '/auth/key' && method === 'GET') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return withCors(request, json({ error: 'Admin access required' }, 403));
+      }
       return withCors(request, handleGetKey(env));
     }
 
@@ -856,5 +883,11 @@ export default {
 
     // ─── 404 — unknown route ─────────────────────────
     return withCors(request, json({ error: 'Not found' }, 404));
+
+    } catch (e) {
+      // Top-level safety net — prevent bare 500s leaking stack traces
+      console.error('Unhandled Worker error:', e.message || e);
+      return withCors(request, json({ error: 'Internal error' }, 500));
+    }
   },
 };
