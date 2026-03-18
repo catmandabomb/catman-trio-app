@@ -360,44 +360,48 @@ const App = (() => {
           <i data-lucide="circle-user" style="width:64px;height:64px;color:var(--accent);"></i>
         </div>
         <div class="acct-username" style="font-size:18px;font-weight:600;margin-top:8px;">@${Utils.esc(user.username)}</div>
-
-        <div class="acct-section">
-          <div class="acct-section-title">Email</div>
-          <div class="acct-email-status" style="margin-bottom:8px;">
-            ${user.emailVerified
-              ? '<span style="color:#7ec87e;">Verified</span>'
-              : '<span style="color:#e8a96a;">Not verified</span><button id="acct-resend-verify" class="btn-secondary" style="margin-left:12px;padding:6px 16px;font-size:13px;">Resend Verification Email</button>'}
-          </div>
-          <div class="acct-field">
-            <label for="acct-new-email">New Email</label>
-            <input type="email" id="acct-new-email" class="form-input" placeholder="new@email.com" autocomplete="email" maxlength="100" />
-          </div>
-          <div class="acct-field">
-            <label for="acct-confirm-email">Confirm Email</label>
-            <input type="email" id="acct-confirm-email" class="form-input" placeholder="Re-enter email" autocomplete="email" maxlength="100" />
-          </div>
-          <div class="acct-field">
-            <label for="acct-email-pw">Current Password</label>
-            <input type="password" id="acct-email-pw" class="form-input" placeholder="Verify your identity" autocomplete="current-password" />
-          </div>
-          <button class="btn-primary" id="acct-change-email">Update Email</button>
+        <div class="acct-verify-status">
+          ${user.emailVerified
+            ? '<span class="acct-verified"><i data-lucide="badge-check" style="width:14px;height:14px;"></i> Verified</span>'
+            : '<span class="acct-unverified">Unverified</span><button id="acct-resend-verify" class="btn-secondary acct-verify-btn">Resend Verification Email</button>'}
         </div>
 
         <div class="acct-section">
-          <div class="acct-section-title">Change Password</div>
-          <div class="acct-field">
-            <label for="acct-current-pw">Current Password</label>
-            <input type="password" id="acct-current-pw" class="form-input" placeholder="Enter current password" autocomplete="current-password" />
+          <button class="acct-section-toggle" id="acct-toggle-email"><i data-lucide="mail" style="width:16px;height:16px;"></i> Change Email <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <div class="acct-section-body" id="acct-email-body" style="display:none;">
+            <div class="acct-field">
+              <label for="acct-new-email">New Email</label>
+              <input type="email" id="acct-new-email" class="form-input" placeholder="new@email.com" autocomplete="email" maxlength="100" />
+            </div>
+            <div class="acct-field">
+              <label for="acct-confirm-email">Confirm Email</label>
+              <input type="email" id="acct-confirm-email" class="form-input" placeholder="Re-enter email" autocomplete="email" maxlength="100" />
+            </div>
+            <div class="acct-field">
+              <label for="acct-email-pw">Current Password</label>
+              <input type="password" id="acct-email-pw" class="form-input" placeholder="Verify your identity" autocomplete="current-password" />
+            </div>
+            <button class="btn-primary" id="acct-change-email">Update Email</button>
           </div>
-          <div class="acct-field">
-            <label for="acct-new-pw">New Password</label>
-            <input type="password" id="acct-new-pw" class="form-input" placeholder="Min 8 characters" autocomplete="new-password" />
+        </div>
+
+        <div class="acct-section">
+          <button class="acct-section-toggle" id="acct-toggle-pw"><i data-lucide="lock" style="width:16px;height:16px;"></i> Change Password <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <div class="acct-section-body" id="acct-pw-body" style="display:none;">
+            <div class="acct-field">
+              <label for="acct-current-pw">Current Password</label>
+              <input type="password" id="acct-current-pw" class="form-input" placeholder="Enter current password" autocomplete="current-password" />
+            </div>
+            <div class="acct-field">
+              <label for="acct-new-pw">New Password</label>
+              <input type="password" id="acct-new-pw" class="form-input" placeholder="Min 8 characters" autocomplete="new-password" />
+            </div>
+            <div class="acct-field">
+              <label for="acct-confirm-pw">Confirm New Password</label>
+              <input type="password" id="acct-confirm-pw" class="form-input" placeholder="Repeat new password" autocomplete="new-password" />
+            </div>
+            <button class="btn-primary" id="acct-change-pw">Change Password</button>
           </div>
-          <div class="acct-field">
-            <label for="acct-confirm-pw">Confirm New Password</label>
-            <input type="password" id="acct-confirm-pw" class="form-input" placeholder="Repeat new password" autocomplete="new-password" />
-          </div>
-          <button class="btn-primary" id="acct-change-pw">Change Password</button>
         </div>
 
         <div class="acct-section acct-logout-section">
@@ -407,6 +411,22 @@ const App = (() => {
     `;
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Section toggle handlers
+    container.querySelector('#acct-toggle-email')?.addEventListener('click', () => {
+      const body = container.querySelector('#acct-email-body');
+      const btn = container.querySelector('#acct-toggle-email');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      btn.classList.toggle('open', !open);
+    });
+    container.querySelector('#acct-toggle-pw')?.addEventListener('click', () => {
+      const body = container.querySelector('#acct-pw-body');
+      const btn = container.querySelector('#acct-toggle-pw');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      btn.classList.toggle('open', !open);
+    });
 
     // Resend verification handler
     const resendBtn = container.querySelector('#acct-resend-verify');
