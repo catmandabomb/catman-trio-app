@@ -244,23 +244,6 @@ const Utils = (() => {
     });
   }
 
-  // ─── Practice persona helpers ───────────────────────────────
-
-  function hslFromName(name) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    const h = ((hash % 360) + 360) % 360;
-    return `hsl(${h}, 60%, 55%)`;
-  }
-
-  function safeColor(color) {
-    return /^hsl\(\d+,\s*\d+%,\s*\d+%\)$/.test(color) ? color : hslFromName('default');
-  }
-
-  function personaInitials(name) {
-    return (name || '?').split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
-  }
-
   // ─── Metronome time sig helper ──────────────────────────────
 
   function parseTimeSig(ts) {
@@ -314,9 +297,6 @@ const Utils = (() => {
     levenshtein,
     findSimilarSongsSync,
     findSimilarSongsAsync,
-    hslFromName,
-    safeColor,
-    personaInitials,
     parseTimeSig,
     safeRender,
   };

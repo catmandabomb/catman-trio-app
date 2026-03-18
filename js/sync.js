@@ -203,24 +203,47 @@ const Sync = (() => {
   function migratePracticeData() {
     let changed = false;
     const practice = Store.get('practice');
+    if (!Array.isArray(practice) || practice.length === 0) return;
+
+    // Detect old nested persona format: items with `practiceLists` or `lists` key
+    const isOldFormat = practice.some(item => item.practiceLists || item.lists);
+    if (!isOldFormat) return;
+
+    // Flatten: extract all practice lists from all personas
+    const flat = [];
     practice.forEach(persona => {
+      // Handle ancient format (persona.lists → single practice list)
       if (persona.lists && !persona.practiceLists) {
         persona.practiceLists = [{
           id: Admin.generateId(persona.lists),
           name: 'Practice List',
           archived: false,
           createdAt: new Date().toISOString(),
-          songs: persona.lists
+          songs: persona.lists,
         }];
-        delete persona.lists;
-        changed = true;
       }
-      if (!persona.practiceLists) {
-        persona.practiceLists = [];
-        changed = true;
-      }
+      (persona.practiceLists || []).forEach(pl => {
+        flat.push({
+          id: pl.id,
+          name: pl.name || 'Untitled',
+          songs: pl.songs || [],
+          archived: !!pl.archived,
+          createdAt: pl.createdAt || new Date().toISOString(),
+          updatedAt: pl.updatedAt || new Date().toISOString(),
+          // Best-guess createdBy: use logged-in user if available
+          createdBy: (typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.getUser())
+            ? Auth.getUser().id
+            : 'unknown',
+        });
+      });
+      changed = true;
     });
-    if (changed) _savePracticeLocal(practice);
+
+    if (changed) {
+      Store.set('practice', flat);
+      _savePracticeLocal(flat);
+      console.info('Migrated practice data: flattened', practice.length, 'personas →', flat.length, 'lists');
+    }
   }
 
   // ─── Data fingerprinting (avoids JSON.stringify for comparison) ──
@@ -398,9 +421,7 @@ const Sync = (() => {
       Router.rerenderCurrentView();
     } else if (view === 'practice') {
       Router.rerenderCurrentView();
-    } else if (view === 'practice-detail' && Store.get('activePersona')) {
-      const fresh = practice.find(p => p.id === Store.get('activePersona').id);
-      if (fresh) Store.set('activePersona', fresh);
+    } else if (view === 'practice-detail') {
       Router.rerenderCurrentView();
     } else if (view === 'dashboard') {
       Router.rerenderCurrentView();
@@ -420,9 +441,8 @@ const Sync = (() => {
     const songs = Store.get('songs');
     _saveLocal(songs);
     if (GitHub.isConfigured()) {
-      GitHub.saveSongs(songs);
+      GitHub.saveSongs(songs).then(() => _markSynced()).catch(() => {});
       showToast(toastMsg || 'Saved. Syncing to GitHub…');
-      _markSynced();
       return;
     }
     if (!isMobile() && Drive.isWriteConfigured()) {
@@ -447,9 +467,8 @@ const Sync = (() => {
     const setlists = Store.get('setlists');
     _saveSetlistsLocal(setlists);
     if (GitHub.isConfigured()) {
-      GitHub.saveSetlists(setlists);
+      GitHub.saveSetlists(setlists).then(() => _markSynced()).catch(() => {});
       showToast(toastMsg || 'Saved. Syncing to GitHub…');
-      _markSynced();
       return;
     }
     if (!isMobile() && Drive.isWriteConfigured()) {
@@ -474,9 +493,8 @@ const Sync = (() => {
     const practice = Store.get('practice');
     _savePracticeLocal(practice);
     if (GitHub.isConfigured()) {
-      GitHub.savePractice(practice);
+      GitHub.savePractice(practice).then(() => _markSynced()).catch(() => {});
       showToast(toastMsg || 'Saved. Syncing to GitHub…');
-      _markSynced();
       return;
     }
     if (!isMobile() && Drive.isWriteConfigured()) {

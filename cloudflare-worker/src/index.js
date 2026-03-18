@@ -9,6 +9,8 @@
  *   POST    /setup/init   — Create first owner account (public, one-time)
  *   POST    /auth/logout  — Invalidate session (session auth)
  *   GET     /auth/me      — Current user info (session auth)
+ *   GET     /auth/sessions — List active sessions (session auth)
+ *   DELETE  /auth/sessions/:id — Revoke a session (session auth)
  *   GET     /auth/key     — Encryption key seed (session or admin hash auth)
  *   PUT     /users/me/password — Change own password (session auth)
  *   GET/POST/PUT/DELETE /users/* — User management (owner only)
@@ -23,8 +25,9 @@ import { proxyToGitHub } from './github-proxy.js';
 import { handleGetKey } from './crypto.js';
 import {
   verifyPassword, createSession, validateSession, deleteSession,
-  cleanExpiredSessions, createUser, getUser, listUsers, updateUser,
-  deleteUser, changePassword, getUserByUsername, countUsers,
+  cleanExpiredSessions, listUserSessions, deleteSessionByPrefix,
+  createUser, getUser, listUsers, updateUser, deleteUser,
+  changePassword, getUserByUsername, countUsers,
   createResetToken, validateAndConsumeResetToken, cleanExpiredResetTokens,
   createEmailVerifyToken, verifyEmail, isPasswordExpired,
 } from './users.js';
@@ -135,16 +138,40 @@ export default {
       if (!body || !body.username || !body.password) {
         return withCors(request, json({ error: 'Username and password required' }, 400));
       }
-      if (body.username.length > 50 || body.password.length > 128) {
+      if (body.username.length > 25 || body.password.length > 128) {
         return withCors(request, json({ error: 'Invalid input length' }, 400));
+      }
+      // Per-username lockout: block after 10 failed attempts per hour
+      if (env.CATMAN_RATE) {
+        const lockWindow = Math.floor(Date.now() / 3600000);
+        const failKey = `fail:${body.username.toLowerCase()}:${lockWindow}`;
+        try {
+          const fails = parseInt(await env.CATMAN_RATE.get(failKey) || '0', 10);
+          if (fails >= 10) {
+            return withCors(request, json({ error: 'Account temporarily locked — too many failed attempts. Try again in an hour.' }, 429));
+          }
+        } catch (_) {}
       }
       const user = await getUserByUsername(env.DB, body.username);
       if (!user) {
         // Dummy PBKDF2 to equalize timing (prevent username enumeration)
         await verifyPassword(body.password, 'pbkdf2:0000000000000000000000000000000000:0000000000000000000000000000000000000000000000000000000000000000');
+        // Track failed attempt even for non-existent usernames (prevent enumeration via lockout behavior)
+        if (env.CATMAN_RATE) {
+          const lockWindow = Math.floor(Date.now() / 3600000);
+          const failKey = `fail:${body.username.toLowerCase()}:${lockWindow}`;
+          try {
+            const fails = parseInt(await env.CATMAN_RATE.get(failKey) || '0', 10) + 1;
+            await env.CATMAN_RATE.put(failKey, String(fails), { expirationTtl: 3660 });
+          } catch (_) {}
+        }
         return withCors(request, json({ error: 'Invalid credentials' }, 401));
       }
       const ok = await verifyPassword(body.password, user.pw_hash);
+      // Transparent rehash: if password verified with legacy 100k iterations, upgrade to 600k
+      if (ok === 'needs_rehash' && env.DB) {
+        changePassword(env.DB, user.id, body.password).catch(() => {});
+      }
       if (!ok) {
         // Track failed attempts per username for lockout alerts
         if (env.CATMAN_RATE) {
@@ -379,7 +406,7 @@ export default {
       if (!body || !body.username || !body.password) {
         return withCors(request, json({ error: 'Username and password required' }, 400));
       }
-      if (body.username.length > 50 || (body.displayName && body.displayName.length > 100) || (body.email && body.email.length > 200)) {
+      if (body.username.length > 25 || (body.displayName && body.displayName.length > 100) || (body.email && body.email.length > 200)) {
         return withCors(request, json({ error: 'Invalid input length' }, 400));
       }
       const setupPwErr = validatePasswordComplexity(body.password);
@@ -586,6 +613,40 @@ export default {
       return withCors(request, json({ user: currentUser }));
     }
 
+    // ─── GET /auth/sessions — list active sessions ──
+    if (path === '/auth/sessions' && method === 'GET') {
+      if (authMethod !== 'session' || !env.DB) {
+        return withCors(request, json({ error: 'Session auth required' }, 400));
+      }
+      const currentToken = (request.headers.get('Authorization') || '').slice(7);
+      const currentPrefix = currentToken.substring(0, 8);
+      const sessions = await listUserSessions(env.DB, currentUser.userId);
+      // Mark which session is the current one
+      const sessionsWithCurrent = sessions.map(s => ({
+        ...s,
+        isCurrent: s.id === currentPrefix,
+      }));
+      return withCors(request, json({ sessions: sessionsWithCurrent }));
+    }
+
+    // ─── DELETE /auth/sessions/:id — revoke a session ──
+    const sessionIdMatch = path.match(/^\/auth\/sessions\/([a-f0-9]{8})$/);
+    if (sessionIdMatch && method === 'DELETE') {
+      if (authMethod !== 'session' || !env.DB) {
+        return withCors(request, json({ error: 'Session auth required' }, 400));
+      }
+      const tokenPrefix = sessionIdMatch[1];
+      const currentToken = (request.headers.get('Authorization') || '').slice(7);
+      if (currentToken.startsWith(tokenPrefix)) {
+        return withCors(request, json({ error: 'Cannot revoke current session — use logout instead' }, 400));
+      }
+      const deleted = await deleteSessionByPrefix(env.DB, currentUser.userId, tokenPrefix);
+      if (deleted === 0) {
+        return withCors(request, json({ error: 'Session not found' }, 404));
+      }
+      return withCors(request, json({ ok: true }));
+    }
+
     // ─── GET /auth/key — encryption key seed (owner/admin only) ─────────
     if (path === '/auth/key' && method === 'GET') {
       if (!['owner', 'admin'].includes(currentUser.role)) {
@@ -692,7 +753,7 @@ export default {
         if (!body || !body.username || !body.password || !body.email) {
           return withCors(request, json({ error: 'Username, password, and email required' }, 400));
         }
-        if (body.username.length > 50 || body.email.length > 200 || (body.displayName && body.displayName.length > 100)) {
+        if (body.username.length > 25 || body.email.length > 200 || (body.displayName && body.displayName.length > 100)) {
           return withCors(request, json({ error: 'Invalid input length' }, 400));
         }
         const createPwErr = validatePasswordComplexity(body.password);
@@ -830,52 +891,74 @@ export default {
       return withCors(request, resp);
     }
 
-    // ─── POST /email/send — Send email via Resend (admin/owner) ──
+    // ─── POST /email/send — Send email via Resend (any authenticated user) ──
     if (path === '/email/send' && method === 'POST') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
-        return withCors(request, json({ error: 'Admin access required' }, 403));
-      }
       if (!env.RESEND_API_KEY) {
         return withCors(request, json({ error: 'Email service not configured' }, 500));
+      }
+      // Per-user email rate limiting: 10 sends per hour
+      if (env.CATMAN_RATE && currentUser.userId) {
+        const emailWindow = Math.floor(Date.now() / 3600000);
+        const emailKey = `email:${currentUser.userId}:${emailWindow}`;
+        try {
+          const sent = parseInt(await env.CATMAN_RATE.get(emailKey) || '0', 10);
+          if (sent >= 10) {
+            return withCors(request, json({ error: 'Email rate limit reached — max 10 per hour' }, 429));
+          }
+          await env.CATMAN_RATE.put(emailKey, String(sent + 1), { expirationTtl: 3600 });
+        } catch (_) {}
       }
       const body = await parseBody(request);
       if (!body || !body.to || !body.subject || !body.html) {
         return withCors(request, json({ error: 'to, subject, and html are required' }, 400));
       }
-      // Validate recipients — only allow registered user emails
+      // Subject length limit
+      if (typeof body.subject !== 'string' || body.subject.length > 200) {
+        return withCors(request, json({ error: 'Subject must be 200 characters or less' }, 400));
+      }
+      // HTML body size limit (100KB) and strip dangerous tags
+      if (typeof body.html !== 'string' || body.html.length > 102400) {
+        return withCors(request, json({ error: 'Email body too large' }, 400));
+      }
+      const sanitizedHtml = body.html
+        .replace(/<script[\s>][\s\S]*?<\/script>/gi, '')
+        .replace(/<iframe[\s>][\s\S]*?<\/iframe>/gi, '')
+        .replace(/<object[\s>][\s\S]*?<\/object>/gi, '')
+        .replace(/<embed[\s>][\s\S]*?>/gi, '')
+        .replace(/\bon\w+\s*=/gi, 'data-removed=');
       const recipients = Array.isArray(body.to) ? body.to : [body.to];
-      if (recipients.length === 0 || recipients.length > 50) {
-        return withCors(request, json({ error: 'Must have 1-50 recipients' }, 400));
+      if (recipients.length === 0 || recipients.length > 10) {
+        return withCors(request, json({ error: 'Must have 1-10 recipients' }, 400));
       }
-      if (!env.DB) {
-        return withCors(request, json({ error: 'Database not configured — cannot validate recipients' }, 500));
-      }
-      const allUsers = await listUsers(env.DB);
-      const validEmails = new Set(allUsers.map(u => u.email?.toLowerCase()).filter(Boolean));
-      const invalid = recipients.filter(r => !validEmails.has(r.toLowerCase()));
+      // Basic email format validation
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const invalid = recipients.filter(r => !emailRe.test(r));
       if (invalid.length > 0) {
-        return withCors(request, json({ error: 'One or more recipients are not registered users' }, 400));
+        return withCors(request, json({ error: 'Invalid email address: ' + invalid[0] }, 400));
       }
       try {
         const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
+        // Always send TO catmanbeats@gmail.com (owner copy), BCC all entered recipients
+        const emailPayload = {
+          from: fromAddr,
+          to: ['catmanbeats@gmail.com'],
+          bcc: recipients,
+          subject: body.subject,
+          html: sanitizedHtml,
+        };
         const resp = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${env.RESEND_API_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            from: fromAddr,
-            to: recipients,
-            subject: body.subject,
-            html: body.html,
-          }),
+          body: JSON.stringify(emailPayload),
         });
         const data = await resp.json();
         if (!resp.ok) {
           return withCors(request, json({ error: data.message || 'Email send failed' }, resp.status));
         }
-        return withCors(request, json({ ok: true, id: data.id }));
+        return withCors(request, json({ ok: true, id: data.id, sent: recipients.length }));
       } catch (_) {
         return withCors(request, json({ error: 'Email send failed' }, 500));
       }

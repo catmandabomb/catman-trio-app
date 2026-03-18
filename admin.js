@@ -490,7 +490,7 @@ const Admin = (() => {
       }
     };
 
-    const save = () => {
+    const save = async () => {
       const pat   = patInput.value.trim();
       const owner = ownerInput.value.trim();
       const repo  = repoInput.value.trim();
@@ -500,12 +500,17 @@ const Admin = (() => {
         return;
       }
       GitHub.saveConfig({ pat, owner, repo });
-      // Publish encrypted PAT to Drive for other devices to auto-detect
-      GitHub.publishPat().catch(e => console.warn('Could not publish PAT', e));
       overlay.classList.add('hidden');
       if (_ft) _ft.release();
       cleanup();
       if (onSave) onSave();
+      // Publish encrypted PAT to Drive for other devices to auto-detect
+      try {
+        await GitHub.publishPat();
+      } catch (e) {
+        console.warn('Could not publish PAT', e);
+        Utils.showToast('GitHub config saved locally — PAT sync to Drive failed.');
+      }
     };
 
     const cancel = () => {
@@ -775,19 +780,22 @@ const Admin = (() => {
           }
           error.textContent = successLabel;
           error.style.color = '#7ec87e';
-          password.value = '';
-          confirmPw.value = '';
-          if (emailInput) emailInput.value = '';
-          if (confirmEmail) confirmEmail.value = '';
           await new Promise(r => setTimeout(r, 1800));
           if (_cancelled) return;
           if (result.needsLogin) {
             // Session creation failed — switch to sign-in mode
+            password.value = '';
+            confirmPw.value = '';
             _registerMode = false;
             _applyMode();
             username.focus();
           } else {
             overlay.classList.add('hidden');
+            // Clear sensitive fields after modal is hidden
+            password.value = '';
+            confirmPw.value = '';
+            if (emailInput) emailInput.value = '';
+            if (confirmEmail) confirmEmail.value = '';
             if (_ft) _ft.release();
             cleanup();
             onSuccess();

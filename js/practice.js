@@ -1,12 +1,12 @@
-/* ─── practice.js — Practice Lists module ─────────────────────
- * Extracted from app.js practice section.
- * IIFE exposing: renderPractice, renderPracticeDetail,
- *   renderPracticeListDetail, renderPracticeEdit,
+/* ─── practice.js — Practice Lists module (flat, user-based) ────
+ * Practice lists are a flat array: each list has a `createdBy` field
+ * matching the logged-in user's ID. No persona nesting.
+ *
+ * IIFE exposing: renderPractice, renderPracticeListDetail,
  *   loadPracticeInstant, savePractice, migratePracticeData,
- *   enterPracticeMode
- * Dependencies (available at load): Store, Utils, Modal, Router,
- *   Sync, Drive, GitHub, Admin, Player, Metronome, PDFViewer
- * App.* is referenced at call-time only (safe).
+ *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
+ * Dependencies: Store, Utils, Modal, Router, Sync, Drive, GitHub,
+ *   Admin, Player, Metronome, PDFViewer
  * ─────────────────────────────────────────────────────────────── */
 const Practice = (() => {
   'use strict';
@@ -16,27 +16,20 @@ const Practice = (() => {
   const deepClone      = Utils.deepClone;
   const showToast      = Utils.showToast;
   const haptic         = Utils.haptic;
-  const hslFromName    = Utils.hslFromName;
-  const safeColor      = Utils.safeColor;
-  const personaInitials = Utils.personaInitials;
   const parseTimeSig   = Utils.parseTimeSig;
   const isIOS          = Utils.isIOS;
 
   // ─── Module state ─────────────────────────────────────────
   let _practice              = [];
-  let _activePersona         = null;
-  let _editPersona           = null;
-  let _editPersonaIsNew      = false;
   let _activePracticeList    = null;
   let _editPracticeList      = null;
   let _editPracticeListIsNew = false;
   let _savingPractice        = false;
-  let _practicePersona       = null;
   let _practiceList          = null;
-  let _bpmHoldTimer          = null; // module-scope for cleanup on view exit
-  let _practiceNoteTimer     = null; // module-scope so exit can flush pending saves
-  let _practiceNoteFlush     = null; // callback to execute pending note save
-  const _accordionState      = new Map(); // listKey → { touched: bool, openSet: Set<songId> }
+  let _bpmHoldTimer          = null;
+  let _practiceNoteTimer     = null;
+  let _practiceNoteFlush     = null;
+  const _accordionState      = new Map();
 
   // ─── Store sync helpers ───────────────────────────────────
   function _syncFromStore() {
@@ -47,7 +40,7 @@ const Practice = (() => {
     Store.set('practice', _practice);
   }
 
-  // ─── Navigation helpers (delegate to Router / App) ────────
+  // ─── Navigation helpers ───────────────────────────────────
   function _showView(name)     { Router.showView(name); }
   function _setTopbar(t, back) { Router.setTopbar(t, back); }
   function _pushNav(fn)        { Router.pushNav(fn); }
@@ -58,6 +51,34 @@ const Practice = (() => {
     return Sync.doSyncRefresh(afterCallback).then(() => {
       _syncFromStore();
     });
+  }
+
+  function _injectTopbarActions(id, innerHtml) {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    topbarRight.querySelector(`#${id}`)?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = id;
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    wrap.innerHTML = innerHtml;
+    topbarRight.appendChild(wrap);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────
+
+  /** Get the current user's ID, or null if not logged in */
+  function _userId() {
+    if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) return null;
+    const u = Auth.getUser();
+    return u ? u.id : null;
+  }
+
+  /** Filter practice lists to only those belonging to the current user */
+  function _myLists() {
+    const uid = _userId();
+    if (!uid) return [];
+    return _practice.filter(pl => pl.createdBy === uid);
   }
 
   // ─── Practice data (delegated to Sync) ────────────────────
@@ -126,14 +147,12 @@ const Practice = (() => {
     const tsBtn   = document.getElementById('met-ts');
     const beatsEl = document.getElementById('met-beats');
 
-    // Collapse/expand
     toggle.addEventListener('click', () => {
       panel.classList.toggle('expanded');
       toggle.setAttribute('aria-expanded', panel.classList.contains('expanded'));
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [panel] });
     });
 
-    // BPM adjustment with hold-to-repeat
     function adjustBpm(delta) {
       let val = parseInt(bpmInput.value) || 120;
       val = Math.max(20, Math.min(300, val + delta));
@@ -158,7 +177,6 @@ const Practice = (() => {
       if (Metronome.isPlaying()) Metronome.setBpm(val);
     });
 
-    // Time signature cycling
     const BEATS_MAP = { '4/4': 4, '3/4': 3, '6/8': 6, '2/4': 2, '5/4': 5, '7/8': 7 };
     const TS_ORDER  = ['4/4', '3/4', '6/8', '2/4', '5/4', '7/8'];
     tsBtn.addEventListener('click', () => {
@@ -172,7 +190,6 @@ const Practice = (() => {
       if (Metronome.isPlaying()) Metronome.setTimeSignature(beats);
     });
 
-    // Play/stop
     playBtn.addEventListener('click', () => {
       if (Metronome.isPlaying()) {
         Metronome.stop();
@@ -193,7 +210,6 @@ const Practice = (() => {
       }
     });
 
-    // Tap tempo
     tapBtn.addEventListener('click', () => {
       const bpm = Metronome.tap();
       if (bpm !== null) {
@@ -203,7 +219,7 @@ const Practice = (() => {
     });
   }
 
-  // ─── Build embed HTML (replicated from app.js) ────────────
+  // ─── Build embed HTML ─────────────────────────────────────
 
   function _buildEmbedHTML(link) {
     const meta = {
@@ -242,7 +258,7 @@ const Practice = (() => {
       </div>`;
   }
 
-  // ─── PRACTICE -- Persona List View ────────────────────────
+  // ─── PRACTICE — Main List View (flat, user-filtered) ──────
 
   function renderPractice(skipNavReset) {
     if (typeof Auth === 'undefined' || !Auth.isLoggedIn()) {
@@ -258,195 +274,17 @@ const Practice = (() => {
     _showView('practice');
     _setTopbar('Practice Lists', true);
 
+    // Add "New List" to topbar right
+    _injectTopbarActions('practice-topbar-actions',
+      `<button class="btn-ghost topbar-nav-btn" id="btn-new-practice-list"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New List</button>`);
+
     const container = document.getElementById('practice-list');
+    const myLists = _myLists();
+    const activeLists = myLists.filter(l => !l.archived);
+    const archivedLists = myLists.filter(l => l.archived);
 
-    // Collect all practice lists across all personas (flattened)
-    const allLists = [];
-    _practice.forEach(p => {
-      (p.practiceLists || []).filter(l => !l.archived).forEach(pl => {
-        allLists.push({ ...pl, _personaId: p.id, _personaName: p.name });
-      });
-    });
+    let html = '';
 
-    let html = `<div class="view-refresh-row">
-      <button class="icon-btn view-refresh-btn" id="btn-refresh-practice" title="Sync from Drive" aria-label="Refresh">
-        <i data-lucide="refresh-cw"></i>
-      </button>
-    </div>`;
-
-    // "Create Practice List" button for authenticated users
-    if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
-      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-practice-list">+ Create Practice List</button>`;
-    }
-
-    if (allLists.length === 0) {
-      html += `<div class="empty-state" style="padding:40px 20px">
-        <p>No practice lists yet.</p>
-        <p class="muted">${(typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? 'Create one above to get started.' : 'Log in to create practice lists.'}</p>
-      </div>`;
-    } else {
-      allLists.forEach(pl => {
-        const songCount = (pl.songs || []).length;
-        html += `
-          <div class="persona-card practice-list-card" data-practice-list-id="${esc(pl.id)}" data-persona-id="${esc(pl._personaId)}">
-            <div class="persona-card-info" style="padding-left:4px">
-              <div class="persona-card-title-row">
-                <span class="persona-card-name">${esc(pl.name || 'Untitled')}</span>
-              </div>
-              <span class="persona-card-count">${songCount} song${songCount !== 1 ? 's' : ''}</span>
-            </div>
-          </div>`;
-      });
-    }
-
-    container.innerHTML = html;
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
-
-    // Wire refresh
-    document.getElementById('btn-refresh-practice')?.addEventListener('click', () => {
-      _doSyncRefresh(() => renderPractice(true));
-    });
-
-    // Wire "Create Practice List" — creates under first persona or new one
-    document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
-      // If no personas exist yet, create a default one (requires edit permission)
-      if (_practice.length === 0 && (!Admin.isEditMode || !Admin.isEditMode())) {
-        Utils.showToast('An admin must create the first persona');
-        return;
-      }
-      if (_practice.length === 0) {
-        const user = (typeof Auth !== 'undefined' && Auth.getUser()) || {};
-        _practice.push({
-          id: Admin.generateId(_practice),
-          name: user.displayName || user.username || 'My Practice',
-          color: '',
-          practiceLists: [],
-        });
-        _syncToStore();
-      }
-      const persona = _practice[0];
-      const newList = {
-        id: Admin.generateId(persona.practiceLists || []),
-        name: '',
-        songs: [],
-        archived: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      if (!persona.practiceLists) persona.practiceLists = [];
-      persona.practiceLists.push(newList);
-      _syncToStore();
-      savePractice();
-      _editPracticeList = deepClone(newList);
-      _editPracticeListIsNew = true;
-      _activePersona = persona;
-      _renderPracticeListEdit(persona, newList, true);
-    });
-
-    // Wire practice list card clicks
-    container.querySelectorAll('.practice-list-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        const personaId = card.dataset.personaId;
-        const listId = card.dataset.practiceListId;
-        const persona = _practice.find(x => x.id === personaId);
-        if (!persona) return;
-        const pl = (persona.practiceLists || []).find(l => l.id === listId);
-        if (pl) {
-          _activePersona = persona;
-          renderPracticeListDetail(persona, pl);
-        }
-      });
-    });
-
-    container.querySelectorAll('.persona-edit-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const p = _practice.find(x => x.id === btn.dataset.editPersona);
-        if (p) renderPracticeEdit(p, false);
-      });
-    });
-
-    container.querySelectorAll('.persona-delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (_savingPractice) return;
-        const p = _practice.find(x => x.id === btn.dataset.deletePersona);
-        if (!p) return;
-        Admin.showConfirm('Delete Persona', `Permanently delete "${esc(p.name || 'this persona')}" and all their practice lists?`, async () => {
-          if (_savingPractice) return;
-          _savingPractice = true;
-          if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
-          const backup = [..._practice];
-          try {
-            _practice = _practice.filter(x => x.id !== p.id);
-            await savePractice('Persona deleted.');
-            _activePersona = null;
-            Store.set('activePersona', null);
-            renderPractice(true);
-          } catch (err) {
-            console.error('Delete persona failed', err);
-            _practice = backup;
-            showToast('Delete failed.');
-            renderPractice(true);
-          } finally {
-            _savingPractice = false;
-          }
-        });
-      });
-    });
-
-    document.getElementById('btn-new-persona')?.addEventListener('click', () => {
-      const newP = {
-        id: Admin.generateId(_practice),
-        name: '',
-        color: '',
-        practiceLists: [],
-      };
-      renderPracticeEdit(newP, true);
-    });
-  }
-
-  // ─── PRACTICE -- Persona Practice Lists Selection ─────────
-
-  function renderPracticeDetail(persona, skipNavPush) {
-    _syncFromStore();
-    _setRouteParams({ personaId: persona?.id });
-    App.cleanupPlayers();
-    Player.stopAll();
-    _activePersona = persona;
-    Store.set('activePersona', persona);
-    _activePracticeList = null;
-    Store.set('activePracticeList', null);
-    if (!skipNavPush) _pushNav(() => renderPractice());
-    _showView('practice-detail');
-    _setTopbar(persona.name || 'Persona', true);
-
-    const container = document.getElementById('practice-detail-content');
-    const color = safeColor(persona.color || hslFromName(persona.name));
-    const allLists = persona.practiceLists || [];
-    const activeLists = allLists.filter(l => !l.archived);
-    const archivedLists = allLists.filter(l => l.archived);
-
-    let html = `<div class="view-refresh-row">
-      <button class="icon-btn view-refresh-btn" id="btn-refresh-practice-detail" title="Sync from Drive" aria-label="Refresh">
-        <i data-lucide="refresh-cw"></i>
-      </button>
-    </div>`;
-    html += `<div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-persona">Edit Persona</button></div>` : ''}
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-        <div class="persona-avatar persona-avatar-lg" style="background:${color}">${personaInitials(persona.name)}</div>
-        <div class="detail-title" style="margin-bottom:0">${esc(persona.name) || 'Unnamed'}</div>
-      </div>
-      <div class="detail-subtitle">${activeLists.length} practice list${activeLists.length !== 1 ? 's' : ''}</div>
-    </div>`;
-
-    // New Practice List button -- NOT admin-gated
-    html += `<button class="btn-ghost setlist-add-btn" id="btn-new-practice-list">
-      <i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New Practice List
-    </button>`;
-
-    // Active practice lists
     if (activeLists.length === 0) {
       html += `<div class="empty-state" style="padding:40px 20px">
         <p>No practice lists yet.</p>
@@ -455,15 +293,14 @@ const Practice = (() => {
     } else {
       activeLists.forEach(pl => {
         const songCount = (pl.songs || []).length;
-        const created = pl.createdAt ? new Date(pl.createdAt).toLocaleDateString() : '';
         html += `
-          <div class="practice-list-card" data-pl-id="${esc(pl.id)}">
-            <div class="practice-list-card-info">
-              <span class="practice-list-card-name">${esc(pl.name)}</span>
-              <span class="practice-list-card-meta">${songCount} song${songCount !== 1 ? 's' : ''}${created ? ' \u00B7 ' + created : ''}</span>
+          <div class="pl-card practice-list-card" data-practice-list-id="${esc(pl.id)}">
+            <div class="pl-card-info" style="padding-left:4px">
+              <div class="pl-card-title-row">
+                <span class="pl-card-name">${esc(pl.name || 'Untitled')}</span>
+              </div>
+              <span class="pl-card-count">${songCount} song${songCount !== 1 ? 's' : ''}</span>
             </div>
-            <button class="practice-archive-btn" data-archive-id="${esc(pl.id)}" title="Archive" aria-label="Archive list"><i data-lucide="archive"></i></button>
-            <i data-lucide="chevron-right" class="file-item-arrow"></i>
           </div>`;
       });
     }
@@ -477,10 +314,12 @@ const Practice = (() => {
       archivedLists.forEach(pl => {
         const songCount = (pl.songs || []).length;
         html += `
-          <div class="practice-list-card practice-list-card-archived" data-pl-id="${esc(pl.id)}">
-            <div class="practice-list-card-info">
-              <span class="practice-list-card-name" style="opacity:0.6">${esc(pl.name)}</span>
-              <span class="practice-list-card-meta">${songCount} song${songCount !== 1 ? 's' : ''} \u00B7 Archived</span>
+          <div class="pl-card practice-list-card practice-list-card-archived" data-practice-list-id="${esc(pl.id)}">
+            <div class="pl-card-info" style="padding-left:4px">
+              <div class="pl-card-title-row">
+                <span class="pl-card-name" style="opacity:0.6">${esc(pl.name || 'Untitled')}</span>
+              </div>
+              <span class="pl-card-count">${songCount} song${songCount !== 1 ? 's' : ''} \u00B7 Archived</span>
             </div>
             <button class="practice-unarchive-btn" data-unarchive-id="${esc(pl.id)}" title="Unarchive" aria-label="Unarchive list"><i data-lucide="archive-restore"></i></button>
           </div>`;
@@ -491,41 +330,34 @@ const Practice = (() => {
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    // Wire refresh
-    document.getElementById('btn-refresh-practice-detail')?.addEventListener('click', () => {
-      _doSyncRefresh(() => {
-        _syncFromStore();
-        const updated = _practice.find(p => p.id === persona.id);
-        if (updated) renderPracticeDetail(updated, true);
-        else renderPractice(true);
-      });
+    // Wire "New List" button
+    document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
+      const uid = _userId();
+      if (!uid) { showToast('Log in to create practice lists'); return; }
+      const newList = {
+        id: Admin.generateId(_practice),
+        name: '',
+        songs: [],
+        createdBy: uid,
+        archived: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      _practice.push(newList);
+      _syncToStore();
+      savePractice();
+      _editPracticeList = deepClone(newList);
+      _editPracticeListIsNew = true;
+      _renderPracticeListEdit(newList, true);
     });
 
     // Wire practice list card clicks
     container.querySelectorAll('.practice-list-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.practice-archive-btn') || e.target.closest('.practice-unarchive-btn')) return;
-        const pl = allLists.find(l => l.id === card.dataset.plId);
-        if (pl) renderPracticeListDetail(persona, pl);
-      });
-    });
-
-    // Wire archive buttons
-    container.querySelectorAll('.practice-archive-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const pl = allLists.find(l => l.id === btn.dataset.archiveId);
-        if (pl) {
-          Admin.showConfirm('Archive Practice List',
-            `Are you sure you want to archive "${pl.name}"? You can unarchive it later.`,
-            async () => {
-              pl.archived = true;
-              const idx = _practice.findIndex(p => p.id === persona.id);
-              if (idx > -1) _practice[idx] = persona;
-              await savePractice();
-              renderPracticeDetail(persona, true);
-            }, 'Archive');
-        }
+        if (e.target.closest('.practice-unarchive-btn')) return;
+        const listId = card.dataset.practiceListId;
+        const pl = _practice.find(l => l.id === listId);
+        if (pl) renderPracticeListDetail(pl);
       });
     });
 
@@ -533,13 +365,11 @@ const Practice = (() => {
     container.querySelectorAll('.practice-unarchive-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const pl = allLists.find(l => l.id === btn.dataset.unarchiveId);
+        const pl = _practice.find(l => l.id === btn.dataset.unarchiveId);
         if (pl) {
           pl.archived = false;
-          const idx = _practice.findIndex(p => p.id === persona.id);
-          if (idx > -1) _practice[idx] = persona;
           await savePractice();
-          renderPracticeDetail(persona, true);
+          renderPractice(true);
         }
       });
     });
@@ -552,95 +382,40 @@ const Practice = (() => {
       section.classList.toggle('hidden');
       btn.textContent = isHidden ? `Hide Archived (${archivedLists.length})` : `Show Archived (${archivedLists.length})`;
     });
-
-    // Wire edit persona button
-    container.querySelector('.btn-edit-persona')?.addEventListener('click', () => {
-      renderPracticeEdit(persona, false);
-    });
-
-    // Wire new practice list button -- shows name prompt
-    document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
-      _showNewPracticeListPrompt(persona);
-    });
   }
 
-  function _showNewPracticeListPrompt(persona) {
-    const container = document.getElementById('practice-detail-content');
-    // Remove existing prompt if any
-    document.getElementById('new-pl-prompt')?.remove();
+  // ─── PRACTICE — List Detail ───────────────────────────────
 
-    const div = document.createElement('div');
-    div.id = 'new-pl-prompt';
-    div.className = 'edit-section';
-    div.style.marginTop = '12px';
-    div.innerHTML = `
-      <div class="edit-section-title">New Practice List</div>
-      <div class="form-field">
-        <input class="form-input" id="new-pl-name" type="text" placeholder="Practice list name\u2026" autocomplete="off" maxlength="100" />
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button class="btn-primary" id="new-pl-create" style="flex:1">Create</button>
-        <button class="btn-secondary" id="new-pl-cancel" style="flex:1">Cancel</button>
-      </div>
-    `;
-    container.appendChild(div);
-    document.getElementById('new-pl-name').focus();
-
-    document.getElementById('new-pl-create').addEventListener('click', async () => {
-      const name = document.getElementById('new-pl-name').value.trim();
-      if (!name) { showToast('Name is required.'); document.getElementById('new-pl-name').focus(); return; }
-      if (!persona.practiceLists) persona.practiceLists = [];
-      const newPL = {
-        id: Admin.generateId(persona.practiceLists),
-        name,
-        archived: false,
-        createdAt: new Date().toISOString(),
-        songs: []
-      };
-      persona.practiceLists.push(newPL);
-      const idx = _practice.findIndex(p => p.id === persona.id);
-      if (idx > -1) _practice[idx] = persona;
-      await savePractice();
-      renderPracticeDetail(persona, true);
-    });
-
-    document.getElementById('new-pl-cancel').addEventListener('click', () => {
-      div.remove();
-    });
-  }
-
-  // ─── PRACTICE -- Practice List Detail ─────────────────────
-
-  function renderPracticeListDetail(persona, practiceList, skipNavPush) {
+  function renderPracticeListDetail(practiceList, skipNavPush) {
     _syncFromStore();
     App.cleanupPlayers();
     Player.stopAll();
-    _activePersona = persona;
-    Store.set('activePersona', persona);
     _activePracticeList = practiceList;
     Store.set('activePracticeList', practiceList);
-    if (!skipNavPush) _pushNav(() => renderPracticeDetail(persona));
+    if (!skipNavPush) _pushNav(() => renderPractice());
     _showView('practice-edit');
     _setTopbar(practiceList.name || 'Practice List', true);
+
+    // Topbar actions
+    let plTopbarHtml = '';
+    if (Admin.isEditMode()) {
+      plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-edit-practice-list">Edit</button>`;
+    }
+    if (Admin.isEditMode() || _userId() === practiceList.createdBy) {
+      plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" style="color:#e87c6a;">Delete</button>`;
+    }
+    _injectTopbarActions('practice-list-detail-topbar-actions', plTopbarHtml);
 
     const container = document.getElementById('practice-edit-content');
     const songs = Store.get('songs') || [];
     const plSongs = practiceList.songs || [];
 
     let html = `<div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar" style="display:flex;gap:8px;align-items:center;">
-        <button class="btn-ghost btn-edit-practice-list">Edit List</button>
-        <button class="btn-ghost btn-delete-practice-list-top" style="color:#e87c6a;">Delete List</button>
-      </div>` : `<div class="detail-edit-bar" style="display:flex;gap:8px;align-items:center;">
-        <button class="btn-ghost btn-delete-practice-list-top" style="color:#e87c6a;">Delete List</button>
-      </div>`}
       <div class="detail-title" style="margin-bottom:4px">${esc(practiceList.name)}</div>
       <div class="detail-subtitle">${plSongs.length} song${plSongs.length !== 1 ? 's' : ''}</div>
     </div>`;
 
-    // FEAT-24: Metronome moved to practice mode (below)
-
-    // Add song button (all users)
+    // Add song button
     html += `<button class="btn-ghost" id="btn-add-practice-song" style="width:100%;text-align:center;margin-bottom:16px;">
       <i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add Song
     </button>`;
@@ -679,59 +454,49 @@ const Practice = (() => {
       html += `</div>`;
     }
 
-    // FEAT-25: Delete button moved next to Edit List (above)
-
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-    // Wire song clicks — FEAT-22: tapping enters practice mode scrolled to that song
+    // Wire song clicks — tapping enters practice mode scrolled to that song
     container.querySelectorAll('.setlist-song-row').forEach(row => {
       row.addEventListener('click', () => {
         const song = songs.find(s => s.id === row.dataset.songId);
         if (song && plSongs.length > 0) {
-          _enterPracticeMode(persona, practiceList, song.id);
+          _enterPracticeMode(practiceList, song.id);
         } else if (song) {
-          _pushNav(() => renderPracticeListDetail(persona, practiceList));
+          _pushNav(() => renderPracticeListDetail(practiceList));
           App.renderDetail(song, true);
         }
       });
     });
 
-    // Wire edit button (admin only)
-    container.querySelector('.btn-edit-practice-list')?.addEventListener('click', () => {
-      _renderPracticeListEdit(persona, practiceList, false);
+    // Wire edit button
+    document.querySelector('.btn-edit-practice-list')?.addEventListener('click', () => {
+      _renderPracticeListEdit(practiceList, false);
     });
 
-    // Wire add song button -- shows picker
+    // Wire add song button
     document.getElementById('btn-add-practice-song')?.addEventListener('click', () => {
-      _showPracticeSongPicker(persona, practiceList);
+      _showPracticeSongPicker(practiceList);
     });
 
     // Wire practice mode
     document.getElementById('btn-enter-practice-mode')?.addEventListener('click', () => {
-      _enterPracticeMode(persona, practiceList);
+      _enterPracticeMode(practiceList);
     });
 
-    // FEAT-25: Wire delete practice list (moved next to edit button)
-    container.querySelector('.btn-delete-practice-list-top')?.addEventListener('click', () => {
+    // Wire delete practice list
+    document.querySelector('.btn-delete-practice-list-top')?.addEventListener('click', () => {
       if (_savingPractice) return;
       Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
         if (_savingPractice) return;
         _savingPractice = true;
         try {
-          const pIdx = _practice.findIndex(p => p.id === persona.id);
-          if (pIdx > -1) {
-            _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== practiceList.id);
-          }
+          _practice = _practice.filter(l => l.id !== practiceList.id);
           await savePractice('Practice list deleted.');
           _activePracticeList = null;
           Store.set('activePracticeList', null);
-          const updated = _practice.find(p => p.id === persona.id);
-          if (updated) {
-            renderPracticeDetail(updated, true);
-          } else {
-            _navigateBack();
-          }
+          renderPractice(true);
         } catch (err) {
           console.error('Delete practice list failed', err);
           showToast('Delete failed.');
@@ -742,8 +507,9 @@ const Practice = (() => {
     });
   }
 
-  function _showPracticeSongPicker(persona, practiceList) {
-    // Prevent duplicate pickers -- if one is already open, just scroll to it
+  // ─── Song Picker (add songs to list) ──────────────────────
+
+  function _showPracticeSongPicker(practiceList) {
     const existing = document.getElementById('practice-picker-section');
     if (existing) {
       existing.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -763,7 +529,6 @@ const Practice = (() => {
     const div = document.createElement('div');
     div.innerHTML = pickerHtml;
     container.appendChild(div.firstElementChild);
-    // Scroll the picker into view and focus search
     document.getElementById('practice-picker-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setTimeout(() => document.getElementById('practice-picker-search')?.focus(), 300);
 
@@ -797,11 +562,11 @@ const Practice = (() => {
         btn.addEventListener('click', async () => {
           practiceList.songs = practiceList.songs || [];
           practiceList.songs.push({ songId: btn.dataset.pickId, comment: '', addedAt: new Date().toISOString() });
-          const idx = _practice.findIndex(p => p.id === persona.id);
-          if (idx > -1) _practice[idx] = persona;
+          const idx = _practice.findIndex(l => l.id === practiceList.id);
+          if (idx > -1) _practice[idx] = practiceList;
           await savePractice();
           document.getElementById('practice-picker-section')?.remove();
-          renderPracticeListDetail(persona, practiceList, true);
+          renderPracticeListDetail(practiceList, true);
         });
       });
     }
@@ -815,109 +580,15 @@ const Practice = (() => {
     });
   }
 
-  // ─── PRACTICE -- Persona Edit View ────────────────────────
+  // ─── Practice List Edit ───────────────────────────────────
 
-  function renderPracticeEdit(persona, isNew) {
-    _syncFromStore();
-    App.cleanupPlayers();
-    Player.stopAll();
-    _editPersona = deepClone(persona);
-    _editPersonaIsNew = isNew;
-    if (!_editPersona.practiceLists) _editPersona.practiceLists = [];
-
-    if (isNew) {
-      _pushNav(() => renderPractice());
-    } else {
-      _pushNav(() => renderPracticeDetail(persona));
-    }
-    _showView('practice-edit');
-    _setTopbar(isNew ? 'New Persona' : 'Edit Persona', true);
-
-    const container = document.getElementById('practice-edit-content');
-    const p = _editPersona;
-
-    let html = `
-      <div class="edit-section">
-        <div class="edit-section-title">Persona Info</div>
-        <div class="form-field">
-          <label class="form-label">Name</label>
-          <input class="form-input" id="pf-name" type="text" value="${esc(p.name)}" placeholder="e.g. Cat, Marc, Jeff\u2026" maxlength="100" />
-        </div>
-      </div>
-
-      <div class="edit-form-actions">
-        <button class="btn-primary" id="pf-save">Save</button>
-        <button class="btn-secondary" id="pf-cancel">Cancel</button>
-      </div>
-
-      ${!isNew ? `<div class="delete-zone"><button class="btn-danger" id="pf-delete">Delete Persona</button></div>` : ''}
-    `;
-
-    container.innerHTML = html;
-
-    // Save
-    document.getElementById('pf-save').addEventListener('click', async () => {
-      if (_savingPractice) return;
-      p.name = document.getElementById('pf-name').value.trim();
-      if (!p.name) { showToast('Name is required.'); document.getElementById('pf-name').focus(); return; }
-      _savingPractice = true;
-      try {
-        p._ts = Date.now();
-        p.color = p.color || hslFromName(p.name);
-        const creating = _editPersonaIsNew;
-        if (creating) {
-          _practice.push(p);
-        } else {
-          const idx = _practice.findIndex(x => x.id === p.id);
-          if (idx > -1) _practice[idx] = p;
-        }
-        await savePractice(creating ? 'Persona created.' : 'Persona saved.');
-        _activePersona = null;
-        Store.set('activePersona', null);
-        renderPractice();
-      } catch (err) {
-        console.error('Save persona failed', err);
-        showToast('Save failed.');
-      } finally {
-        _savingPractice = false;
-      }
-    });
-
-    document.getElementById('pf-cancel').addEventListener('click', () => _navigateBack());
-
-    document.getElementById('pf-delete')?.addEventListener('click', () => {
-      if (_savingPractice) return;
-      Admin.showConfirm('Delete Persona', `Permanently delete "${p.name || 'this persona'}" and all their practice lists?`, async () => {
-        if (_savingPractice) return;
-        _savingPractice = true;
-        const backup = [..._practice];
-        try {
-          if (GitHub.isConfigured()) GitHub.trackDeletion('practice', p.id);
-          _practice = _practice.filter(x => x.id !== p.id);
-          await savePractice();
-          _activePersona = null;
-          Store.set('activePersona', null);
-          renderPractice();
-        } catch (err) {
-          console.error('Delete persona failed', err);
-          _practice = backup;
-          showToast('Delete failed.');
-        } finally {
-          _savingPractice = false;
-        }
-      });
-    });
-  }
-
-  // ─── PRACTICE -- Practice List Edit ───────────────────────
-
-  function _renderPracticeListEdit(persona, practiceList, isNew) {
+  function _renderPracticeListEdit(practiceList, isNew) {
     App.cleanupPlayers();
     Player.stopAll();
     _editPracticeList = deepClone(practiceList);
     _editPracticeListIsNew = isNew;
 
-    _pushNav(() => renderPracticeListDetail(persona, practiceList));
+    _pushNav(() => renderPracticeListDetail(practiceList));
     _showView('practice-edit');
     _setTopbar(isNew ? 'New Practice List' : 'Edit Practice List', true);
 
@@ -1012,19 +683,13 @@ const Practice = (() => {
       if (!pl.name) { showToast('Name is required.'); document.getElementById('pl-name').focus(); return; }
       _savingPractice = true;
       try {
-        // Update the practice list inside the persona
-        const pIdx = _practice.findIndex(p => p.id === persona.id);
-        if (pIdx > -1) {
-          const plIdx = (_practice[pIdx].practiceLists || []).findIndex(l => l.id === pl.id);
-          if (plIdx > -1) {
-            _practice[pIdx].practiceLists[plIdx] = pl;
-          }
+        pl.updatedAt = new Date().toISOString();
+        const plIdx = _practice.findIndex(l => l.id === pl.id);
+        if (plIdx > -1) {
+          _practice[plIdx] = pl;
         }
         await savePractice();
-        // Navigate back to the updated list detail
-        const updatedPersona = _practice.find(p => p.id === persona.id) || persona;
-        const updatedPL = (updatedPersona.practiceLists || []).find(l => l.id === pl.id) || pl;
-        renderPracticeListDetail(updatedPersona, updatedPL, true);
+        renderPracticeListDetail(pl, true);
       } catch (err) {
         console.error('Save practice list failed', err);
         showToast('Save failed.');
@@ -1037,18 +702,15 @@ const Practice = (() => {
 
     document.getElementById('pl-delete')?.addEventListener('click', () => {
       if (_savingPractice) return;
-      Admin.showConfirm('Delete Practice List', `Permanently delete "${pl.name || 'this practice list'}"?`, async () => {
+      Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(pl.name || 'this practice list')}"?`, async () => {
         if (_savingPractice) return;
         _savingPractice = true;
         try {
-          const pIdx = _practice.findIndex(p => p.id === persona.id);
-          if (pIdx > -1) {
-            _practice[pIdx].practiceLists = (_practice[pIdx].practiceLists || []).filter(l => l.id !== pl.id);
-          }
+          _practice = _practice.filter(l => l.id !== pl.id);
           await savePractice();
           _activePracticeList = null;
           Store.set('activePracticeList', null);
-          renderPracticeDetail(_practice.find(p => p.id === persona.id) || persona);
+          renderPractice(true);
         } catch (err) {
           console.error('Delete practice list failed', err);
           showToast('Delete failed.');
@@ -1061,12 +723,11 @@ const Practice = (() => {
 
   // ─── PRACTICE MODE ────────────────────────────────────────
 
-  function _enterPracticeMode(persona, practiceList, scrollToSongId) {
-    _practicePersona = persona;
+  function _enterPracticeMode(practiceList, scrollToSongId) {
     _practiceList = practiceList;
     App.cleanupPlayers();
     Player.stopAll();
-    _pushNav(() => renderPracticeListDetail(persona, practiceList));
+    _pushNav(() => renderPracticeListDetail(practiceList));
     _showView('practice-detail');
     document.body.classList.add('practice-mode-active');
     _setTopbar('Practice Mode', true);
@@ -1077,16 +738,14 @@ const Practice = (() => {
 
     let html = `<div class="practice-mode-header">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-        <div class="persona-avatar" style="background:${safeColor(persona.color || hslFromName(persona.name))}">${personaInitials(persona.name)}</div>
         <div>
           <div class="detail-title" style="font-size:22px;margin-bottom:0">${esc(practiceList.name)}</div>
-          <div class="muted" style="font-size:12px">${esc(persona.name)} \u00B7 ${plSongs.length} songs</div>
+          <div class="muted" style="font-size:12px">${plSongs.length} songs</div>
         </div>
       </div>
       <button class="btn-secondary" id="btn-exit-practice-mode" style="width:100%;margin-bottom:16px;">Exit Practice Mode</button>
     </div>`;
 
-    // FEAT-24: Metronome at top of practice mode
     html += _metronomeHTML();
 
     html += `<div class="practice-accordion">`;
@@ -1131,7 +790,7 @@ const Practice = (() => {
     });
     html += `</div>`;
 
-    // Numbered jump-to-song sidebar (circled numbers for quick navigation)
+    // Jump-to-song sidebar
     if (plSongs.length > 1) {
       html += `<div class="practice-jump-bar" id="practice-jump-bar">`;
       plSongs.forEach((entry, i) => {
@@ -1144,8 +803,20 @@ const Practice = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
-    // FEAT-24: Wire metronome in practice mode
     _wireMetronome();
+
+    // Per-list accordion state
+    const listKey = practiceList.id || practiceList.name || '';
+    if (!_accordionState.has(listKey)) {
+      _accordionState.set(listKey, { touched: false, openSet: new Set() });
+    }
+    const accState = _accordionState.get(listKey);
+
+    // Prune stale songIds
+    const validSongIds = new Set(plSongs.map(e => e.songId));
+    for (const id of accState.openSet) {
+      if (!validSongIds.has(id)) accState.openSet.delete(id);
+    }
 
     // Wire jump-to-song sidebar
     container.querySelectorAll('.practice-jump-dot').forEach(btn => {
@@ -1155,7 +826,6 @@ const Practice = (() => {
         const idx = parseInt(btn.dataset.jumpIdx, 10);
         const item = container.querySelector(`.practice-accordion-item[data-practice-idx="${idx}"]`);
         if (item) {
-          // Auto-expand the target accordion item
           const body = item.querySelector('.practice-accordion-body');
           const chevron = item.querySelector('.accordion-chevron');
           if (body && body.classList.contains('hidden')) {
@@ -1167,27 +837,13 @@ const Practice = (() => {
           requestAnimationFrame(() => {
             item.scrollIntoView({ behavior: 'smooth', block: 'start' });
           });
-          // Highlight active dot
           container.querySelectorAll('.practice-jump-dot').forEach(d => d.classList.remove('active'));
           btn.classList.add('active');
         }
       });
     });
 
-    // Per-list accordion state (persists across re-renders within session)
-    const listKey = (persona.id || '') + '/' + (practiceList.id || practiceList.name || '');
-    if (!_accordionState.has(listKey)) {
-      _accordionState.set(listKey, { touched: false, openSet: new Set() });
-    }
-    const accState = _accordionState.get(listKey);
-
-    // Prune stale songIds that no longer exist in the current practice list
-    const validSongIds = new Set(plSongs.map(e => e.songId));
-    for (const id of accState.openSet) {
-      if (!validSongIds.has(id)) accState.openSet.delete(id);
-    }
-
-    // Restore accordion state if user has previously interacted with this list
+    // Restore accordion state
     if (accState.touched) {
       container.querySelectorAll('.practice-accordion-item').forEach(item => {
         const idx = parseInt(item.dataset.practiceIdx, 10);
@@ -1201,7 +857,7 @@ const Practice = (() => {
       });
     }
 
-    // FEAT-22: Scroll to and auto-expand the target song
+    // Scroll to target song
     if (scrollToSongId) {
       const targetIdx = plSongs.findIndex(e => e.songId === scrollToSongId);
       if (targetIdx > -1) {
@@ -1222,7 +878,7 @@ const Practice = (() => {
       }
     }
 
-    // Pre-fetch all chart PDFs eagerly (prevents Drive contention with audio)
+    // Pre-fetch chart PDFs
     plSongs.forEach(entry => {
       const song = songs.find(s => s.id === entry.songId);
       if (!song) return;
@@ -1231,7 +887,7 @@ const Practice = (() => {
       });
     });
 
-    // Auto-load all audio/charts since all items are expanded
+    // Load assets for accordion bodies
     function _loadAccordionAssets(body) {
       body.querySelectorAll('[data-audio-container]').forEach(async el => {
         if (el.dataset.loaded) return;
@@ -1264,12 +920,12 @@ const Practice = (() => {
       });
     }
 
-    // Pre-load all assets immediately so everything is ready when user expands
+    // Pre-load all assets
     container.querySelectorAll('.practice-accordion-body').forEach(body => {
       _loadAccordionAssets(body);
     });
 
-    // Wire accordion toggle (collapse/expand)
+    // Wire accordion toggle
     container.querySelectorAll('.practice-accordion-header').forEach(header => {
       header.addEventListener('click', () => {
         accState.touched = true;
@@ -1283,39 +939,32 @@ const Practice = (() => {
         if (chevron) {
           chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
         }
-        // Persist accordion state by songId
         if (entry) {
           if (isOpen) accState.openSet.delete(entry.songId);
           else accState.openSet.add(entry.songId);
         }
-
-        // Load assets when expanding
         if (!isOpen) _loadAccordionAssets(body);
       });
     });
 
-    // Wire practice notes -- debounced auto-save (uses module-scope _practiceNoteTimer)
+    // Wire practice notes — debounced auto-save
     _practiceNoteFlush = () => {
-      const pIdx = _practice.findIndex(p => p.id === persona.id);
-      if (pIdx > -1) _practice[pIdx] = persona;
+      const plIdx = _practice.findIndex(l => l.id === practiceList.id);
+      if (plIdx > -1) _practice[plIdx] = practiceList;
       savePractice();
     };
     container.querySelectorAll('.practice-note-input').forEach(textarea => {
-      // Prevent accordion toggle when interacting with textarea
       textarea.addEventListener('click', (e) => e.stopPropagation());
-      // Auto-expand textarea as user types
       textarea.addEventListener('input', () => {
         textarea.style.height = 'auto';
         textarea.style.height = textarea.scrollHeight + 'px';
       });
-      // Auto-size on initial load if there's content
       if (textarea.value.trim()) {
         requestAnimationFrame(() => {
           textarea.style.height = 'auto';
           textarea.style.height = textarea.scrollHeight + 'px';
         });
       }
-      // Debounced save on input
       textarea.addEventListener('input', () => {
         const idx = parseInt(textarea.dataset.practiceNoteIdx, 10);
         if (isNaN(idx) || !practiceList.songs[idx]) return;
@@ -1335,31 +984,23 @@ const Practice = (() => {
     });
   }
 
-  // FEAT-26: Practice list picker — called from song detail
+  // ─── Practice list picker (from song detail) ──────────────
+
   function _showPracticeListPicker(song) {
     _syncFromStore();
-    if (!_practice.length) {
-      showToast('No practice personas yet');
-      return;
-    }
-    // Build persona → practice list hierarchy
-    let rows = '';
-    _practice.forEach((persona, pi) => {
-      const lists = persona.practiceLists || [];
-      if (!lists.length) return;
-      rows += `<div class="practice-picker-persona" style="font-size:11px;color:var(--text-3);font-weight:600;padding:8px 0 4px;border-top:1px solid var(--border);">${esc(persona.name)}</div>`;
-      lists.forEach((pl, li) => {
-        const count = (pl.songs || []).length;
-        rows += `<div class="setlist-pick-row" data-persona-idx="${pi}" data-list-idx="${li}">
-          <span class="setlist-pick-name">${esc(pl.name)}</span>
-          <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
-        </div>`;
-      });
-    });
-    if (!rows) {
+    const myLists = _myLists();
+    if (!myLists.length) {
       showToast('No practice lists yet');
       return;
     }
+    let rows = '';
+    myLists.forEach((pl, i) => {
+      const count = (pl.songs || []).length;
+      rows += `<div class="setlist-pick-row" data-list-idx="${i}">
+        <span class="setlist-pick-name">${esc(pl.name)}</span>
+        <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
+      </div>`;
+    });
 
     const handle = Modal.create({
       id: 'practice-list-picker-overlay',
@@ -1372,11 +1013,8 @@ const Practice = (() => {
 
     handle.overlay.querySelectorAll('.setlist-pick-row').forEach(row => {
       row.addEventListener('click', () => {
-        const pi = parseInt(row.dataset.personaIdx, 10);
         const li = parseInt(row.dataset.listIdx, 10);
-        const persona = _practice[pi];
-        if (!persona) return;
-        const pl = (persona.practiceLists || [])[li];
+        const pl = myLists[li];
         if (!pl) return;
 
         const already = (pl.songs || []).some(e => e.songId === song.id);
@@ -1396,27 +1034,19 @@ const Practice = (() => {
 
   function _showBatchPracticeListPicker(songIds) {
     _syncFromStore();
-    if (!_practice.length) {
-      showToast('No practice personas yet');
-      return;
-    }
-    let rows = '';
-    _practice.forEach((persona, pi) => {
-      const lists = persona.practiceLists || [];
-      if (!lists.length) return;
-      rows += `<div class="practice-picker-persona" style="font-size:11px;color:var(--text-3);font-weight:600;padding:8px 0 4px;border-top:1px solid var(--border);">${esc(persona.name)}</div>`;
-      lists.forEach((pl, li) => {
-        const count = (pl.songs || []).length;
-        rows += `<div class="setlist-pick-row" data-persona-idx="${pi}" data-list-idx="${li}">
-          <span class="setlist-pick-name">${esc(pl.name)}</span>
-          <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
-        </div>`;
-      });
-    });
-    if (!rows) {
+    const myLists = _myLists();
+    if (!myLists.length) {
       showToast('No practice lists yet');
       return;
     }
+    let rows = '';
+    myLists.forEach((pl, i) => {
+      const count = (pl.songs || []).length;
+      rows += `<div class="setlist-pick-row" data-list-idx="${i}">
+        <span class="setlist-pick-name">${esc(pl.name)}</span>
+        <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
+      </div>`;
+    });
     const selCount = songIds.size || songIds.length;
     const handle = Modal.create({
       id: 'practice-list-picker-overlay',
@@ -1427,11 +1057,8 @@ const Practice = (() => {
     handle.overlay.querySelector('.setlist-picker-cancel').addEventListener('click', () => handle.hide());
     handle.overlay.querySelectorAll('.setlist-pick-row').forEach(row => {
       row.addEventListener('click', () => {
-        const pi = parseInt(row.dataset.personaIdx, 10);
         const li = parseInt(row.dataset.listIdx, 10);
-        const persona = _practice[pi];
-        if (!persona) return;
-        const pl = (persona.practiceLists || [])[li];
+        const pl = myLists[li];
         if (!pl) return;
         if (!pl.songs) pl.songs = [];
         const existingIds = new Set(pl.songs.map(e => e.songId));
@@ -1465,12 +1092,11 @@ const Practice = (() => {
     _flushPendingNotesSave();
     document.body.classList.remove('practice-mode-active');
     document.getElementById('practice-jump-bar')?.remove();
-    _practicePersona = null;
     _practiceList = null;
     _navigateBack();
   }
 
-  // ─── Cleanup hook: clear BPM hold timer on view exit ──────
+  // ─── Cleanup hook ─────────────────────────────────────────
   Router.registerHook('cleanupPractice', () => {
     if (_bpmHoldTimer) { clearInterval(_bpmHoldTimer); _bpmHoldTimer = null; }
     if (typeof Metronome !== 'undefined' && Metronome.isPlaying()) Metronome.stop();
@@ -1480,16 +1106,13 @@ const Practice = (() => {
 
   return {
     renderPractice,
-    renderPracticeDetail,
     renderPracticeListDetail,
-    renderPracticeEdit,
     loadPracticeInstant,
     savePractice,
     migratePracticeData,
     enterPracticeMode: _enterPracticeMode,
     showPracticeListPicker: _showPracticeListPicker,
     showBatchPracticeListPicker: _showBatchPracticeListPicker,
-    // Allow app.js to sync local _practice after external refresh
     syncFromStore: _syncFromStore,
   };
 })();

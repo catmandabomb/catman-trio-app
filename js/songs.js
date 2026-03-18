@@ -361,7 +361,9 @@ const Songs = (() => {
     }
     const listFooter = document.getElementById('list-footer');
     if (listFooter) {
-      listFooter.classList.toggle('hidden', _preFiltered.length === 0);
+      const isLoggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
+      // Show footer when there are results, OR when user is not logged in (so unauth page isn't barren)
+      listFooter.classList.toggle('hidden', isLoggedIn && _preFiltered.length === 0);
       // Wire footer nav links (once — check for data attribute to avoid duplicate listeners)
       if (!listFooter.dataset.wired) {
         listFooter.dataset.wired = '1';
@@ -380,6 +382,10 @@ const Songs = (() => {
               App.renderList();
             }
           } else if (target === 'setlists') {
+            if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+              showToast('Log in to view setlists');
+              return;
+            }
             if (currentView === 'setlists') {
               const scroll = document.getElementById('setlists-list');
               if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
@@ -387,6 +393,10 @@ const Songs = (() => {
               Setlists.renderSetlists();
             }
           } else if (target === 'practice') {
+            if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+              showToast('Log in to view practice lists');
+              return;
+            }
             if (currentView === 'practice') {
               const scroll = document.getElementById('practice-list');
               if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
@@ -394,6 +404,8 @@ const Songs = (() => {
               Practice.renderPractice();
             }
           } else if (target === 'dashboard') {
+            // Dashboard only accessible from song list view
+            if (currentView !== 'list') return;
             if (Admin.isEditMode()) {
               Dashboard.renderDashboard();
             } else {

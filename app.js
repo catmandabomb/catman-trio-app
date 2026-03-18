@@ -19,7 +19,6 @@ const App = (() => {
   let _navStack   = [];
   let _activeSetlist = null;
   let _practice = [];
-  let _activePersona = null;
   let _activePracticeList = null;
 
   // ─── Hash routing (delegated to Router module) ──────────────
@@ -70,8 +69,11 @@ const App = (() => {
     const practiceBtn = document.getElementById('btn-practice');
     const loggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
 
-    // Toggle body class for CSS-driven auth gating
+    // Toggle body classes for CSS-driven auth gating
     document.body.classList.toggle('authed', loggedIn);
+    const isAdmin = loggedIn && Auth.canEditSongs();
+    document.body.classList.toggle('is-admin', isAdmin);
+    document.body.classList.toggle('is-mobile', 'ontouchstart' in window || navigator.maxTouchPoints > 0);
 
     if (loggedIn) {
       if (btn) { btn.textContent = 'Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); }
@@ -79,13 +81,22 @@ const App = (() => {
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
+      setlistsBtn?.classList.remove('disabled-nav');
+      practiceBtn?.classList.remove('disabled-nav');
     } else {
       if (btn) { btn.textContent = 'Log In'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); }
       addBtn?.classList.add('hidden');
       accountBtn?.classList.add('hidden');
-      setlistsBtn?.classList.add('hidden');
-      practiceBtn?.classList.add('hidden');
+      // Keep buttons visible but styled as disabled for unauth users
+      setlistsBtn?.classList.remove('hidden');
+      practiceBtn?.classList.remove('hidden');
+      setlistsBtn?.classList.add('disabled-nav');
+      practiceBtn?.classList.add('disabled-nav');
     }
+
+    // Show/hide the unauth message on the main page
+    const unauthMsg = document.getElementById('unauth-message');
+    if (unauthMsg) unauthMsg.classList.toggle('hidden', loggedIn);
   }
 
   function _evictBlobCache() {
@@ -353,6 +364,28 @@ const App = (() => {
     Router.showView('account');
     Router.setTopbar('My Account', true);
 
+    // Add logout button to topbar right (mirrors back button on left)
+    const topbarRight = document.querySelector('.topbar-right');
+    if (topbarRight) {
+      // Remove any previous account-logout-topbar button
+      topbarRight.querySelector('#acct-logout-topbar')?.remove();
+      const logoutBtn = document.createElement('button');
+      logoutBtn.id = 'acct-logout-topbar';
+      logoutBtn.className = 'btn-ghost topbar-nav-btn';
+      logoutBtn.title = 'Log Out';
+      logoutBtn.setAttribute('aria-label', 'Log Out');
+      logoutBtn.innerHTML = 'Log Out <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-left:4px;"></i>';
+      topbarRight.appendChild(logoutBtn);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [logoutBtn] });
+      logoutBtn.addEventListener('click', async () => {
+        await Auth.logout();
+        Admin.resetAdminMode(false);
+        _updateAuthUI();
+        renderList();
+        showToast('Logged out');
+      });
+    }
+
     const user = Auth.getUser();
     if (!user) return;
 
@@ -408,9 +441,11 @@ const App = (() => {
           </div>
         </div>
 
-        <div class="acct-section acct-logout-section">
-          <button class="btn-secondary" id="acct-logout">Log Out</button>
+        <div class="acct-section" id="acct-sessions-section">
+          <div class="acct-section-title"><i data-lucide="monitor-smartphone" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>Active Sessions</div>
+          <div id="acct-sessions-list" class="muted" style="font-size:13px;">Loading sessions\u2026</div>
         </div>
+
       </div>
     `;
 
@@ -514,14 +549,39 @@ const App = (() => {
       }
     });
 
-    // Log out handler
-    container.querySelector('#acct-logout')?.addEventListener('click', async () => {
-      await Auth.logout();
-      Admin.resetAdminMode(false);
-      _updateAuthUI();
-      renderList();
-      showToast('Logged out');
-    });
+    // Load sessions asynchronously
+    if (Auth.listSessions) {
+      Auth.listSessions().then(sessions => {
+        const sessContainer = document.getElementById('acct-sessions-list');
+        if (!sessContainer) return;
+        if (!sessions || sessions.length === 0) {
+          sessContainer.innerHTML = '<p class="muted">No active sessions</p>';
+          return;
+        }
+        sessContainer.innerHTML = sessions.map(s => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);">
+            <div>
+              <div style="font-size:13px;color:var(--text);">${Utils.esc(s.deviceInfo || 'Unknown device')}</div>
+              <div style="font-size:11px;color:var(--text-3);">Last active: ${Utils.timeAgo(s.lastUsed)}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
+            </div>
+            ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${Utils.esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
+          </div>
+        `).join('');
+        sessContainer.querySelectorAll('[data-revoke-session]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            try {
+              await Auth.revokeSession(btn.dataset.revokeSession);
+              showToast('Session revoked');
+              btn.closest('div[style]').remove();
+            } catch (e) {
+              showToast(e.message || 'Failed to revoke');
+            }
+          });
+        });
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }).catch(() => {});
+    }
+
   }
 
   // ─── RESET PASSWORD VIEW ────────────────────────────────────
@@ -693,12 +753,10 @@ const App = (() => {
 
   // ─── PRACTICE (delegated to Practice module) ──────────────
   function renderPractice(skipNavReset) { Practice.renderPractice(skipNavReset); }
-  function renderPracticeDetail(persona, skipNavPush) { Practice.renderPracticeDetail(persona, skipNavPush); }
-  function renderPracticeListDetail(persona, practiceList, skipNavPush) { Practice.renderPracticeListDetail(persona, practiceList, skipNavPush); }
-  function renderPracticeEdit(persona, isNew) { Practice.renderPracticeEdit(persona, isNew); }
+  function renderPracticeListDetail(practiceList, skipNavPush) { Practice.renderPracticeListDetail(practiceList, skipNavPush); }
   async function loadPracticeInstant() { await Practice.loadPracticeInstant(); _practice = Store.get('practice'); }
   function _migratePracticeData() { Practice.migratePracticeData(); _practice = Store.get('practice'); }
-  async function savePractice(toastMsg) { Store.set('practice', _practice); return Practice.savePractice(toastMsg); }
+  async function savePractice(toastMsg) { return Practice.savePractice(toastMsg); }
 
   // ─── Init ──────────────────────────────────────────────────
 
@@ -1076,10 +1134,15 @@ const App = (() => {
       }
     });
 
-    // Title click: admin/owner → dashboard (invisible click target)
+    // Title click: admin on desktop + songs page → dashboard; otherwise → home
     document.getElementById('topbar-title').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs()) {
+      const onSongList = Store.get('view') === 'list';
+      const isAdmin = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs();
+      const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (onSongList && isAdmin && !isMobile) {
         renderDashboard();
+      } else {
+        renderList();
       }
     });
 
@@ -1122,6 +1185,13 @@ const App = (() => {
     let _searchTimer = null;
     const searchInput = document.getElementById('search-input');
     const searchClearBtn = document.getElementById('search-clear');
+
+    // Unauth: clicking the search bar area shows a login prompt
+    document.getElementById('search-bar')?.addEventListener('click', (e) => {
+      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+        showToast('Log in to search and browse songs');
+      }
+    });
 
     // Show/hide the X whenever any filter is active (search text, tags, or keys)
     function _updateClearBtnVisibility() {
@@ -1397,7 +1467,10 @@ const App = (() => {
 
     // Setlists button (auth-gated + email verification)
     document.getElementById('btn-setlists').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) return;
+      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+        showToast('Log in to view setlists');
+        return;
+      }
       if (!_checkEmailVerified('Setlists')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
       renderSetlists();
@@ -1405,7 +1478,10 @@ const App = (() => {
 
     // Practice button (auth-gated + email verification)
     document.getElementById('btn-practice').addEventListener('click', () => {
-      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) return;
+      if (typeof Auth !== 'undefined' && !Auth.isLoggedIn()) {
+        showToast('Log in to view practice lists');
+        return;
+      }
       if (!_checkEmailVerified('Practice')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
       renderPractice();
@@ -1666,7 +1742,7 @@ const App = (() => {
   return {
     init, showToast, updateAuthUI: _updateAuthUI,
     renderList, renderDetail, renderEdit,
-    renderSetlists, renderPractice, renderPracticeDetail, renderPracticeListDetail,
+    renderSetlists, renderPractice, renderPracticeListDetail,
     renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
     handleVerifyEmail, checkEmailVerified: _checkEmailVerified, runDiagnostics,
     hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap,
@@ -1684,6 +1760,24 @@ const App = (() => {
   };
 
 })();
+
+// ─── Global error capture for dashboard error log ──────────
+window.onerror = function(msg, source, line) {
+  try {
+    const log = JSON.parse(localStorage.getItem('ct_error_log') || '[]');
+    log.push({ message: String(msg), source: (source || '').split('/').pop() + ':' + line, time: new Date().toISOString() });
+    if (log.length > 50) log.splice(0, log.length - 50);
+    localStorage.setItem('ct_error_log', JSON.stringify(log));
+  } catch (_) {}
+};
+window.addEventListener('unhandledrejection', (e) => {
+  try {
+    const log = JSON.parse(localStorage.getItem('ct_error_log') || '[]');
+    log.push({ message: 'Unhandled promise: ' + (e.reason?.message || String(e.reason)), source: 'promise', time: new Date().toISOString() });
+    if (log.length > 50) log.splice(0, log.length - 50);
+    localStorage.setItem('ct_error_log', JSON.stringify(log));
+  } catch (_) {}
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   // GIS only on desktop — mobile never writes to Drive (uses GitHub for metadata)

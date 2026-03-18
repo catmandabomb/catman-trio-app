@@ -12,7 +12,7 @@ const Store = (() => {
 
   const _state = {
     // ─── Version / Schema ────────────────────────────────────
-    APP_VERSION:        'v19.95',
+    APP_VERSION:        'v19.96',
     DATA_SCHEMA_VERSION: 1,
 
     // ─── Core data arrays ────────────────────────────────────
@@ -47,13 +47,9 @@ const Store = (() => {
     sortableSetlist:    null,
 
     // ─── Practice state ──────────────────────────────────────
-    activePersona:      null,
-    editPersona:        null,
-    editPersonaIsNew:   false,
     activePracticeList: null,
     editPracticeList:   null,
     editPracticeListIsNew: false,
-    practicePersona:    null,
     practiceList:       null,
 
     // ─── Sync / Save state ───────────────────────────────────

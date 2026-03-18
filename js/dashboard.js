@@ -29,6 +29,25 @@ const Dashboard = (() => {
     Router.showView('dashboard');
     Router.setTopbar('Admin Dashboard', true);
 
+    // Add Switch Mode + Log Out buttons to topbar right
+    const topbarRight = document.querySelector('.topbar-right');
+    if (topbarRight) {
+      topbarRight.querySelector('#dash-topbar-actions')?.remove();
+      const isOwnerOrAdmin = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs();
+      const adminModeOn = Admin.isAdminModeActive();
+      const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
+      const switchIcon = adminModeOn ? 'user' : 'shield';
+      const wrap = document.createElement('div');
+      wrap.id = 'dash-topbar-actions';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      wrap.innerHTML = `
+        ${isOwnerOrAdmin ? `<button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>` : ''}
+        <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out">Log Out <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-left:4px;"></i></button>
+      `;
+      topbarRight.appendChild(wrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+    }
+
     const container = document.getElementById('dashboard-content');
     const songs     = Store.get('songs');
     const setlists  = Store.get('setlists');
@@ -37,8 +56,7 @@ const Dashboard = (() => {
     // ─── Gather stats ───
     const totalSongs = songs.length;
     const totalSetlists = setlists.length;
-    const totalPersonas = practice.length;
-    const totalPracticeLists = practice.reduce((sum, p) => sum + (p.practiceLists || []).length, 0);
+    const totalPracticeLists = practice.length;
     const allTags = new Set();
     songs.forEach(s => (s.tags || []).forEach(t => allTags.add(t)));
 
@@ -86,13 +104,11 @@ const Dashboard = (() => {
     }
 
     const orphanPractice = [];
-    practice.forEach(persona => {
-      (persona.practiceLists || []).forEach(pl => {
-        (pl.songs || []).forEach(entry => {
-          if (entry.songId && !songIdSet.has(entry.songId)) {
-            orphanPractice.push({ persona: persona.name, list: pl.name, songId: entry.songId });
-          }
-        });
+    practice.forEach(pl => {
+      (pl.songs || []).forEach(entry => {
+        if (entry.songId && !songIdSet.has(entry.songId)) {
+          orphanPractice.push({ list: pl.name, songId: entry.songId });
+        }
       });
     });
     if (orphanPractice.length) {
@@ -100,7 +116,7 @@ const Dashboard = (() => {
         code: 1201,
         title: `${orphanPractice.length} practice entry${orphanPractice.length > 1 ? 'ies' : 'y'} referencing deleted songs`,
         detail: 'These entries will show as missing. Fix: Edit the practice list and remove the broken entries, or re-add the song to the repository.',
-        items: orphanPractice.map(o => `"${esc(o.persona)}" → "${esc(o.list)}" → song ${o.songId}`)
+        items: orphanPractice.map(o => `"${esc(o.list)}" → song ${o.songId}`)
       });
     }
 
@@ -202,17 +218,8 @@ const Dashboard = (() => {
 
     const _codeTag = (code) => `<span class="dash-alert-code">${code}</span>`;
 
-    const isOwnerOrAdmin = typeof Auth !== 'undefined' && Auth.isLoggedIn() && Auth.canEditSongs();
-    const adminModeOn = Admin.isAdminModeActive();
-    const switchBtnText = adminModeOn ? 'Switch to User Mode' : 'Switch to Admin Mode';
-    const switchBtnIcon = adminModeOn ? 'user' : 'shield';
-
     let html = `
       <div class="dash-header">
-        <div class="dash-header-actions">
-          ${isOwnerOrAdmin ? `<button class="text-btn" id="dash-toggle-mode" title="${switchBtnText}"><i data-lucide="${switchBtnIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchBtnText}</button>` : ''}
-          <button class="text-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
-        </div>
         <p>System health and data integrity overview</p>
         <span class="dash-version">${APP_VERSION}</span>
       </div>
@@ -229,10 +236,6 @@ const Dashboard = (() => {
         <div class="dash-stat">
           <div class="dash-stat-value">${totalSetlists}</div>
           <div class="dash-stat-label">Setlists</div>
-        </div>
-        <div class="dash-stat">
-          <div class="dash-stat-value">${totalPersonas}</div>
-          <div class="dash-stat-label">Personas</div>
         </div>
         <div class="dash-stat">
           <div class="dash-stat-value">${totalPracticeLists}</div>
@@ -360,8 +363,8 @@ const Dashboard = (() => {
     // User Management — link to subpage (owner only)
     if (typeof Auth !== 'undefined' && Auth.canManageUsers()) {
       html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
-        <button class="btn-ghost" id="dash-open-user-mgmt" style="font-size:13px;">
-          <i data-lucide="users" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>User Management
+        <button class="btn-ghost" id="dash-open-user-mgmt" style="font-size:15px;">
+          <i data-lucide="users" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>User Management
         </button>
       </div>`;
     }
@@ -369,9 +372,99 @@ const Dashboard = (() => {
     // Tag Manager — link to subpage (admin only)
     if (Admin.isEditMode()) {
       html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
-        <button class="btn-ghost" id="dash-open-tag-mgr" style="font-size:13px;">
-          <i data-lucide="tags" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Tag Manager
+        <button class="btn-ghost" id="dash-open-tag-mgr" style="font-size:15px;">
+          <i data-lucide="tags" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>Tag Manager
         </button>
+      </div>`;
+    }
+
+    // Data Management — purge section (owner only)
+    if (typeof Auth !== 'undefined' && Auth.getRole() === 'owner') {
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title" style="color:#e87c6a;">
+          <i data-lucide="shield-alert" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Data Management
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+          <button class="btn-danger" id="dash-purge-practice" style="font-size:13px;padding:10px 16px;">
+            <i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Purge All Practice Lists (${totalPracticeLists})
+          </button>
+          <p class="muted" style="font-size:11px;margin:0;padding:0 4px;">Permanently deletes ALL practice lists for ALL users. Syncs to GitHub/Drive. Cannot be undone.</p>
+        </div>
+      </div>`;
+    }
+
+    // ─── God-Mode Extras (owner only, appended below existing sections) ───
+
+    if (typeof Auth !== 'undefined' && Auth.getRole() === 'owner') {
+
+      // ── Data Export ──
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="download" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Data Export
+        </div>
+        <p class="muted" style="font-size:12px;margin:4px 0 10px;">Download all app data as a JSON file for backup or migration.</p>
+        <button class="btn-ghost" id="dash-export-json" style="font-size:14px;">
+          <i data-lucide="file-json" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Export All Data (JSON)
+        </button>
+      </div>`;
+
+      // ── Storage Usage ──
+      let lsUsed = 0;
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          lsUsed += (k.length + (localStorage.getItem(k) || '').length) * 2;
+        }
+      } catch (_) {}
+      const lsKB = (lsUsed / 1024).toFixed(1);
+      const lsQuotaMB = 5;
+      const lsPct = Math.min(100, (lsUsed / (lsQuotaMB * 1024 * 1024)) * 100).toFixed(1);
+
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="hard-drive" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Storage Usage
+        </div>
+        <div style="margin-top:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+            <span>localStorage</span>
+            <span>${lsKB} KB / ~${lsQuotaMB} MB (${lsPct}%)</span>
+          </div>
+          <div style="background:var(--bg-3);border-radius:4px;height:8px;overflow:hidden;">
+            <div style="width:${lsPct}%;height:100%;background:${parseFloat(lsPct) > 80 ? '#e87c6a' : 'var(--accent)'};border-radius:4px;transition:width 0.3s;"></div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:var(--text-3);">
+          Songs: ~${((JSON.stringify(songs).length * 2) / 1024).toFixed(1)} KB &middot;
+          Setlists: ~${((JSON.stringify(setlists).length * 2) / 1024).toFixed(1)} KB &middot;
+          Practice: ~${((JSON.stringify(practice).length * 2) / 1024).toFixed(1)} KB
+        </div>
+      </div>`;
+
+      // ── Sync Queue Status ──
+      const ghConfigured = typeof GitHub !== 'undefined' && GitHub.isConfigured();
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="refresh-cw" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Sync Queue
+        </div>
+        <div id="dash-sync-status" style="margin-top:8px;font-size:13px;">
+          ${ghConfigured ? '<span class="muted">Checking queue\u2026</span>' : '<span class="muted">GitHub not configured \u2014 sync inactive</span>'}
+        </div>
+      </div>`;
+
+      // ── Client Error Log ──
+      html += `
+      <div class="dash-section" style="margin-top:24px;">
+        <div class="dash-section-title">
+          <i data-lucide="bug" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Client Error Log
+        </div>
+        <div id="dash-error-log" style="margin-top:8px;font-size:12px;max-height:200px;overflow-y:auto;">
+          <span class="muted">No errors captured</span>
+        </div>
+        <button class="btn-ghost" id="dash-clear-errors" style="font-size:12px;margin-top:6px;display:none;">Clear Log</button>
       </div>`;
     }
 
@@ -407,13 +500,11 @@ const Dashboard = (() => {
         const songIdSet = new Set(songs.map(s => s.id));
         let removed = 0;
         if (code === 1201) {
-          // Remove orphans from practice lists
-          practice.forEach(persona => {
-            (persona.practiceLists || []).forEach(pl => {
-              const before = (pl.songs || []).length;
-              pl.songs = (pl.songs || []).filter(e => songIdSet.has(e.songId));
-              removed += before - pl.songs.length;
-            });
+          // Remove orphans from practice lists (flat format)
+          practice.forEach(pl => {
+            const before = (pl.songs || []).length;
+            pl.songs = (pl.songs || []).filter(e => songIdSet.has(e.songId));
+            removed += before - pl.songs.length;
           });
           Store.set('practice', practice);
           if (typeof Sync !== 'undefined') Sync.savePractice();
@@ -430,6 +521,19 @@ const Dashboard = (() => {
         showToast(`Removed ${removed} orphan${removed !== 1 ? 's' : ''}`);
         renderDashboard();
       });
+    });
+
+    // Wire purge practice lists button (owner only)
+    document.getElementById('dash-purge-practice')?.addEventListener('click', () => {
+      const count = (Store.get('practice') || []).length;
+      if (count === 0) { showToast('No practice lists to purge.'); return; }
+      Admin.showConfirm('Purge All Practice Lists',
+        `This will permanently delete ALL ${count} practice lists for ALL users. This action cannot be undone. Are you sure?`,
+        async () => {
+          Store.set('practice', []);
+          if (typeof Sync !== 'undefined') await Sync.savePractice('All practice lists purged.');
+          renderDashboard();
+        }, 'Purge All');
     });
 
     // Wire Tag Manager button
@@ -515,6 +619,74 @@ const Dashboard = (() => {
         }
       });
     }
+
+    // ─── Wire God-Mode Extras ───
+
+    // Data Export
+    document.getElementById('dash-export-json')?.addEventListener('click', () => {
+      const data = {
+        exportedAt: new Date().toISOString(),
+        version: Store.get('APP_VERSION'),
+        songs: Store.get('songs'),
+        setlists: Store.get('setlists'),
+        practice: Store.get('practice'),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `catman-trio-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Data exported');
+    });
+
+    // Sync Queue Status (async)
+    const syncStatusEl = document.getElementById('dash-sync-status');
+    if (syncStatusEl && typeof GitHub !== 'undefined' && GitHub.isConfigured()) {
+      try {
+        const qs = GitHub.getWriteQueueStatus();
+        const lastSync = localStorage.getItem('ct_last_sync');
+        const lastSyncText = lastSync ? Utils.timeAgo(lastSync) : 'never';
+        const pendingText = qs.hasPending ? qs.pendingTypes.join(', ') : 'none';
+        const statusColor = qs.lastError ? '#e87c6a' : qs.flushing ? 'var(--accent)' : 'var(--text)';
+        const statusLabel = qs.lastError ? 'Error' : qs.flushing ? 'Flushing\u2026' : 'Idle';
+        syncStatusEl.innerHTML = `
+          <div style="display:flex;gap:16px;flex-wrap:wrap;">
+            <span>Status: <strong style="color:${statusColor}">${statusLabel}</strong></span>
+            <span>Pending: <strong>${esc(pendingText)}</strong></span>
+          </div>
+          <div style="margin-top:4px;color:var(--text-3);font-size:12px;">
+            Last sync: ${lastSyncText} &middot; Ramp: ${qs.debounceCount}
+          </div>`;
+      } catch (_) {
+        syncStatusEl.innerHTML = '<span class="muted">Could not read queue status</span>';
+      }
+    }
+
+    // Client Error Log
+    const errorLogEl = document.getElementById('dash-error-log');
+    const clearErrorsBtn = document.getElementById('dash-clear-errors');
+    if (errorLogEl) {
+      try {
+        const errors = JSON.parse(localStorage.getItem('ct_error_log') || '[]');
+        if (errors.length > 0) {
+          errorLogEl.innerHTML = errors.slice(-20).reverse().map(e =>
+            `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
+              <div style="color:#e87c6a;">${esc(e.message || 'Unknown error')}</div>
+              <div style="color:var(--text-3);font-size:11px;">${esc(e.source || '')} ${e.time ? '&middot; ' + Utils.timeAgo(e.time) : ''}</div>
+            </div>`
+          ).join('');
+          if (clearErrorsBtn) clearErrorsBtn.style.display = '';
+        }
+      } catch (_) {}
+    }
+    clearErrorsBtn?.addEventListener('click', () => {
+      localStorage.removeItem('ct_error_log');
+      if (errorLogEl) errorLogEl.innerHTML = '<span class="muted">No errors captured</span>';
+      clearErrorsBtn.style.display = 'none';
+      showToast('Error log cleared');
+    });
 
     // Async Drive check
     _renderDriveSection(container, songs, setlists, practice, _codeTag);
@@ -744,11 +916,6 @@ const Dashboard = (() => {
   }
 
   function _showAddUserModal() {
-    const practice = Store.get('practice') || [];
-    const personaOptions = practice.map(p =>
-      `<option value="${esc(p.id)}">${esc(p.name)}</option>`
-    ).join('');
-
     const handle = Modal.create({
       id: 'modal-add-user',
       content: `
@@ -968,20 +1135,16 @@ const Dashboard = (() => {
         const { songs: dSongs, setlists: dSetlists, practice: dPractice } = _lastDriveSnapshot;
         const driveSongs = Array.isArray(dSongs) ? dSongs.length : 0;
         const driveSetlists = Array.isArray(dSetlists) ? dSetlists.length : 0;
-        const drivePersonas = Array.isArray(dPractice) ? dPractice.length : 0;
-        const drivePLists = Array.isArray(dPractice)
-          ? dPractice.reduce((sum, p) => sum + (p.practiceLists || p.lists || []).length, 0) : 0;
+        const drivePLists = Array.isArray(dPractice) ? dPractice.length : 0;
 
         const localSongs = songs.length;
         const localSetlists = setlists.length;
-        const localPersonas = practice.length;
-        const localPLists = practice.reduce((sum, p) => sum + (p.practiceLists || []).length, 0);
+        const localPLists = practice.length;
 
         const songMatch = driveSongs === localSongs;
         const setlistMatch = driveSetlists === localSetlists;
-        const personaMatch = drivePersonas === localPersonas;
         const plistMatch = drivePLists === localPLists;
-        const allMatch = songMatch && setlistMatch && personaMatch && plistMatch;
+        const allMatch = songMatch && setlistMatch && plistMatch;
 
         const row = (label, local, drive, match) =>
           `<div style="display:flex;justify-content:space-between;padding:2px 0;">` +
@@ -1001,7 +1164,6 @@ const Dashboard = (() => {
           `<div class="dash-alert-detail" style="font-family:var(--font-mono);font-size:11px;">` +
           row('Songs', localSongs, driveSongs, songMatch) +
           row('Setlists', localSetlists, driveSetlists, setlistMatch) +
-          row('Personas', localPersonas, drivePersonas, personaMatch) +
           row('Practice Lists', localPLists, drivePLists, plistMatch) +
           `</div>` +
           `<div class="dash-alert-detail" style="margin-top:6px;font-size:11px;color:var(--text-3);">` +
@@ -1239,8 +1401,7 @@ const Dashboard = (() => {
       try {
         const arr = JSON.parse(raw);
         if (!Array.isArray(arr)) return { status: 'fail', detail: 'ct_practice is not an array' };
-        const totalLists = arr.reduce((s, p) => s + (p.practiceLists || []).length, 0);
-        return { status: 'pass', detail: `${arr.length} personas, ${totalLists} practice lists, ~${(raw.length / 1024).toFixed(1)} KB` };
+        return { status: 'pass', detail: `${arr.length} practice lists, ~${(raw.length / 1024).toFixed(1)} KB` };
       } catch (e) {
         return { status: 'fail', detail: `Corrupt JSON: ${e.message}` };
       }
@@ -1451,8 +1612,7 @@ const Dashboard = (() => {
         } else { parts.push('setlists: not found'); }
         if (remotePractice !== null) {
           if (!Array.isArray(remotePractice)) return { status: 'fail', detail: 'practice.enc decrypted but is not an array' };
-          const totalLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
-          parts.push(`${remotePractice.length} personas (${totalLists} lists)`);
+          parts.push(`${remotePractice.length} practice lists`);
         } else { parts.push('practice: not found'); }
         const anyNull = remoteSongs === null || remoteSetlists === null || remotePractice === null;
         return { status: anyNull ? 'warn' : 'pass', detail: t() + ' — ' + parts.join(' · ') };
@@ -1513,13 +1673,11 @@ const Dashboard = (() => {
       if (remotePractice === null) return { status: 'skip', detail: 'Remote practice not loaded' };
       const localCount = practice.length;
       const remoteCount = remotePractice.length;
-      const localLists = practice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
-      const remoteLists = remotePractice.reduce((s, p) => s + (p.practiceLists || []).length, 0);
-      if (localCount !== remoteCount || localLists !== remoteLists) {
-        return { status: 'fail', detail: `Mismatch: ${localCount} personas (${localLists} lists) local vs ${remoteCount} personas (${remoteLists} lists) remote` };
+      if (localCount !== remoteCount) {
+        return { status: 'fail', detail: `Mismatch: ${localCount} practice lists local vs ${remoteCount} remote` };
       }
       const match = JSON.stringify(practice) === JSON.stringify(remotePractice);
-      return { status: match ? 'pass' : 'warn', detail: match ? `${localCount} personas, ${localLists} lists identical` : `Counts match but content differs` };
+      return { status: match ? 'pass' : 'warn', detail: match ? `${localCount} practice lists identical` : `Counts match but content differs` };
     });
 
     // ═════════════════════════════════════════════

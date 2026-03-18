@@ -13,7 +13,7 @@ const Auth = (() => {
   // ─── State ──────────────────────────────────────────────
 
   let _token = null;
-  let _user = null;        // { id, username, displayName, role, personaId }
+  let _user = null;        // { id, username, displayName, role }
   let _expires = null;
   let _checked = false;    // Has refreshSession run at least once?
 
@@ -119,6 +119,7 @@ const Auth = (() => {
       _expires = null;
       _checked = true;
       _save();
+      localStorage.removeItem('ct_pw_hash');
     }
   }
 
@@ -137,8 +138,8 @@ const Auth = (() => {
       if (resp.ok) {
         const data = await resp.json();
         _user = data.user;
-        // Server uses sliding window — extend local expiry to match
-        _expires = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+        // Server uses sliding window — extend local expiry to match (30d)
+        _expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         _checked = true;
         _save();
         return true;
@@ -410,6 +411,23 @@ const Auth = (() => {
     return _user ? !!_user.passwordExpired : false;
   }
 
+  // ─── Session management ─────────────────────────────────
+
+  async function listSessions() {
+    const resp = await _api('/auth/sessions');
+    if (!resp.ok) throw new Error('Failed to load sessions');
+    const data = await resp.json();
+    return data.sessions;
+  }
+
+  async function revokeSession(sessionId) {
+    const resp = await _api(`/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || 'Failed to revoke session');
+    }
+  }
+
   // ─── Accessors ──────────────────────────────────────────
 
   function getToken() { return _token; }
@@ -430,12 +448,9 @@ const Auth = (() => {
     return ['owner', 'admin'].includes(_user.role);
   }
 
-  function canEditPersona(personaId) {
-    if (!_user) return false;
-    if (['owner', 'admin'].includes(_user.role)) return true;
-    // Members can edit their own persona's practice lists
-    if (_user.role === 'member' && _user.personaId === personaId) return true;
-    return false;
+  function canEditPractice() {
+    // All logged-in users can manage their own practice lists
+    return !!_user;
   }
 
   function canManageUsers() {
@@ -476,6 +491,8 @@ const Auth = (() => {
     updateExistingUser,
     deleteExistingUser,
     sendEmail,
+    listSessions,
+    revokeSession,
     getToken,
     getUser,
     getRole,
@@ -483,7 +500,7 @@ const Auth = (() => {
     isChecked,
     canEditSongs,
     canEditSetlists,
-    canEditPersona,
+    canEditPractice,
     canManageUsers,
     canViewAuditLog,
     getAdminHash,

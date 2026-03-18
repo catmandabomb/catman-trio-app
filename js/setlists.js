@@ -83,6 +83,18 @@ const Setlists = (() => {
     });
   }
 
+  function _injectTopbarActions(id, innerHtml) {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    topbarRight.querySelector(`#${id}`)?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = id;
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    wrap.innerHTML = innerHtml;
+    topbarRight.appendChild(wrap);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+  }
+
   // ─── SETLIST SONG PICKER (from song detail / batch) ───────────
 
   /**
@@ -251,21 +263,19 @@ const Setlists = (() => {
     _showView('setlists');
     _setTopbar('Setlists', true);
 
+    // Add "New Setlist" to topbar right (admin only)
+    if (Admin.isEditMode()) {
+      _injectTopbarActions('setlists-topbar-actions',
+        `<button class="btn-ghost topbar-nav-btn" id="btn-new-setlist"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New Setlist</button>`);
+    }
+
     _autoArchiveSetlists();
 
     const container = document.getElementById('setlists-list');
     const active = _setlists.filter(sl => !sl.archived).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     const archived = _setlists.filter(sl => sl.archived).sort((a, b) => (b.gigDate || b.updatedAt || '').localeCompare(a.gigDate || a.updatedAt || ''));
 
-    let html = `<div class="view-refresh-row">
-      <button class="icon-btn view-refresh-btn" id="btn-refresh-setlists" title="Sync from Drive" aria-label="Refresh">
-        <i data-lucide="refresh-cw"></i>
-      </button>
-    </div>`;
-
-    if (Admin.isEditMode()) {
-      html += `<button class="btn-ghost setlist-add-btn" id="btn-new-setlist">+ New Setlist</button>`;
-    }
+    let html = '';
 
     if (!_showArchived) {
       if (active.length === 0) {
@@ -300,11 +310,6 @@ const Setlists = (() => {
 
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
-
-    // Wire refresh
-    document.getElementById('btn-refresh-setlists')?.addEventListener('click', () => {
-      _doSyncRefresh(() => renderSetlists(true));
-    });
 
     // Wire card clicks
     container.querySelectorAll('.setlist-card').forEach(card => {
@@ -400,16 +405,21 @@ const Setlists = (() => {
     _showView('setlist-detail');
     _setTopbar(setlist.name || 'Setlist', true);
 
+    // Add Edit + Duplicate to topbar right (admin only)
+    const isAdmin = Admin.isEditMode();
+    if (isAdmin) {
+      _injectTopbarActions('setlist-detail-topbar-actions',
+        `<button class="btn-ghost topbar-nav-btn btn-edit-setlist">Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button>`);
+    }
+
     const _songs = Store.get('songs');
     const container = document.getElementById('setlist-detail-content');
     const songs = setlist.songs || [];
-    const isAdmin = Admin.isEditMode();
 
     let html = `<div class="detail-header">
-      ${isAdmin ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-setlist">Edit Setlist</button><button class="btn-ghost btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Duplicate</button></div>` : ''}
       <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
       <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
-      ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${isAdmin ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}</div>` : ''}
+      ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(typeof Auth !== 'undefined' && Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}</div>` : ''}
     </div>`;
 
     if (songs.length === 0) {
@@ -507,12 +517,12 @@ const Setlists = (() => {
     });
 
     // Wire edit button
-    container.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
+    document.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
       renderSetlistEdit(setlist, false);
     });
 
     // Wire duplicate button
-    container.querySelector('.btn-duplicate-setlist')?.addEventListener('click', () => {
+    document.querySelector('.btn-duplicate-setlist')?.addEventListener('click', () => {
       haptic.success();
       const dupe = deepClone(setlist);
       dupe.id = 'sl_' + Date.now();
@@ -583,7 +593,7 @@ const Setlists = (() => {
       _shareSetlist(setlist, _songs);
     });
 
-    // Wire Email Setlist button (admin only)
+    // Wire Email Setlist button (any logged-in user)
     container.querySelector('.btn-email-setlist')?.addEventListener('click', () => {
       _showEmailSetlistModal(setlist, _songs);
     });
@@ -804,62 +814,17 @@ const Setlists = (() => {
 
   // ─── EMAIL SETLIST ──────────────────────────────────────────────
 
-  async function _showEmailSetlistModal(setlist, allSongs) {
+  function _showEmailSetlistModal(setlist, allSongs) {
     const songs = setlist.songs || [];
     if (!songs.length) { showToast('Setlist is empty'); return; }
 
-    // Fetch users and filter out placeholder emails
-    let users = [];
-    try {
-      users = await Auth.listAllUsers();
-    } catch (e) {
-      showToast('Could not load users');
-      return;
-    }
-    const realUsers = users.filter(u =>
-      u.email && u.email !== 'xxx@xxx.com' && !u.email.endsWith('@placeholder.local') && u.email.includes('@')
-    );
-    if (realUsers.length === 0) {
-      showToast('No users with email addresses');
-      return;
-    }
-
-    const selected = new Set();
-
-    function _renderRecipients() {
-      const list = document.getElementById('esl-user-list');
-      const chips = document.getElementById('esl-selected-chips');
-      if (!list || !chips) return;
-
-      list.innerHTML = realUsers.map(u => {
-        const checked = selected.has(u.id);
-        return `<label class="esl-user-row${checked ? ' esl-selected' : ''}" data-uid="${esc(u.id)}">
-          <input type="checkbox" ${checked ? 'checked' : ''} />
-          <span class="esl-user-name">${esc(u.display_name || u.displayName || u.username)}</span>
-          <span class="esl-user-email">${esc(u.email)}</span>
-        </label>`;
-      }).join('');
-
-      if (selected.size > 0) {
-        const names = realUsers.filter(u => selected.has(u.id))
-          .map(u => esc(u.display_name || u.displayName || u.username));
-        chips.innerHTML = names.map(n => `<span class="esl-chip">${n}</span>`).join('');
-        chips.classList.remove('hidden');
-      } else {
-        chips.innerHTML = '';
-        chips.classList.add('hidden');
-      }
-
-      // Update send button state
-      const sendBtn = document.getElementById('esl-send');
-      if (sendBtn) sendBtn.disabled = selected.size === 0;
-    }
-
-    // Build setlist HTML for email body
+    // Build formatted setlist HTML for the email body
     function _buildEmailHtml() {
       let html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">`;
+      html += `<p style="margin:0 0 16px;font-size:15px;">Yo! Cat here \u2014 here's the setlist:</p>`;
       html += `<h2 style="margin:0 0 4px;">${esc(setlist.name || 'Setlist')}</h2>`;
       if (setlist.gigDate) html += `<p style="margin:0 0 16px;color:#888;">${esc(setlist.gigDate)}</p>`;
+      if (setlist.notes) html += `<p style="margin:0 0 16px;color:#666;font-size:14px;">${esc(setlist.notes)}</p>`;
       html += `<table style="width:100%;border-collapse:collapse;">`;
       songs.forEach((entry, i) => {
         const isEven = i % 2 === 0;
@@ -874,7 +839,7 @@ const Setlists = (() => {
               <strong>${esc(entry.title || 'Untitled')}</strong>
               ${meta.length ? `<br><span style="color:#888;font-size:13px;">${meta.join(' &middot; ')}</span>` : ''}
               ${entry.notes ? `<br><span style="color:#666;font-size:13px;font-style:italic;">${esc(entry.notes)}</span>` : ''}
-              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">→ ${esc(entry.comment)}</span>` : ''}
+              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">&rarr; ${esc(entry.comment)}</span>` : ''}
             </td>
           </tr>`;
         } else {
@@ -889,78 +854,86 @@ const Setlists = (() => {
             <td style="padding:8px 12px;">
               <strong>${esc(song.title)}</strong>
               ${meta.length ? `<br><span style="color:#888;font-size:13px;">${meta.join(' &middot; ')}</span>` : ''}
-              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">→ ${esc(entry.comment)}</span>` : ''}
+              ${entry.comment ? `<br><span style="color:#666;font-size:13px;">&rarr; ${esc(entry.comment)}</span>` : ''}
             </td>
           </tr>`;
         }
       });
       html += `</table>`;
       html += `<p style="margin:16px 0 0;color:#888;font-size:13px;">${songs.length} song${songs.length !== 1 ? 's' : ''}</p>`;
-      html += `<p style="margin:8px 0 0;color:#aaa;font-size:12px;">Sent from Catman Trio App</p>`;
+      html += `<hr style="border:none;border-top:1px solid #ddd;margin:20px 0 12px;">`;
+      html += `<p style="margin:0;color:#aaa;font-size:12px;">Sent from Catman Trio</p>`;
       html += `</div>`;
       return html;
     }
 
-    // Show modal
+    // Show modal with free-form email input
     const handle = Modal.create({
       id: 'modal-email-setlist',
       content: `
         <h2>Email Setlist</h2>
         <div class="esl-modal">
-          <p class="esl-label">Select recipients:</p>
-          <div id="esl-selected-chips" class="esl-chips hidden"></div>
-          <div id="esl-user-list" class="esl-user-list"></div>
+          <label class="esl-label">Recipient email(s):</label>
+          <input type="text" id="esl-email-input" class="form-input" placeholder="venue@example.com, tech@example.com" style="width:100%;margin-bottom:4px;">
+          <p class="muted" style="font-size:11px;margin:0 0 12px;">Separate multiple addresses with commas (max 10)</p>
+          <label class="esl-label">Subject:</label>
+          <input type="text" id="esl-subject-input" class="form-input" value="Catman Setlist: ${esc(setlist.name || 'Untitled')}" maxlength="200" style="width:100%;margin-bottom:12px;">
+          <p class="muted" style="font-size:12px;margin:8px 0 0;">A formatted setlist will be sent from cat@catmanbeats.com</p>
           <div class="esl-actions">
-            <button class="btn-primary" id="esl-send" disabled>Send</button>
+            <button class="btn-primary" id="esl-send">Send</button>
             <button class="btn-secondary" id="esl-cancel">Cancel</button>
           </div>
         </div>
       `,
     });
 
-    _renderRecipients();
-
-    // Toggle user selection
-    document.getElementById('esl-user-list')?.addEventListener('change', (e) => {
-      const row = e.target.closest('.esl-user-row');
-      if (!row) return;
-      const uid = row.dataset.uid;
-      if (selected.has(uid)) {
-        selected.delete(uid);
-      } else {
-        selected.add(uid);
-      }
-      _renderRecipients();
-    });
-
-    // Send
-    document.getElementById('esl-send')?.addEventListener('click', async () => {
-      const sendBtn = document.getElementById('esl-send');
-      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending...'; }
-
-      const toEmails = realUsers
-        .filter(u => selected.has(u.id))
-        .map(u => u.email);
-
-      const result = await Auth.sendEmail({
-        to: toEmails,
-        subject: `Setlist: ${setlist.name || 'Untitled'}`,
-        html: _buildEmailHtml(),
-      });
-
-      if (result.ok) {
-        handle.hide();
-        showToast(`Setlist emailed to ${toEmails.length} recipient${toEmails.length !== 1 ? 's' : ''}`);
-      } else {
-        showToast(result.error || 'Failed to send email');
-        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
-      }
-    });
-
     // Cancel
     document.getElementById('esl-cancel')?.addEventListener('click', () => {
       handle.hide();
     });
+
+    // Send
+    document.getElementById('esl-send')?.addEventListener('click', async () => {
+      const rawInput = document.getElementById('esl-email-input')?.value.trim();
+      const subject = (document.getElementById('esl-subject-input')?.value || '').replace(/[\r\n\x00-\x1f]/g, '').trim();
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emails = (rawInput || '').split(',').map(e => e.trim()).filter(Boolean);
+      if (emails.length === 0 || emails.length > 10) {
+        showToast(emails.length === 0 ? 'Enter at least one email address' : 'Maximum 10 recipients');
+        return;
+      }
+      const badEmail = emails.find(e => !emailRe.test(e));
+      if (badEmail) {
+        showToast('Invalid email: ' + badEmail);
+        return;
+      }
+      const sendBtn = document.getElementById('esl-send');
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending\u2026';
+      try {
+        const result = await Auth.sendEmail({
+          to: emails,
+          subject: subject || 'Catman Setlist',
+          html: _buildEmailHtml(),
+        });
+        if (result.ok) {
+          const count = result.sent || emails.length;
+          showToast(count > 1 ? `Setlist emailed to ${count} recipients` : 'Setlist emailed successfully');
+          handle.hide();
+        } else {
+          showToast(result.error || 'Failed to send email');
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+        }
+      } catch (e) {
+        showToast(e.message || 'Failed to send');
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send';
+      }
+    });
+
+    // Focus email input
+    setTimeout(() => document.getElementById('esl-email-input')?.focus(), 100);
   }
 
   // ─── SETLIST LIVE MODE (ForScore-style charts + pedal support) ──

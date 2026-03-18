@@ -44,7 +44,7 @@ const Router = (() => {
       case 'setlists': return '#setlists';
       case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
       case 'practice': return '#practice';
-      case 'practice-detail': return params?.personaId ? `#practice/${params.personaId}` : '#practice';
+      case 'practice-detail': return '#practice';
       case 'dashboard': return '#dashboard';
       default: return '#';
     }
@@ -68,7 +68,6 @@ const Router = (() => {
       case 'setlists': return { view: 'setlists' };
       case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
       case 'practice':
-        if (parts[1]) return { view: 'practice-detail', personaId: parts[1] };
         return { view: 'practice' };
       case 'dashboard': return { view: 'dashboard' };
       case 'reset-password': return { view: 'reset-password', token: params.token };
@@ -110,9 +109,11 @@ const Router = (() => {
       if (!alreadyActive) {
         if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
         if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
-        if ((currentView === 'practice-detail' || currentView === 'practice-edit') && !name.startsWith('practice')) _callHook('cleanupPractice');
+        if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) _callHook('cleanupPractice');
         // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
         if (name !== 'detail' && typeof App !== 'undefined' && App.showVolume) App.showVolume(false);
+        // Remove view-specific topbar buttons when leaving
+        document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions').forEach(el => el.remove());
         _viewEls.forEach(v => v.classList.remove('active'));
         const el = document.getElementById(`view-${name}`);
         if (el) {

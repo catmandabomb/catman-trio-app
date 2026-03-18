@@ -2,11 +2,11 @@
  * users.js — User management endpoints
  *
  * Handles user CRUD operations and password hashing.
- * All passwords are hashed with PBKDF2 (100k iterations, SHA-256).
+ * All passwords are hashed with PBKDF2 (600k iterations, SHA-256).
  */
 
-const PBKDF2_ITERATIONS = 100000;
-const SESSION_TTL_DAYS = 90;     // Sliding window TTL (like Instagram/Facebook)
+const PBKDF2_ITERATIONS = 600000;
+const SESSION_TTL_DAYS = 30;     // Sliding window TTL (reduced from 90d for security)
 const SESSION_MAX_LIFETIME = 365; // Absolute max session lifetime in days (1 year)
 
 // ─── Password hashing ───────────────────────────────────
@@ -32,26 +32,38 @@ async function hashPassword(password) {
   return 'pbkdf2:' + salt + ':' + hashHex;
 }
 
+const LEGACY_ITERATIONS = 100000; // Old iteration count for backward compat
+
 async function verifyPassword(password, stored) {
   if (!stored.startsWith('pbkdf2:')) return false;
   const parts = stored.split(':');
   if (parts.length !== 3) return false;
-  const computed = await hashPassword_withSalt(password, parts[1]);
-  return timingSafeEqual(computed, stored);
+  // Try current iteration count first
+  const computed = await hashPassword_withIterations(password, parts[1], PBKDF2_ITERATIONS);
+  if (timingSafeEqual(computed, stored)) return true;
+  // Fall back to legacy iteration count (100k) for pre-upgrade hashes
+  const legacy = await hashPassword_withIterations(password, parts[1], LEGACY_ITERATIONS);
+  if (timingSafeEqual(legacy, stored)) return 'needs_rehash';
+  return false;
 }
 
-async function hashPassword_withSalt(password, saltHex) {
+async function hashPassword_withIterations(password, saltHex, iterations) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']
   );
   const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: saltBytes, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: saltBytes, iterations, hash: 'SHA-256' },
     keyMaterial, 256
   );
   const hashHex = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
   return 'pbkdf2:' + saltHex + ':' + hashHex;
+}
+
+// Keep old name for any callers
+async function hashPassword_withSalt(password, saltHex) {
+  return hashPassword_withIterations(password, saltHex, PBKDF2_ITERATIONS);
 }
 
 function timingSafeEqual(a, b) {
@@ -115,6 +127,27 @@ async function validateSession(db, token) {
 
 async function deleteSession(db, token) {
   await db.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
+}
+
+async function listUserSessions(db, userId) {
+  const { results } = await db.prepare(
+    'SELECT token, created_at, last_used, device_info, expires_at FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_used DESC'
+  ).bind(userId, new Date().toISOString()).all();
+  return results.map(row => ({
+    id: row.token.substring(0, 8),
+    createdAt: row.created_at,
+    lastUsed: row.last_used,
+    deviceInfo: row.device_info,
+    expiresAt: row.expires_at,
+  }));
+}
+
+async function deleteSessionByPrefix(db, userId, tokenPrefix) {
+  if (!tokenPrefix || !/^[0-9a-f]+$/i.test(tokenPrefix)) return 0;
+  const result = await db.prepare(
+    'DELETE FROM sessions WHERE user_id = ? AND token LIKE ?'
+  ).bind(userId, tokenPrefix + '%').run();
+  return result.meta?.changes || 0;
 }
 
 // Clean up expired sessions (call periodically)
@@ -288,6 +321,7 @@ async function countUsers(db) {
 export {
   hashPassword, verifyPassword, generateToken,
   createSession, validateSession, deleteSession, cleanExpiredSessions,
+  listUserSessions, deleteSessionByPrefix,
   createUser, getUser, listUsers, updateUser, deleteUser,
   changePassword, getUserByUsername, countUsers,
   createResetToken, validateAndConsumeResetToken, cleanExpiredResetTokens,
