@@ -445,6 +445,25 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
+        <div class="acct-section">
+          <button class="acct-section-toggle" id="acct-toggle-username"><i data-lucide="at-sign" style="width:16px;height:16px;"></i> Change Username <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <div class="acct-section-body" id="acct-username-body" style="display:none;">
+            <div class="acct-field">
+              <label for="acct-new-username">New Username</label>
+              <input type="text" id="acct-new-username" class="form-input" placeholder="New username" maxlength="25" autocomplete="username" />
+            </div>
+            <div class="acct-field">
+              <label for="acct-username-pw">Current Password</label>
+              <input type="password" id="acct-username-pw" class="form-input" placeholder="Verify your identity" autocomplete="current-password" />
+            </div>
+            <button class="btn-primary" id="acct-change-username">Update Username</button>
+          </div>
+        </div>
+
+        ${user.role !== 'owner' ? `
+        <div class="acct-danger-zone" style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);">
+          <button class="btn-secondary" id="acct-delete-account" style="color:var(--red);border-color:var(--red);width:100%;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Delete Account</button>
+        </div>` : ''}
 
       </div>
     `;
@@ -546,6 +565,62 @@ let _cachedPdfSet = new Set();
         showToast('Network error — check connection');
         btn.disabled = false;
         btn.textContent = 'Change Password';
+      }
+    });
+
+    // Change username toggle + handler
+    container.querySelector('#acct-toggle-username')?.addEventListener('click', () => {
+      const body = container.querySelector('#acct-username-body');
+      const btn = container.querySelector('#acct-toggle-username');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      btn.classList.toggle('open', !open);
+    });
+    container.querySelector('#acct-change-username')?.addEventListener('click', async () => {
+      const newUsername = document.getElementById('acct-new-username').value.trim();
+      const pw = document.getElementById('acct-username-pw').value;
+      if (!newUsername) { showToast('Enter a new username'); return; }
+      if (newUsername.length > 25) { showToast('Username must be 25 characters or less'); return; }
+      if (!/^[a-zA-Z0-9_-]+$/.test(newUsername)) { showToast('Username can only contain letters, numbers, hyphens, and underscores'); return; }
+      if (!pw) { showToast('Enter your current password'); return; }
+      const btn = container.querySelector('#acct-change-username');
+      btn.disabled = true;
+      btn.textContent = 'Updating...';
+      try {
+        const result = await Auth.changeUsername(newUsername, pw);
+        if (result.ok) {
+          showToast('Username updated');
+          renderAccount();
+        } else {
+          showToast(result.error || 'Failed to update username');
+          btn.disabled = false;
+          btn.textContent = 'Update Username';
+        }
+      } catch (e) {
+        showToast('Network error — check connection');
+        btn.disabled = false;
+        btn.textContent = 'Update Username';
+      }
+    });
+
+    // Delete account handler (non-admin only, 3-click confirmation)
+    container.querySelector('#acct-delete-account')?.addEventListener('click', async () => {
+      const confirmed1 = await Modal.confirm('Are you sure you want to delete your account? This cannot be undone.', 'Delete Account', 'Cancel');
+      if (!confirmed1) return;
+      const confirmed2 = await Modal.confirm('This is your final confirmation. Your account and all associated data will be permanently deleted.', 'Yes, Delete My Account', 'Go Back');
+      if (!confirmed2) return;
+      try {
+        const result = await Auth.deleteAccount();
+        if (result.ok) {
+          showToast('Account deleted');
+          Admin.resetAdminMode(false);
+          _updateAuthUI();
+          renderList();
+        } else {
+          showToast(result.error || 'Failed to delete account');
+        }
+      } catch (e) {
+        showToast('Network error — check connection');
       }
     });
 
@@ -1004,10 +1079,16 @@ let _cachedPdfSet = new Set();
     }
 
     // ─── Hash-based routing listener ────────────────────────
-    window.addEventListener('popstate', () => {
+    window.addEventListener('popstate', (e) => {
+      // Live Mode pushes its own history state — let its handler deal with it
+      if (Setlists.isLiveModeActive()) return;
       _isPopstateNavigation = true;
       Store.set('isPopstateNavigation', true);
-      _navStack = []; // Clear in-app nav stack to prevent desync with browser history
+      // Pop one entry from navStack (mirrors the browser going back one page)
+      // instead of wiping the entire stack, so in-app back still works after.
+      const navStack = Store.get('navStack');
+      if (navStack.length > 0) navStack.pop();
+      _navStack = [...navStack]; // sync local shadow copy
       try {
         const route = _resolveHash(location.hash);
         if (route.view === 'verify-email' && route.token) {
@@ -1670,6 +1751,14 @@ let _cachedPdfSet = new Set();
         <div class="kb-help-row"><span>Zoom in</span><span class="kb-help-key">+</span></div>
         <div class="kb-help-row"><span>Zoom out</span><span class="kb-help-key">-</span></div>
         <div class="kb-help-row"><span>Reset zoom</span><span class="kb-help-key">0</span></div>
+      </div>
+      <div class="kb-help-group">
+        <h3>Audio Player</h3>
+        <div class="kb-help-row"><span>Play / Pause</span><span class="kb-help-key">Space</span></div>
+        <div class="kb-help-row"><span>Seek back 5s</span><span class="kb-help-key">\u2190</span></div>
+        <div class="kb-help-row"><span>Seek forward 5s</span><span class="kb-help-key">\u2192</span></div>
+        <div class="kb-help-row"><span>Volume up</span><span class="kb-help-key">\u2191</span></div>
+        <div class="kb-help-row"><span>Volume down</span><span class="kb-help-key">\u2193</span></div>
       </div>
       <div class="kb-help-group">
         <h3>Live Mode</h3>

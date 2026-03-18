@@ -218,20 +218,19 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
       loopClearBtn.classList.toggle('hidden', !loopActive);
       loopCountVal.textContent = loopCount;
 
-      // Update progress bar overlay
+      // Update progress bar overlay via CSS custom properties
       const progressEl = el.querySelector('.audio-progress');
       if (loopActive && audio.duration) {
-        const aPct = (loopA / audio.duration) * 100;
-        const bPct = (loopB / audio.duration) * 100;
-        const curPct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-        const playPct = Math.min(curPct, bPct);
-        progressEl.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, rgba(100,160,255,0.2) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
-      } else if (!loopActive) {
+        progressEl.classList.add('loop-active');
+        progressEl.style.setProperty('--a-pct', (loopA / audio.duration) * 100);
+        progressEl.style.setProperty('--b-pct', (loopB / audio.duration) * 100);
+        const curPct = (audio.currentTime / audio.duration) * 100;
+        progressEl.style.setProperty('--play-pct', Math.min(curPct, (loopB / audio.duration) * 100));
+      } else if (!loopActive && progressEl) {
         // Reset to default when loop cleared
-        const progressEl2 = el.querySelector('.audio-progress');
-        if (progressEl2 && audio.duration) {
-          const pct = (audio.currentTime / audio.duration) * 100;
-          progressEl2.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+        progressEl.classList.remove('loop-active');
+        if (audio.duration) {
+          progressEl.style.setProperty('--pct', (audio.currentTime / audio.duration) * 100);
         }
       }
     }
@@ -430,14 +429,11 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
       }
       current.textContent = _formatTime(audio.currentTime);
       if (loopActive && audio.duration) {
-        const aPct = (loopA / audio.duration) * 100;
-        const bPct = (loopB / audio.duration) * 100;
-        const curPct = (audio.currentTime / audio.duration) * 100;
-        const playPct = Math.min(curPct, bPct);
-        progress.style.background = `linear-gradient(to right, var(--bg-4) 0%, var(--bg-4) ${aPct}%, var(--accent) ${aPct}%, var(--accent) ${playPct}%, rgba(100,160,255,0.2) ${playPct}%, rgba(100,160,255,0.2) ${bPct}%, var(--bg-4) ${bPct}%)`;
+        progress.style.setProperty('--a-pct', (loopA / audio.duration) * 100);
+        progress.style.setProperty('--b-pct', (loopB / audio.duration) * 100);
+        progress.style.setProperty('--play-pct', Math.min((audio.currentTime / audio.duration) * 100, (loopB / audio.duration) * 100));
       } else {
-        const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-        progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+        progress.style.setProperty('--pct', audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
       }
       _rafId = requestAnimationFrame(_updateProgress);
     }
@@ -451,16 +447,14 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
     // Sync final position
     if (!audio.seeking) progress.value = audio.currentTime;
     current.textContent = _formatTime(audio.currentTime);
-    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-    progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+    progress.style.setProperty('--pct', audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
   }
   audio.addEventListener('play', _startRaf);
   audio.addEventListener('pause', _stopRaf);
   audio.addEventListener('seeking', () => {
     // Update display immediately on seek even when paused
     current.textContent = _formatTime(audio.currentTime);
-    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
-    progress.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-4) ${pct}%)`;
+    progress.style.setProperty('--pct', audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
   });
 
   // Safari can reset playbackRate to 1.0 after a seek — re-apply our speed
@@ -487,7 +481,8 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
     playBtn.innerHTML = playIcon();
     if (typeof lucide !== 'undefined') lucide.createIcons({ nameAttr: 'data-lucide', nodes: [playBtn] });
     progress.value = 0;
-    progress.style.background = 'var(--bg-4)';
+    progress.style.setProperty('--pct', 0);
+    progress.classList.remove('loop-active');
     current.textContent = '0:00';
     _active = null;
     _clearMediaSession();
@@ -666,5 +661,43 @@ function setVolume(val) {
 }
 
 function getVolume() { return _volume; }
+
+// ─── Global keyboard controls (non-mobile only) ────────────
+// Spacebar: play/pause, Left/Right: seek ±5s, Up/Down: volume ±10%
+const _isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+if (!_isMobileDevice) {
+  document.addEventListener('keydown', (e) => {
+    // Skip when typing in inputs, or when live mode / PDF modal is active
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (document.body.classList.contains('live-mode-active')) return;
+    if (!document.getElementById('modal-pdf')?.classList.contains('hidden')) return;
+
+    // Only handle audio shortcuts when a player exists on screen
+    if (!_active) return;
+
+    switch (e.key) {
+      case ' ':
+        e.preventDefault();
+        if (_active.paused) _active.play(); else _active.pause();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        _active.currentTime = Math.max(0, _active.currentTime - 5);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        _active.currentTime = Math.min(_active.duration || 0, _active.currentTime + 5);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setVolume(_volume + 0.1);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        setVolume(_volume - 0.1);
+        break;
+    }
+  });
+}
 
 export { create, stopAll, setVolume, getVolume };

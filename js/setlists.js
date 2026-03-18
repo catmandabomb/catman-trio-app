@@ -30,6 +30,21 @@ let _liveModeActive    = false;
 let _exitLiveModeRef   = null;
 let _sortableSetlist   = null;
 
+// ─── Display title helper ────────────────────────────────────────
+
+function _formatGigDate(dateStr) {
+  if (!dateStr || dateStr === 'TBD') return 'TBD';
+  const d = new Date(dateStr + 'T00:00:00'); // avoid timezone shift
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function _displayTitle(sl) {
+  const label = (sl.overrideTitle || '').trim() || (sl.venue || '').trim() || 'Untitled';
+  const date = _formatGigDate(sl.gigDate);
+  return `${label} (${date})`;
+}
+
 // ─── State helpers ────────────────────────────────────────────
 
 function _syncFromStore() {
@@ -115,7 +130,7 @@ function showSetlistPicker(song) {
   const rows = available.map((s, i) => {
     const count = (s.songs || []).length;
     return `<div class="setlist-pick-row" data-sl-idx="${i}">
-      <span class="setlist-pick-name">${esc(s.name)}</span>
+      <span class="setlist-pick-name">${esc(_displayTitle(s))}</span>
       <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
     </div>`;
   }).join('');
@@ -137,7 +152,7 @@ function showSetlistPicker(song) {
 
       const already = (setlist.songs || []).some(entry => entry.id === song.id);
       if (already) {
-        showToast('Already in ' + setlist.name);
+        showToast('Already in ' + _displayTitle(setlist));
         handle.hide();
         return;
       }
@@ -146,7 +161,7 @@ function showSetlistPicker(song) {
       setlist.songs.push({ id: song.id, comment: '' });
       _saveSetlistsLocal();
       _saveSetlists();
-      showToast('Added to ' + setlist.name);
+      showToast('Added to ' + _displayTitle(setlist));
       handle.hide();
     });
   });
@@ -172,7 +187,7 @@ function batchAddToSetlist() {
   var rows = available.map(function(s, i) {
     var count = (s.songs || []).length;
     return '<div class="setlist-pick-row" data-sl-idx="' + i + '">' +
-      '<span class="setlist-pick-name">' + esc(s.name) + '</span>' +
+      '<span class="setlist-pick-name">' + esc(_displayTitle(s)) + '</span>' +
       '<span class="setlist-pick-count">' + count + ' song' + (count !== 1 ? 's' : '') + '</span>' +
       '</div>';
   }).join('');
@@ -199,12 +214,12 @@ function batchAddToSetlist() {
         }
       });
       if (added === 0) {
-        showToast('All songs already in ' + setlist.name);
+        showToast('All songs already in ' + _displayTitle(setlist));
       } else {
         _saveSetlistsLocal();
         _saveSetlists();
         haptic.success();
-        showToast('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + setlist.name);
+        showToast('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + _displayTitle(setlist));
       }
       overlay.remove();
       // Exit selection mode — call back into App
@@ -235,17 +250,25 @@ function _autoArchiveSetlists() {
 
 function _setlistCardHTML(sl) {
   const count = (sl.songs || []).length;
-  const editBtn = Admin.isEditMode()
+  const isAdmin = Admin.isEditMode();
+  const deleteBtn = isAdmin
+    ? `<button class="setlist-delete-btn" data-delete-setlist="${esc(sl.id)}" title="Delete setlist"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>`
+    : '';
+  const editBtn = isAdmin
     ? `<button class="song-card-edit-btn setlist-edit-btn" data-edit-setlist="${esc(sl.id)}"><i data-lucide="pencil"></i></button>`
     : '';
-  const dateStr = sl.gigDate ? `<span class="setlist-card-date">${esc(sl.gigDate)}</span>` : '';
+  const title = _displayTitle(sl);
+  const venue = (sl.venue || '').trim();
+  const overrideTitle = (sl.overrideTitle || '').trim();
+  // Show venue subtitle if override title is being used
+  const venueSubtitle = overrideTitle && venue ? ` · ${esc(venue)}` : '';
   return `
     <div class="setlist-card" data-setlist-id="${esc(sl.id)}">
       <div class="setlist-card-title-row">
-        <span class="setlist-card-name">${esc(sl.name) || '<em style="color:var(--text-3)">Untitled</em>'}</span>
-        ${editBtn}
+        <span class="setlist-card-name">${esc(title)}</span>
+        ${deleteBtn}${editBtn}
       </div>
-      <span class="setlist-card-count">${count} song${count !== 1 ? 's' : ''}${dateStr ? ' · ' : ''}${dateStr}</span>
+      <span class="setlist-card-count">${count} song${count !== 1 ? 's' : ''}${venueSubtitle}</span>
     </div>`;
 }
 
@@ -258,8 +281,11 @@ function renderSetlists(skipNavReset) {
   _setRouteParams({});
   _syncFromStore();
   if (!skipNavReset) {
-    Store.set('navStack', []);
-    _pushNav(() => App.renderList());
+    // Only push back-to-list if the nav stack is empty (first entry)
+    const navStack = Store.get('navStack');
+    if (!navStack || navStack.length === 0) {
+      _pushNav(() => App.renderList());
+    }
     _showArchived = false;
   }
   _showView('setlists');
@@ -274,7 +300,12 @@ function renderSetlists(skipNavReset) {
   _autoArchiveSetlists();
 
   const container = document.getElementById('setlists-list');
-  const active = _setlists.filter(sl => !sl.archived).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  // Sort: soonest date first. TBD setlists at top (need attention).
+  const _dateSortVal = (sl) => {
+    if (!sl.gigDate || sl.gigDate === 'TBD') return '0000-00-00'; // TBD first
+    return sl.gigDate; // ISO date strings sort naturally
+  };
+  const active = _setlists.filter(sl => !sl.archived).sort((a, b) => _dateSortVal(a).localeCompare(_dateSortVal(b)));
   const archived = _setlists.filter(sl => sl.archived).sort((a, b) => (b.gigDate || b.updatedAt || '').localeCompare(a.gigDate || a.updatedAt || ''));
 
   let html = '';
@@ -328,6 +359,22 @@ function renderSetlists(skipNavReset) {
       e.stopPropagation();
       const sl = _setlists.find(s => s.id === btn.dataset.editSetlist);
       if (sl) renderSetlistEdit(sl, false, true);
+    });
+  });
+
+  // Wire delete buttons (admin only)
+  container.querySelectorAll('.setlist-delete-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sl = _setlists.find(s => s.id === btn.dataset.deleteSetlist);
+      if (!sl) return;
+      Admin.showConfirm('Delete Setlist', `Permanently delete "${esc(_displayTitle(sl))}"?`, async () => {
+        if (GitHub.isConfigured()) GitHub.trackDeletion('setlists', sl.id);
+        _setlists = _setlists.filter(s => s.id !== sl.id);
+        await _saveSetlists();
+        renderSetlists(true);
+        showToast('Setlist deleted.');
+      });
     });
   });
 
@@ -403,9 +450,10 @@ function renderSetlistDetail(setlist, skipNavPush) {
   _activeSetlist = setlist;
   Store.set('activeSetlist', setlist);
   _setRouteParams({ setlistId: setlist.id });
-  if (!skipNavPush) _pushNav(() => renderSetlists());
+  if (!skipNavPush) _pushNav(() => renderSetlists(true));
   _showView('setlist-detail');
-  _setTopbar(setlist.name || 'Setlist', true);
+  const title = _displayTitle(setlist);
+  _setTopbar(title, true);
 
   // Add Edit + Copy to topbar right (admin only)
   const isAdmin = Admin.isEditMode();
@@ -418,8 +466,12 @@ function renderSetlistDetail(setlist, skipNavPush) {
   const container = document.getElementById('setlist-detail-content');
   const songs = setlist.songs || [];
 
+  const detailTitle = _displayTitle(setlist);
+  const venueNote = (setlist.overrideTitle || '').trim() && (setlist.venue || '').trim()
+    ? `<div style="color:var(--text-3);font-size:13px;margin-top:2px;">${esc(setlist.venue)}</div>` : '';
   let html = `<div class="detail-header">
-    <div class="detail-title">${esc(setlist.name) || 'Untitled Setlist'}</div>
+    <div class="detail-title">${esc(detailTitle)}</div>
+    ${venueNote}
     <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
     ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}</div>` : ''}
   </div>`;
@@ -528,7 +580,8 @@ function renderSetlistDetail(setlist, skipNavPush) {
     haptic.success();
     const dupe = deepClone(setlist);
     dupe.id = 'sl_' + Date.now();
-    dupe.name = (setlist.name || 'Setlist') + ' (Copy)';
+    dupe.venue = (setlist.venue || '') + ' (Copy)';
+    dupe.overrideTitle = '';
     dupe._ts = Date.now();
     _setlists.push(dupe);
     _saveSetlists('Setlist duplicated');
@@ -547,7 +600,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
   // Wire Copy Setlist button
   container.querySelector('.btn-copy-setlist')?.addEventListener('click', () => {
     const lines = [];
-    lines.push((setlist.name || 'Setlist') + ' (' + songs.length + ' song' + (songs.length !== 1 ? 's' : '') + ')');
+    lines.push(_displayTitle(setlist) + ' (' + songs.length + ' song' + (songs.length !== 1 ? 's' : '') + ')');
     lines.push('');
     songs.forEach((entry, i) => {
       if (entry.freetext) {
@@ -640,7 +693,7 @@ function _printSetlist(setlist, allSongs) {
   const dateStr = now.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
   const printHtml = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${esc(setlist.name || 'Setlist')}</title>
+<html><head><meta charset="utf-8"><title>${esc(_displayTitle(setlist))}</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px 32px; color: #111; }
@@ -658,7 +711,7 @@ td { padding: 7px 8px; vertical-align: top; font-size: 14px; }
 @media print { body { padding: 16px 20px; } }
 </style></head><body>
 <div class="psl-header">
-  <div class="psl-title-main">${esc(setlist.name || 'Setlist')}</div>
+  <div class="psl-title-main">${esc(_displayTitle(setlist))}</div>
   <div class="psl-sub">${songs.length} song${songs.length !== 1 ? 's' : ''} &middot; ${dateStr}</div>
 </div>
 <table>${rows}</table>
@@ -742,8 +795,8 @@ function _shareSetlist(setlist, allSongs) {
 
   // Build shareable text
   const lines = [];
-  lines.push((setlist.name || 'Setlist').toUpperCase());
-  if (setlist.gigDate) lines.push(setlist.gigDate);
+  lines.push(_displayTitle(setlist).toUpperCase());
+  if (setlist.gigDate) lines.push(_formatGigDate(setlist.gigDate));
   lines.push('─'.repeat(30));
   lines.push('');
 
@@ -785,7 +838,7 @@ function _shareSetlist(setlist, allSongs) {
   }
 
   const text = lines.join('\n');
-  const title = setlist.name || 'Setlist';
+  const title = _displayTitle(setlist);
 
   // Try Web Share API first (native share sheet — AirDrop, Messages, Mail, etc.)
   if (navigator.share) {
@@ -824,8 +877,8 @@ function _showEmailSetlistModal(setlist, allSongs) {
   function _buildEmailHtml() {
     let html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">`;
     html += `<p style="margin:0 0 16px;font-size:15px;">Yo! Cat here \u2014 here's the setlist:</p>`;
-    html += `<h2 style="margin:0 0 4px;">${esc(setlist.name || 'Setlist')}</h2>`;
-    if (setlist.gigDate) html += `<p style="margin:0 0 16px;color:#888;">${esc(setlist.gigDate)}</p>`;
+    html += `<h2 style="margin:0 0 4px;">${esc(_displayTitle(setlist))}</h2>`;
+    if (setlist.gigDate) html += `<p style="margin:0 0 16px;color:#888;">${esc(_formatGigDate(setlist.gigDate))}</p>`;
     if (setlist.notes) html += `<p style="margin:0 0 16px;color:#666;font-size:14px;">${esc(setlist.notes)}</p>`;
     html += `<table style="width:100%;border-collapse:collapse;">`;
     songs.forEach((entry, i) => {
@@ -879,7 +932,7 @@ function _showEmailSetlistModal(setlist, allSongs) {
         <input type="text" id="esl-email-input" class="form-input" placeholder="venue@example.com, tech@example.com" style="width:100%;margin-bottom:4px;">
         <p class="muted" style="font-size:11px;margin:0 0 12px;">Separate multiple addresses with commas (max 10)</p>
         <label class="esl-label">Subject:</label>
-        <input type="text" id="esl-subject-input" class="form-input" value="Catman Setlist: ${esc(setlist.name || 'Untitled')}" maxlength="200" style="width:100%;margin-bottom:12px;">
+        <input type="text" id="esl-subject-input" class="form-input" value="Catman Setlist: ${esc(_displayTitle(setlist))}" maxlength="200" style="width:100%;margin-bottom:12px;">
         <p class="muted" style="font-size:12px;margin:8px 0 0;">A formatted setlist will be sent from cat@catmanbeats.com</p>
         <div class="esl-actions">
           <button class="btn-primary" id="esl-send">Send</button>
@@ -2621,16 +2674,28 @@ function renderSetlistEdit(setlist, isNew, backToList) {
 
 function _buildSetlistEditHTML() {
   const sl = _editSetlist;
+  const isTBD = sl.gigDate === 'TBD';
+  const dateVal = isTBD ? '' : (sl.gigDate || '');
   return `
     <div class="edit-section">
       <div class="edit-section-title">Setlist Info</div>
       <div class="form-field">
-        <label class="form-label">Name</label>
-        <input class="form-input" id="slf-name" type="text" value="${esc(sl.name)}" placeholder="e.g. Sally's Bar 12/3/25 Setlist" maxlength="200" />
+        <label class="form-label">Venue <span style="color:var(--red);font-weight:400">*</span></label>
+        <div class="venue-autocomplete-wrap">
+          <input class="form-input" id="slf-venue" type="text" value="${esc(sl.venue || '')}" placeholder="e.g. Sally's Bar" maxlength="200" autocomplete="off" />
+          <div class="venue-autocomplete-list" id="slf-venue-ac"></div>
+        </div>
       </div>
       <div class="form-field">
-        <label class="form-label">Gig Date <span class="muted" style="font-weight:400">(optional \u2014 auto-archives 2 days after)</span></label>
-        <input class="form-input" id="slf-gig-date" type="date" value="${esc(sl.gigDate || '')}" />
+        <label class="form-label">Date <span style="color:var(--red);font-weight:400">*</span> <span class="muted" style="font-weight:400">(auto-archives 2 days after)</span></label>
+        <div class="date-picker-row">
+          <input class="form-input" id="slf-gig-date" type="date" value="${esc(dateVal)}" ${isTBD ? 'disabled' : ''} />
+          <button type="button" class="btn-tbd ${isTBD ? 'active' : ''}" id="slf-tbd-btn"><i data-lucide="help-circle" style="width:13px;height:13px;"></i> TBD</button>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Override Title <span class="muted" style="font-weight:400">(optional \u2014 replaces venue in display)</span></label>
+        <input class="form-input" id="slf-override-title" type="text" value="${esc(sl.overrideTitle || '')}" placeholder="Leave blank to use venue name" maxlength="200" />
       </div>
     </div>
 
@@ -2641,6 +2706,12 @@ function _buildSetlistEditHTML() {
       <button class="btn-ghost slf-add-freetext" id="slf-add-freetext" style="margin-top:8px;font-size:13px;">
         <i data-lucide="text-cursor-input" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add Freetext Song
       </button>
+    </div>
+
+    <div class="edit-section" id="slf-suggestions-section" style="display:none">
+      <div class="edit-section-title">It's Been a While</div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">Songs not in any recent setlist</div>
+      <div id="slf-suggestions" class="setlist-suggestions"></div>
     </div>
 
     <div class="edit-section">
@@ -2770,7 +2841,6 @@ function _wireSetlistEditForm() {
     const search = (document.getElementById('slf-picker-search')?.value || '').toLowerCase();
     const selectedIds = new Set(sl.songs.filter(e => !e.freetext).map(e => e.id));
     let available = [..._songs]
-      .filter(s => !selectedIds.has(s.id))
       .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
     if (search) {
@@ -2783,25 +2853,38 @@ function _wireSetlistEditForm() {
 
     const container = document.getElementById('slf-picker-list');
     if (available.length === 0) {
-      container.innerHTML = `<div class="muted" style="font-size:13px;padding:8px 0">${search ? 'No matching songs.' : 'All songs added.'}</div>`;
+      container.innerHTML = `<div class="muted" style="font-size:13px;padding:8px 0">${search ? 'No matching songs.' : 'No songs in library.'}</div>`;
       return;
     }
 
-    container.innerHTML = available.map(s => `
-      <div class="setlist-picker-row" data-pick-id="${esc(s.id)}">
+    container.innerHTML = available.map(s => {
+      const isDupe = selectedIds.has(s.id);
+      return `
+      <div class="setlist-picker-row${isDupe ? ' already-added' : ''}" data-pick-id="${esc(s.id)}">
         <div class="setlist-picker-info">
-          <span class="setlist-picker-title">${esc(s.title)}</span>
+          <span class="setlist-picker-title">${esc(s.title)}${isDupe ? ' <span class="dupe-badge">already added</span>' : ''}</span>
           <span class="setlist-picker-meta">
             ${s.key ? esc(s.key) : ''}${s.key && s.bpm ? ' \u00b7 ' : ''}${s.bpm ? esc(String(s.bpm)) + ' bpm' : ''}${(s.key || s.bpm) && s.timeSig ? ' \u00b7 ' : ''}${s.timeSig ? esc(s.timeSig) : ''}
           </span>
         </div>
-        <button class="btn-ghost sl-add-btn" data-pick-id="${esc(s.id)}">Add</button>
-      </div>
-    `).join('');
+        <button class="btn-ghost sl-add-btn" data-pick-id="${esc(s.id)}">${isDupe ? 'Add Again' : 'Add'}</button>
+      </div>`;
+    }).join('');
 
     container.querySelectorAll('.sl-add-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        sl.songs.push({ id: btn.dataset.pickId, comment: '' });
+        const songId = btn.dataset.pickId;
+        if (selectedIds.has(songId)) {
+          // Duplicate warning — confirm before adding
+          const song = _songs.find(s => s.id === songId);
+          Admin.showConfirm('Duplicate Song', `"${song ? song.title : 'This song'}" is already in the setlist. Add it again?`, () => {
+            sl.songs.push({ id: songId, comment: '' });
+            _renderSelectedSongs();
+            _renderPicker();
+          });
+          return;
+        }
+        sl.songs.push({ id: songId, comment: '' });
         _renderSelectedSongs();
         _renderPicker();
       });
@@ -2810,6 +2893,41 @@ function _wireSetlistEditForm() {
 
   _renderSelectedSongs();
   _renderPicker();
+
+  // "It's Been a While" suggestions — songs not in any recent (non-archived) setlist
+  function _renderSuggestions() {
+    const recentSetlists = _setlists.filter(s => !s.archived && s.id !== sl.id);
+    const recentSongIds = new Set();
+    recentSetlists.forEach(s => (s.songs || []).forEach(e => { if (!e.freetext && e.id) recentSongIds.add(e.id); }));
+    const currentIds = new Set(sl.songs.filter(e => !e.freetext).map(e => e.id));
+    const candidates = _songs.filter(s => !recentSongIds.has(s.id) && !currentIds.has(s.id));
+    const section = document.getElementById('slf-suggestions-section');
+    const container = document.getElementById('slf-suggestions');
+    if (!candidates.length || !section || !container) {
+      if (section) section.style.display = 'none';
+      return;
+    }
+    // Pick 3 random suggestions
+    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    const picks = shuffled.slice(0, 3);
+    section.style.display = '';
+    container.innerHTML = picks.map(s => `
+      <div class="suggestion-chip" data-suggest-id="${esc(s.id)}">
+        <span class="suggestion-title">${esc(s.title)}</span>
+        ${s.key ? `<span class="suggestion-meta">${esc(s.key)}</span>` : ''}
+        <button class="btn-ghost suggestion-add" data-suggest-id="${esc(s.id)}">+ Add</button>
+      </div>
+    `).join('');
+    container.querySelectorAll('.suggestion-add').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sl.songs.push({ id: btn.dataset.suggestId, comment: '' });
+        _renderSelectedSongs();
+        _renderPicker();
+        _renderSuggestions();
+      });
+    });
+  }
+  _renderSuggestions();
 
   document.getElementById('slf-picker-search').addEventListener('input', () => _renderPicker());
 
@@ -2831,21 +2949,65 @@ function _wireSetlistEditForm() {
     });
   });
 
+  // Wire TBD button
+  const tbdBtn = document.getElementById('slf-tbd-btn');
+  const dateInput = document.getElementById('slf-gig-date');
+  tbdBtn.addEventListener('click', () => {
+    const isActive = tbdBtn.classList.toggle('active');
+    dateInput.disabled = isActive;
+    if (isActive) dateInput.value = '';
+  });
+
+  // Wire venue autocomplete
+  const venueInput = document.getElementById('slf-venue');
+  const venueAcList = document.getElementById('slf-venue-ac');
+  let _acHighlight = -1;
+  function _getKnownVenues() {
+    return [...new Set(_setlists.map(s => (s.venue || '').trim()).filter(Boolean))].sort();
+  }
+  function _showVenueAc() {
+    const val = venueInput.value.trim().toLowerCase();
+    if (val.length < 3) { venueAcList.classList.remove('active'); return; }
+    const matches = _getKnownVenues().filter(v => v.toLowerCase().includes(val));
+    if (!matches.length) { venueAcList.classList.remove('active'); return; }
+    _acHighlight = -1;
+    venueAcList.innerHTML = matches.map(v => `<div class="venue-ac-item">${esc(v)}</div>`).join('');
+    venueAcList.classList.add('active');
+    venueAcList.querySelectorAll('.venue-ac-item').forEach(item => {
+      item.addEventListener('click', () => {
+        venueInput.value = item.textContent;
+        venueAcList.classList.remove('active');
+        venueInput.focus();
+      });
+    });
+  }
+  venueInput.addEventListener('input', _showVenueAc);
+  venueInput.addEventListener('keydown', (e) => {
+    const items = venueAcList.querySelectorAll('.venue-ac-item');
+    if (!items.length || !venueAcList.classList.contains('active')) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); _acHighlight = Math.min(_acHighlight + 1, items.length - 1); items.forEach((it, i) => it.classList.toggle('highlighted', i === _acHighlight)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); _acHighlight = Math.max(_acHighlight - 1, 0); items.forEach((it, i) => it.classList.toggle('highlighted', i === _acHighlight)); }
+    else if (e.key === 'Enter' && _acHighlight >= 0) { e.preventDefault(); venueInput.value = items[_acHighlight].textContent; venueAcList.classList.remove('active'); }
+    else if (e.key === 'Escape') { venueAcList.classList.remove('active'); }
+  });
+  venueInput.addEventListener('blur', () => { setTimeout(() => venueAcList.classList.remove('active'), 150); });
+
   // Save
   document.getElementById('slf-save').addEventListener('click', async () => {
     if (_savingSetlists) return;
     if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
-    sl.name = document.getElementById('slf-name').value.trim();
-    if (!sl.name) { showToast('Name is required.'); document.getElementById('slf-name').focus(); return; }
-    // FEAT-18: Validate name uniqueness
-    const dupeName = _setlists.find(s => s.id !== sl.id && s.name === sl.name);
-    if (dupeName) { showToast('A setlist with this name already exists.'); document.getElementById('slf-name').focus(); return; }
+    sl.venue = document.getElementById('slf-venue').value.trim();
+    if (!sl.venue) { showToast('Venue is required.'); document.getElementById('slf-venue').focus(); return; }
+    const isTBD = document.getElementById('slf-tbd-btn').classList.contains('active');
+    const dateVal = document.getElementById('slf-gig-date').value;
+    if (!isTBD && !dateVal) { showToast('Date is required. Pick a date or tap TBD.'); return; }
+    sl.gigDate = isTBD ? 'TBD' : dateVal;
+    sl.overrideTitle = document.getElementById('slf-override-title').value.trim();
     const emptyFt = sl.songs.find(e => e.freetext && !(e.title || '').trim());
     if (emptyFt) { showToast('All freetext songs need a title.'); return; }
     _savingSetlists = true;
     sl._ts = Date.now();
     try {
-      sl.gigDate = document.getElementById('slf-gig-date').value || '';
       if (typeof sl.archived === 'undefined') sl.archived = false;
       sl.updatedAt = new Date().toISOString();
       if (_editSetlistIsNew) {
@@ -2871,7 +3033,7 @@ function _wireSetlistEditForm() {
 
   // Delete
   document.getElementById('slf-delete')?.addEventListener('click', () => {
-    Admin.showConfirm('Delete Setlist', `Permanently delete "${sl.name || 'this setlist'}"?`, async () => {
+    Admin.showConfirm('Delete Setlist', `Permanently delete "${esc(_displayTitle(sl))}"?`, async () => {
       if (GitHub.isConfigured()) GitHub.trackDeletion('setlists', sl.id);
       _setlists = _setlists.filter(s => s.id !== sl.id);
       await _saveSetlists();

@@ -22,6 +22,17 @@ import * as Setlists from './setlists.js';
 import * as Practice from './practice.js';
 import * as Dashboard from './dashboard.js';
 
+// ─── Setlist display title helper ─────────────────────────────
+function _slTitle(sl) {
+  const label = (sl.overrideTitle || '').trim() || (sl.venue || '').trim() || sl.name || 'Untitled';
+  const d = sl.gigDate;
+  if (!d) return label;
+  if (d === 'TBD') return `${label} (TBD)`;
+  const dt = new Date(d + 'T00:00:00');
+  const dateStr = isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${label} (${dateStr})`;
+}
+
 // ─── Levenshtein worker (local to Songs) ────────────────────
 let _levWorker = null;
 try { _levWorker = new Worker('workers/levenshtein-worker.js'); } catch (_) {}
@@ -592,7 +603,7 @@ function _batchAddToSetlist() {
   var rows = available.map(function(s, i) {
     var count = (s.songs || []).length;
     return '<div class="setlist-pick-row" data-sl-idx="' + i + '">' +
-      '<span class="setlist-pick-name">' + esc(s.name) + '</span>' +
+      '<span class="setlist-pick-name">' + esc(_slTitle(s)) + '</span>' +
       '<span class="setlist-pick-count">' + count + ' song' + (count !== 1 ? 's' : '') + '</span>' +
       '</div>';
   }).join('');
@@ -619,12 +630,12 @@ function _batchAddToSetlist() {
         }
       });
       if (added === 0) {
-        showToast('All songs already in ' + setlist.name);
+        showToast('All songs already in ' + _slTitle(setlist));
       } else {
         Sync.saveSetlistsLocal(setlists);
         Sync.saveSetlists();
         haptic.success();
-        showToast('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + setlist.name);
+        showToast('Added ' + added + ' song' + (added !== 1 ? 's' : '') + ' to ' + _slTitle(setlist));
       }
       overlay.remove();
       _exitSelectionMode();
@@ -700,6 +711,24 @@ function renderDetail(song, skipNavPush) {
     } else {
       showToast('Practice module not loaded');
     }
+  });
+
+  // Setlist history: toggle + click to navigate
+  container.querySelector('.detail-section-toggle[data-toggle="setlist-history-list"]')?.addEventListener('click', () => {
+    const list = document.getElementById('setlist-history-list');
+    if (!list) return;
+    const icon = container.querySelector('.detail-section-toggle[data-toggle="setlist-history-list"] i, .detail-section-toggle[data-toggle="setlist-history-list"] svg');
+    list.classList.toggle('collapsed');
+    if (icon) icon.style.transform = list.classList.contains('collapsed') ? '' : 'rotate(180deg)';
+  });
+  container.querySelectorAll('.setlist-history-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const sl = (Store.get('setlists') || []).find(s => s.id === row.dataset.slId);
+      if (sl && Setlists.renderSetlistDetail) {
+        Router.pushNav(() => renderDetail(song, true));
+        Setlists.renderSetlistDetail(sl, true);
+      }
+    });
   });
 
   // Pre-fetch all chart PDFs eagerly
@@ -810,7 +839,7 @@ function _showSetlistPicker(song) {
   const rows = available.map((s, i) => {
     const count = (s.songs || []).length;
     return `<div class="setlist-pick-row" data-sl-idx="${i}">
-      <span class="setlist-pick-name">${esc(s.name)}</span>
+      <span class="setlist-pick-name">${esc(_slTitle(s))}</span>
       <span class="setlist-pick-count">${count} song${count !== 1 ? 's' : ''}</span>
     </div>`;
   }).join('');
@@ -832,7 +861,7 @@ function _showSetlistPicker(song) {
 
       const already = (setlist.songs || []).some(entry => entry.id === song.id);
       if (already) {
-        showToast('Already in ' + setlist.name);
+        showToast('Already in ' + _slTitle(setlist));
         handle.hide();
         return;
       }
@@ -841,7 +870,7 @@ function _showSetlistPicker(song) {
       setlist.songs.push({ id: song.id, comment: '' });
       Sync.saveSetlistsLocal(setlists);
       Sync.saveSetlists();
-      showToast('Added to ' + setlist.name);
+      showToast('Added to ' + _slTitle(setlist));
       handle.hide();
     });
   });
@@ -935,6 +964,30 @@ function _buildDetailHTML(song) {
       <div class="embed-list">
         ${links.map(l => _buildEmbedHTML(l)).join('')}
       </div>
+    </div>`;
+  }
+
+  // Setlist history — show which setlists contain this song
+  const setlists = Store.get('setlists') || [];
+  const containingSl = setlists.filter(sl =>
+    (sl.songs || []).some(e => !e.freetext && e.id === song.id)
+  );
+  if (containingSl.length) {
+    const slRows = containingSl.map(sl => {
+      const dateStr = sl.gigDate && sl.gigDate !== 'TBD'
+        ? new Date(sl.gigDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        : (sl.gigDate || '');
+      return `<div class="setlist-history-row" data-sl-id="${esc(sl.id)}">
+        <span class="setlist-history-name">${esc(_slTitle(sl))}</span>
+        ${sl.archived ? '<span class="setlist-history-badge archived">archived</span>' : ''}
+      </div>`;
+    }).join('');
+    html += `<div class="detail-section detail-setlist-history">
+      <button class="detail-section-label detail-section-toggle" data-toggle="setlist-history-list">
+        Setlist History <span class="muted" style="font-weight:400">(${containingSl.length})</span>
+        <i data-lucide="chevron-down" style="width:14px;height:14px;margin-left:4px;vertical-align:-2px;transition:transform 0.2s;"></i>
+      </button>
+      <div class="setlist-history-list collapsed" id="setlist-history-list">${slRows}</div>
     </div>`;
   }
 

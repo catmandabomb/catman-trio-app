@@ -474,6 +474,53 @@ function getAdminHash() {
   return localStorage.getItem('ct_pw_hash') || '';
 }
 
+async function changeUsername(newUsername, currentPassword) {
+  try {
+    const resp = await _api('/users/me/username', {
+      method: 'PUT',
+      body: JSON.stringify({ username: newUsername, password: currentPassword }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || 'Failed' };
+    if (_user) {
+      _user.username = newUsername;
+      _save();
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+async function adminResetPassword(userId, newPassword) {
+  try {
+    const resp = await _api('/users/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ userId, newPassword }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || 'Failed' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+async function deleteAccount() {
+  try {
+    const resp = await _api('/users/me', { method: 'DELETE' });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || 'Failed' };
+    // Clear all local auth state
+    _token = null;
+    _user = null;
+    try { localStorage.removeItem('ct_session'); } catch (_) {}
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
 // ─── Public API ─────────────────────────────────────────
 
-export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, getAdminHash };
+export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, getAdminHash };

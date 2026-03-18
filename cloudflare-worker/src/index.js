@@ -789,6 +789,72 @@ export default {
       return respond(json({ ok: true, message: 'Email updated — check your inbox to verify' }));
     }
 
+    // ─── PUT /users/me/username ─────────────────────────
+    if (path === '/users/me/username' && method === 'PUT') {
+      if (authMethod !== 'session' || !env.DB) {
+        return respond(json({ error: 'Session auth required' }, 400));
+      }
+      const body = await parseBody(request);
+      if (!body || !body.username || !body.password) {
+        return respond(json({ error: 'Username and current password required' }, 400));
+      }
+      const newUsername = body.username.trim();
+      if (!newUsername || newUsername.length > 25) {
+        return respond(json({ error: 'Username must be 1-25 characters' }, 400));
+      }
+      if (!/^[a-zA-Z0-9_-]+$/.test(newUsername)) {
+        return respond(json({ error: 'Username can only contain letters, numbers, hyphens, and underscores' }, 400));
+      }
+      const dbUser = await getUserByUsername(env.DB, currentUser.username);
+      if (!dbUser) return respond(json({ error: 'User not found' }, 404));
+      const pwOk = await verifyPassword(body.password, dbUser.pw_hash);
+      if (!pwOk) return respond(json({ error: 'Current password is incorrect' }, 403));
+      // Check uniqueness
+      const taken = await env.DB.prepare(
+        'SELECT id FROM users WHERE LOWER(username) = ? AND id != ? LIMIT 1'
+      ).bind(newUsername.toLowerCase(), currentUser.userId).first();
+      if (taken) return respond(json({ error: 'Username already taken' }, 409));
+      await env.DB.prepare(
+        'UPDATE users SET username = ?, updated_at = ? WHERE id = ?'
+      ).bind(newUsername, new Date().toISOString(), currentUser.userId).run();
+      return respond(json({ ok: true, message: 'Username updated' }));
+    }
+
+    // ─── DELETE /users/me — Self-delete account (non-owner only) ──
+    if (path === '/users/me' && method === 'DELETE') {
+      if (authMethod !== 'session' || !env.DB) {
+        return respond(json({ error: 'Session auth required' }, 400));
+      }
+      if (currentUser.role === 'owner') {
+        return respond(json({ error: 'Owner account cannot be deleted' }, 403));
+      }
+      // Delete all sessions for this user
+      await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(currentUser.userId).run();
+      // Delete the user record
+      await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(currentUser.userId).run();
+      return respond(json({ ok: true, message: 'Account deleted' }));
+    }
+
+    // ─── POST /users/reset-password — Admin resets a user's password ──
+    if (path === '/users/reset-password' && method === 'POST') {
+      if (authMethod !== 'session' || !env.DB) {
+        return respond(json({ error: 'Session auth required' }, 400));
+      }
+      if (currentUser.role !== 'owner') {
+        return respond(json({ error: 'Owner access required' }, 403));
+      }
+      const body = await parseBody(request);
+      if (!body || !body.userId || !body.newPassword) {
+        return respond(json({ error: 'userId and newPassword required' }, 400));
+      }
+      const pwErr = validatePasswordComplexity(body.newPassword);
+      if (pwErr) return respond(json({ error: pwErr }, 400));
+      await changePassword(env.DB, body.userId, body.newPassword);
+      // Invalidate all sessions for that user (force re-login)
+      await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(body.userId).run();
+      return respond(json({ ok: true, message: 'Password reset — user must log in again' }));
+    }
+
     // ─── /users/* — User management (owner only, session auth required) ─────
     if (path.startsWith('/users')) {
       // Block admin-hash from user management (security: prevent synthetic owner from managing real users)

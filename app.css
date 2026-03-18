@@ -86,7 +86,7 @@
   --text:         #d4d0cc;
   --text-bright:  #f0eeeb;
   --text-2:       #9e9a94;
-  --text-3:       #918d87;
+  --text-3:       #97918b;
 
   /* Accent: vibrant gold */
   --accent:       #f0cc80;
@@ -1180,6 +1180,43 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--accent-bright);
 }
 
+/* Setlist history (song detail) */
+.detail-section-toggle {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font: inherit;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+.detail-section-toggle:hover { color: var(--accent); }
+.setlist-history-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.setlist-history-list.collapsed { display: none; }
+.setlist-history-row {
+  padding: 8px 12px;
+  background: var(--bg-3);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s;
+}
+.setlist-history-row:hover { background: var(--bg-4); }
+.setlist-history-name { font-size: 14px; color: var(--text-1); flex: 1; }
+.setlist-history-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.setlist-history-badge.archived {
+  background: var(--bg-4);
+  color: var(--text-3);
+}
+
 .detail-tags {
   display: flex;
   gap: 6px;
@@ -1494,11 +1531,22 @@ body.is-mobile .search-refresh-btn { display: none; }
   margin: -10px 0;
   -webkit-appearance: none;
   appearance: none;
-  background: transparent;
+  --pct: 0;
+  --a-pct: 0;
+  --play-pct: 0;
+  --b-pct: 100;
+  background: linear-gradient(to right, var(--accent) calc(var(--pct) * 1%), var(--bg-4) calc(var(--pct) * 1%));
   border-radius: 4px;
   outline: none;
   cursor: pointer;
   touch-action: none;
+}
+.audio-progress.loop-active {
+  background: linear-gradient(to right,
+    var(--bg-4) 0%, var(--bg-4) calc(var(--a-pct) * 1%),
+    var(--accent) calc(var(--a-pct) * 1%), var(--accent) calc(var(--play-pct) * 1%),
+    rgba(100,160,255,0.2) calc(var(--play-pct) * 1%), rgba(100,160,255,0.2) calc(var(--b-pct) * 1%),
+    var(--bg-4) calc(var(--b-pct) * 1%));
 }
 .audio-progress::-webkit-slider-runnable-track {
   height: 4px;
@@ -2293,6 +2341,81 @@ textarea.form-input {
   font-size: 12px;
 }
 
+.setlist-delete-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+}
+.setlist-delete-btn:hover {
+  color: var(--red);
+  background: rgba(255,80,80,0.1);
+}
+
+/* Venue autocomplete */
+.venue-autocomplete-wrap { position: relative; }
+.venue-autocomplete-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  display: none;
+}
+.venue-autocomplete-list.active { display: block; }
+.venue-ac-item {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text-1);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.venue-ac-item:last-child { border-bottom: none; }
+.venue-ac-item:hover, .venue-ac-item.highlighted {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+/* Date picker + TBD button row */
+.date-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.date-picker-row .form-input { flex: 1; }
+.btn-tbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-tbd:hover { background: var(--bg-4); color: var(--text-1); }
+.btn-tbd.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .archive-toggle-btn {
   width: 100%;
   text-align: center;
@@ -2565,6 +2688,51 @@ textarea.form-input {
   flex-shrink: 0;
   padding: 4px 12px;
   font-size: 12px;
+}
+/* "It's been a while" suggestion chips */
+.setlist-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.suggestion-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.suggestion-title {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggestion-meta {
+  font-size: 12px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.suggestion-add {
+  flex-shrink: 0;
+  padding: 3px 10px !important;
+  font-size: 12px !important;
+  color: var(--accent) !important;
+}
+
+.setlist-picker-row.already-added {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.dupe-badge {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  font-weight: 400;
 }
 
 /* ═══════════════════════════════════════════

@@ -130,7 +130,7 @@ function renderDashboard() {
     (sl.songs || []).forEach(entry => {
       const sid = entry.id || entry.songId;
       if (sid && !songIdSet.has(sid)) {
-        orphanSetlist.push({ setlist: sl.name, songId: sid });
+        orphanSetlist.push({ setlist: (sl.overrideTitle || sl.venue || sl.name || 'Untitled'), songId: sid });
       }
     });
   });
@@ -374,6 +374,15 @@ function renderDashboard() {
     </div>`;
   }
 
+  // Reset User Password — link to subpage (owner only)
+  if (Auth.canManageUsers()) {
+    html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
+      <button class="btn-ghost" id="dash-open-reset-pw" style="font-size:15px;">
+        <i data-lucide="key-round" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>Reset a User's Password
+      </button>
+    </div>`;
+  }
+
   // Tag Manager — link to subpage (admin only)
   if (Admin.isEditMode()) {
     html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
@@ -586,6 +595,11 @@ function renderDashboard() {
   // Wire User Management button
   document.getElementById('dash-open-user-mgmt')?.addEventListener('click', () => {
     renderUserManagement();
+  });
+
+  // Wire Reset User Password button
+  document.getElementById('dash-open-reset-pw')?.addEventListener('click', () => {
+    renderResetUserPassword();
   });
 
   // Wire GitHub dashboard buttons
@@ -1457,6 +1471,73 @@ function _renderDriveSection(container, songs, setlists, practice, _codeTag) {
         `If this persists, try: close and reopen the app, or clear site data in Safari settings.</div>`;
     }
   })();
+}
+
+// ─── Reset User Password (subpage, owner only) ──────────
+
+async function renderResetUserPassword() {
+  if (!Auth.canManageUsers()) { showToast('Access denied'); return; }
+  Router.pushNav(() => renderDashboard());
+  Router.showView('dashboard');
+  Router.setTopbar("Reset a User's Password", true);
+
+  const container = document.getElementById('dashboard-content');
+  container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-3);">Loading users\u2026</div>`;
+
+  try {
+    const users = await Auth.listAllUsers();
+    const nonOwner = users.filter(u => u.role !== 'owner');
+    if (nonOwner.length === 0) {
+      container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-3);">No non-admin users to reset.</div>`;
+      return;
+    }
+    container.innerHTML = `
+      <div style="max-width:400px;margin:0 auto;padding:20px;">
+        <div class="acct-field" style="margin-bottom:16px;">
+          <label for="reset-pw-user">Select User</label>
+          <select id="reset-pw-user" class="form-input" style="width:100%;padding:10px;background:var(--bg-3);color:var(--text);border:1px solid var(--border);border-radius:8px;">
+            <option value="">Choose a user\u2026</option>
+            ${nonOwner.map(u => `<option value="${esc(u.id)}">${esc(u.username)}${u.displayName ? ' (' + esc(u.displayName) + ')' : ''}</option>`).join('')}
+          </select>
+        </div>
+        <div class="acct-field" style="margin-bottom:16px;">
+          <label for="reset-pw-new">New Password</label>
+          <input type="password" id="reset-pw-new" class="form-input" placeholder="Min 8 chars, mixed case + number + special" autocomplete="new-password" />
+        </div>
+        <div class="acct-field" style="margin-bottom:16px;">
+          <label for="reset-pw-confirm">Confirm New Password</label>
+          <input type="password" id="reset-pw-confirm" class="form-input" placeholder="Re-enter password" autocomplete="new-password" />
+        </div>
+        <button class="btn-primary" id="reset-pw-submit" style="width:100%;">Reset Password</button>
+        <p style="margin-top:12px;font-size:12px;color:var(--text-3);text-align:center;">This will log the user out of all devices. They will need to log in with the new password.</p>
+      </div>
+    `;
+
+    document.getElementById('reset-pw-submit').addEventListener('click', async () => {
+      const userId = document.getElementById('reset-pw-user').value;
+      const newPw = document.getElementById('reset-pw-new').value;
+      const confirmPw = document.getElementById('reset-pw-confirm').value;
+      if (!userId) { showToast('Select a user'); return; }
+      if (!newPw) { showToast('Enter a new password'); return; }
+      const pwErr = Admin.validatePassword(newPw);
+      if (pwErr) { showToast(pwErr); return; }
+      if (newPw !== confirmPw) { showToast('Passwords do not match'); return; }
+      const btn = document.getElementById('reset-pw-submit');
+      btn.disabled = true;
+      btn.textContent = 'Resetting\u2026';
+      const result = await Auth.adminResetPassword(userId, newPw);
+      if (result.ok) {
+        showToast('Password reset — user must log in again');
+        renderResetUserPassword();
+      } else {
+        showToast(result.error || 'Failed to reset password');
+        btn.disabled = false;
+        btn.textContent = 'Reset Password';
+      }
+    });
+  } catch (e) {
+    container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--red);">Failed to load users: ${esc(String(e.message || e))}</div>`;
+  }
 }
 
 // ─── runDiagnostics ──────────────────────────────────────

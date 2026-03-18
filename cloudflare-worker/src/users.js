@@ -88,6 +88,17 @@ async function createSession(db, userId, deviceInfo) {
   await db.prepare(
     'INSERT INTO sessions (token, user_id, created_at, expires_at, device_info, last_used) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(token, userId, now, expires, deviceInfo || null, now).run();
+  // Enforce max 10 sessions per user — purge oldest if over limit
+  const MAX_SESSIONS = 10;
+  const sessions = await db.prepare(
+    'SELECT token FROM sessions WHERE user_id = ? ORDER BY last_used DESC'
+  ).bind(userId).all();
+  if (sessions.results && sessions.results.length > MAX_SESSIONS) {
+    const toDelete = sessions.results.slice(MAX_SESSIONS).map(s => s.token);
+    for (const t of toDelete) {
+      await db.prepare('DELETE FROM sessions WHERE token = ?').bind(t).run();
+    }
+  }
   return { token, expires };
 }
 
