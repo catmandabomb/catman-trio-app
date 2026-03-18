@@ -562,11 +562,57 @@ const Admin = (() => {
     const confirmPwRow = document.getElementById('login-confirm-pw-row');
     const emailRow     = document.getElementById('login-email-row');
     const confirmEmailRow = document.getElementById('login-confirm-email-row');
+    const toggleModeDiv = document.getElementById('login-toggle-mode');
+    const toggleBtn  = document.getElementById('btn-login-toggle');
 
     // Detect first-run setup
     let _setupMode = false;
     if (typeof Auth !== 'undefined' && Auth.checkNeedsSetup) {
       try { _setupMode = await Auth.checkNeedsSetup(); } catch (_) {}
+    }
+
+    // Register mode toggle (separate from setup mode)
+    let _registerMode = false;
+
+    function _applyMode() {
+      // Reset error state
+      error.classList.add('hidden');
+      error.textContent = '';
+      error.style.color = '';
+
+      if (_setupMode) {
+        // Owner setup — no toggle shown
+        titleEl.textContent = 'Create Your Account';
+        subtextEl.textContent = 'First-time setup — choose a username and password.';
+        confirmBtn.textContent = 'Create Account';
+        confirmPwRow?.classList.remove('hidden');
+        emailRow?.classList.add('hidden');
+        confirmEmailRow?.classList.add('hidden');
+        forgotLink?.classList.add('hidden');
+        toggleModeDiv?.classList.add('hidden');
+      } else if (_registerMode) {
+        // Self-registration mode
+        titleEl.textContent = 'Create Account';
+        subtextEl.textContent = 'Sign up to join Catman Trio.';
+        confirmBtn.textContent = 'Create Account';
+        confirmPwRow?.classList.remove('hidden');
+        emailRow?.classList.remove('hidden');
+        confirmEmailRow?.classList.remove('hidden');
+        forgotLink?.classList.add('hidden');
+        toggleModeDiv?.classList.remove('hidden');
+        if (toggleBtn) toggleBtn.innerHTML = 'Already have an account? <b>Sign In</b>';
+      } else {
+        // Normal sign-in mode
+        titleEl.textContent = 'Sign In';
+        subtextEl.textContent = 'Sign in to access edit mode and sync.';
+        confirmBtn.textContent = 'Sign In';
+        confirmPwRow?.classList.add('hidden');
+        emailRow?.classList.add('hidden');
+        confirmEmailRow?.classList.add('hidden');
+        forgotLink?.classList.remove('hidden');
+        toggleModeDiv?.classList.remove('hidden');
+        if (toggleBtn) toggleBtn.innerHTML = 'Don\'t have an account? <b>Sign Up</b>';
+      }
     }
 
     // Reset all fields
@@ -576,37 +622,33 @@ const Admin = (() => {
     if (emailInput) emailInput.value = '';
     if (confirmEmail) confirmEmail.value = '';
     if (honeypot) honeypot.value = '';
-    error.classList.add('hidden');
-    error.textContent = '';
 
-    // Show/hide fields based on mode
-    if (_setupMode) {
-      titleEl.textContent = 'Create Your Account';
-      subtextEl.textContent = 'First-time setup — choose a username and password.';
-      confirmBtn.textContent = 'Create Account';
-      confirmPwRow?.classList.remove('hidden');
-      // Email hidden for admin setup — hardcoded to christianatremblay@gmail.com
-      emailRow?.classList.add('hidden');
-      confirmEmailRow?.classList.add('hidden');
-      forgotLink?.classList.add('hidden');
-    } else {
-      titleEl.textContent = 'Sign In';
-      subtextEl.textContent = 'Sign in to access edit mode and sync.';
-      confirmBtn.textContent = 'Sign In';
-      confirmPwRow?.classList.add('hidden');
-      emailRow?.classList.add('hidden');
-      confirmEmailRow?.classList.add('hidden');
-      forgotLink?.classList.remove('hidden');
-    }
+    // Apply initial mode
+    _applyMode();
 
-    // Bot detection: record when modal was opened
-    const _openedAt = Date.now();
+    // Bot detection: record when modal was opened (mutable — reset on toggle)
+    let _openedAt = Date.now();
 
     overlay.classList.remove('hidden');
     const _ft = _trapFocus(overlay);
     setTimeout(() => username.focus(), 50);
 
+    // Toggle handler
+    const toggleClick = (e) => {
+      e.preventDefault();
+      _registerMode = !_registerMode;
+      // Clear field values on mode switch
+      password.value = '';
+      confirmPw.value = '';
+      if (emailInput) emailInput.value = '';
+      if (confirmEmail) confirmEmail.value = '';
+      _openedAt = Date.now(); // Reset timing check for bot protection
+      _applyMode();
+      username.focus();
+    };
+
     let _submitting = false;
+    let _cancelled = false;
     const submit = async () => {
       if (_submitting) return;
 
@@ -632,7 +674,7 @@ const Admin = (() => {
         return;
       }
 
-      if (_setupMode) {
+      if (_setupMode || _registerMode) {
         // Password complexity
         const pwError = validatePassword(p);
         if (pwError) {
@@ -650,9 +692,57 @@ const Admin = (() => {
         }
       }
 
+      if (_registerMode) {
+        // Email validation
+        const em = (emailInput?.value || '').trim();
+        if (!em) {
+          error.textContent = 'Email is required.';
+          error.classList.remove('hidden');
+          emailInput?.focus();
+          return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+          error.textContent = 'Invalid email format.';
+          error.classList.remove('hidden');
+          emailInput?.focus();
+          return;
+        }
+        // Confirm email
+        const cem = (confirmEmail?.value || '').trim();
+        if (em.toLowerCase() !== cem.toLowerCase()) {
+          error.textContent = 'Email addresses do not match.';
+          error.classList.remove('hidden');
+          if (confirmEmail) confirmEmail.value = '';
+          confirmEmail?.focus();
+          return;
+        }
+        // Username format
+        if (u.length < 2) {
+          error.textContent = 'Username must be at least 2 characters.';
+          error.classList.remove('hidden');
+          username.focus();
+          return;
+        }
+        if (!/^[a-zA-Z0-9_]+$/.test(u)) {
+          error.textContent = 'Username may only contain letters, numbers, and underscores.';
+          error.classList.remove('hidden');
+          username.focus();
+          return;
+        }
+        if (u.length > 25) {
+          error.textContent = 'Username must be 25 characters or less.';
+          error.classList.remove('hidden');
+          username.focus();
+          return;
+        }
+      }
+
       _submitting = true;
-      error.textContent = _setupMode ? 'Creating account\u2026' : 'Signing in\u2026';
+      const actionLabel = (_setupMode || _registerMode) ? 'Creating account\u2026' : 'Signing in\u2026';
+      error.textContent = actionLabel;
       error.className = 'error-msg';
+      error.style.color = 'var(--text-2)';
+      error.classList.remove('hidden');
 
       try {
         let result;
@@ -660,27 +750,51 @@ const Admin = (() => {
           const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
           const email = 'christianatremblay@gmail.com';
           result = await Auth.setupInit(u, p, displayName, email);
+        } else if (_registerMode) {
+          const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
+          const em = emailInput.value.trim();
+          result = await Auth.register(u, p, displayName, em);
         } else {
           result = await Auth.login(u, p);
         }
+        if (_cancelled) return;
         if (result.ok) {
+          const successLabel = result.needsLogin
+            ? 'Account created! Please log in.'
+            : (_setupMode || _registerMode) ? 'Account created!' : 'Signed in!';
+          error.textContent = successLabel;
+          error.style.color = '#7ec87e';
           password.value = '';
           confirmPw.value = '';
-          overlay.classList.add('hidden');
-          if (_ft) _ft.release();
-          cleanup();
-          onSuccess();
+          if (emailInput) emailInput.value = '';
+          if (confirmEmail) confirmEmail.value = '';
+          await new Promise(r => setTimeout(r, 1800));
+          if (_cancelled) return;
+          if (result.needsLogin) {
+            // Session creation failed — switch to sign-in mode
+            _registerMode = false;
+            _applyMode();
+            username.focus();
+          } else {
+            overlay.classList.add('hidden');
+            if (_ft) _ft.release();
+            cleanup();
+            onSuccess();
+          }
         } else {
-          error.textContent = result.error || (_setupMode ? 'Setup failed.' : 'Invalid credentials.');
+          const failLabel = (_setupMode || _registerMode) ? 'Registration failed.' : 'Invalid credentials.';
+          error.textContent = result.error || failLabel;
           error.className = 'error-msg';
+          error.style.color = '';
           error.classList.remove('hidden');
           password.value = '';
           confirmPw.value = '';
           password.focus();
         }
       } catch (e) {
-        error.textContent = 'Network error — check connection.';
+        error.textContent = 'Network error \u2014 check connection.';
         error.className = 'error-msg';
+        error.style.color = '';
         error.classList.remove('hidden');
       } finally {
         _submitting = false;
@@ -688,6 +802,7 @@ const Admin = (() => {
     };
 
     const cancel = () => {
+      _cancelled = true;
       overlay.classList.add('hidden');
       if (_ft) _ft.release();
       cleanup();
@@ -716,23 +831,30 @@ const Admin = (() => {
     confirmBtn.addEventListener('click', submit);
     document.getElementById('btn-login-cancel').addEventListener('click', cancel);
     forgotBtn?.addEventListener('click', forgotClick);
+    toggleBtn?.addEventListener('click', toggleClick);
     username.addEventListener('keydown', keydown);
     password.addEventListener('keydown', keydown);
     confirmPw?.addEventListener('keydown', keydown);
+    emailInput?.addEventListener('keydown', keydown);
+    confirmEmail?.addEventListener('keydown', keydown);
     overlay.addEventListener('click', backdropClick);
 
     function cleanup() {
       confirmBtn.removeEventListener('click', submit);
       document.getElementById('btn-login-cancel').removeEventListener('click', cancel);
       forgotBtn?.removeEventListener('click', forgotClick);
+      toggleBtn?.removeEventListener('click', toggleClick);
       username.removeEventListener('keydown', keydown);
       password.removeEventListener('keydown', keydown);
       confirmPw?.removeEventListener('keydown', keydown);
+      emailInput?.removeEventListener('keydown', keydown);
+      confirmEmail?.removeEventListener('keydown', keydown);
       overlay.removeEventListener('click', backdropClick);
       // Reset field visibility
       confirmPwRow?.classList.add('hidden');
       emailRow?.classList.add('hidden');
       confirmEmailRow?.classList.add('hidden');
+      toggleModeDiv?.classList.add('hidden');
       _loginCleanup = null;
     }
     _loginCleanup = cleanup;

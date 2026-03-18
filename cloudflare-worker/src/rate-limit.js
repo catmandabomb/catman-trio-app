@@ -29,9 +29,10 @@ async function checkRateLimit(request, env) {
   // Determine rate limit tier based on endpoint
   const url = new URL(request.url);
   const isLogin = url.pathname === '/auth/login' && request.method === 'POST';
+  const isRegister = url.pathname === '/auth/register' && request.method === 'POST';
   const isReset = url.pathname === '/auth/forgot-password' && request.method === 'POST';
-  const limit = isLogin ? LOGIN_RATE_LIMIT : isReset ? RESET_RATE_LIMIT : RATE_LIMIT;
-  const prefix = isLogin ? 'login' : isReset ? 'reset' : 'rate';
+  const limit = (isLogin || isRegister) ? LOGIN_RATE_LIMIT : isReset ? RESET_RATE_LIMIT : RATE_LIMIT;
+  const prefix = isLogin ? 'login' : isRegister ? 'register' : isReset ? 'reset' : 'rate';
   const key = `${prefix}:${ip}:${window}`;
 
   try {
@@ -48,7 +49,7 @@ async function checkRateLimit(request, env) {
     });
     // For sensitive endpoints (login, reset), add a secondary D1-based
     // check if available — D1 UPDATE is atomic
-    if ((isLogin || isReset) && env.DB) {
+    if ((isLogin || isRegister || isReset) && env.DB) {
       try {
         // Atomic increment in D1 as a second line of defense
         await env.DB.prepare(

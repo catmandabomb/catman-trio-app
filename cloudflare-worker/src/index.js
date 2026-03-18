@@ -5,6 +5,7 @@
  *   OPTIONS /*            — CORS preflight (no auth)
  *   GET     /health       — Health check (no auth)
  *   POST    /auth/login   — Login (public)
+ *   POST    /auth/register — Self-registration for new members (public)
  *   POST    /setup/init   — Create first owner account (public, one-time)
  *   POST    /auth/logout  — Invalidate session (session auth)
  *   GET     /auth/me      — Current user info (session auth)
@@ -236,6 +237,126 @@ export default {
           passwordExpired: isPasswordExpired(user),
         },
       }));
+    }
+
+    // ─── PUBLIC: POST /auth/register (self-registration) ────
+    if (path === '/auth/register' && method === 'POST') {
+      if (!env.DB) return withCors(request, json({ error: 'Database not configured' }, 500));
+      const body = await parseBody(request);
+      if (!body || !body.username || !body.password || !body.email) {
+        return withCors(request, json({ error: 'Username, password, and email required' }, 400));
+      }
+      // Input length limits
+      if (body.username.length > 25 || body.password.length > 128 || body.email.length > 200) {
+        return withCors(request, json({ error: 'Invalid input length' }, 400));
+      }
+      if (body.displayName && body.displayName.length > 100) {
+        return withCors(request, json({ error: 'Invalid input length' }, 400));
+      }
+      // Trim username (like email is trimmed)
+      body.username = body.username.trim();
+      // Username format: 2-25 chars, alphanumeric + underscores only
+      if (body.username.length < 2) {
+        return withCors(request, json({ error: 'Username must be at least 2 characters' }, 400));
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
+        return withCors(request, json({ error: 'Username may only contain letters, numbers, and underscores' }, 400));
+      }
+      // Password complexity
+      const regPwErr = validatePasswordComplexity(body.password);
+      if (regPwErr) {
+        return withCors(request, json({ error: regPwErr }, 400));
+      }
+      // Email format validation
+      const email = body.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return withCors(request, json({ error: 'Invalid email format' }, 400));
+      }
+      // Reject placeholder emails
+      if (email.endsWith('@placeholder.local')) {
+        return withCors(request, json({ error: 'A valid email address is required' }, 400));
+      }
+      // Check username uniqueness
+      const existingUser = await getUserByUsername(env.DB, body.username);
+      if (existingUser) {
+        return withCors(request, json({ error: 'Username already taken' }, 409));
+      }
+      // Check email uniqueness
+      const emailExists = await env.DB.prepare(
+        'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1'
+      ).bind(email).first();
+      if (emailExists) {
+        return withCors(request, json({ error: 'Email already in use' }, 409));
+      }
+      // Create user with member role
+      const displayName = (body.displayName || body.username).trim();
+      let user;
+      try {
+        user = await createUser(env.DB, {
+          username: body.username,
+          displayName,
+          email: email,
+          password: body.password,
+          role: 'member',
+        });
+      } catch (e) {
+        const msg = e.message || '';
+        if (msg.includes('UNIQUE') || msg.includes('already exists')) {
+          return withCors(request, json({ error: 'Username or email already in use' }, 409));
+        }
+        return withCors(request, json({ error: 'Registration failed' }, 400));
+      }
+      // Send verification email
+      if (env.RESEND_API_KEY) {
+        try {
+          const verifyToken = await createEmailVerifyToken(env.DB, user.id);
+          const appUrl = _safeAppUrl(env);
+          const verifyLink = `${appUrl}#verify-email?token=${verifyToken}`;
+          const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              from: fromAddr,
+              to: [email],
+              subject: 'Verify your Catman Trio email',
+              html: `<p>Hi ${_escHtml(displayName)},</p>
+                <p>Welcome to Catman Trio! Click below to verify your email:</p>
+                <p><a href="${verifyLink}" style="display:inline-block;padding:10px 24px;background:#d4b478;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;">Verify Email</a></p>
+                <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
+            }),
+          });
+        } catch (_) { /* email send failure is non-fatal */ }
+      }
+      // Create session
+      const deviceInfo = request.headers.get('User-Agent') || null;
+      let session;
+      try {
+        session = await createSession(env.DB, user.id, deviceInfo);
+      } catch (_) {
+        // User created but session failed — they can log in manually
+        return withCors(request, json({
+          ok: true,
+          message: 'Account created — please log in',
+          user: { id: user.id, username: user.username, displayName: displayName, role: 'member' },
+        }, 201));
+      }
+      return withCors(request, json({
+        token: session.token,
+        expires: session.expires,
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: displayName,
+          role: 'member',
+          personaId: null,
+          emailVerified: false,
+          passwordExpired: false,
+        },
+      }, 201));
     }
 
     // ─── PUBLIC: POST /setup/init (one-time owner creation) ──

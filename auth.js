@@ -158,6 +158,37 @@ const Auth = (() => {
     }
   }
 
+  // ─── Register (public self-registration) ───────────────
+
+  /**
+   * Register a new member account.
+   * @returns {{ ok: boolean, error?: string, user?: object }}
+   */
+  async function register(username, password, displayName, email) {
+    try {
+      const resp = await _api('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, displayName, email }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        return { ok: false, error: data.error || 'Registration failed' };
+      }
+      if (data.token) {
+        _token = data.token;
+        _user = data.user;
+        _expires = data.expires;
+        _checked = true;
+        _save();
+      }
+      // If server returned 201 but no token (session creation failed),
+      // account was still created — user needs to log in manually
+      return { ok: true, user: data.user, needsLogin: !data.token };
+    } catch (e) {
+      return { ok: false, error: e.message || 'Network error' };
+    }
+  }
+
   // ─── Setup detection ───────────────────────────────────
 
   /**
@@ -428,6 +459,7 @@ const Auth = (() => {
   return {
     login,
     logout,
+    register,
     refreshSession,
     checkNeedsSetup,
     setupInit,
