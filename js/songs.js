@@ -650,6 +650,11 @@ const Songs = (() => {
     container.innerHTML = _buildDetailHTML(song);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
+    // Show volume slider only when song has audio files or streaming links
+    const _a = song.assets || {};
+    const hasAudio = (_a.audio || []).length > 0 || (_a.links || []).length > 0;
+    if (typeof App !== 'undefined' && App.showVolume) App.showVolume(hasAudio);
+
     // Email verification gate: hide PDF charts and audio for unverified users
     // Owner is exempt, unverified non-owners see placeholder
     const _authUser = typeof Auth !== 'undefined' && Auth.getUser();

@@ -111,6 +111,8 @@ const Router = (() => {
         if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
         if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
         if ((currentView === 'practice-detail' || currentView === 'practice-edit') && !name.startsWith('practice')) _callHook('cleanupPractice');
+        // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
+        if (name !== 'detail' && typeof App !== 'undefined' && App.showVolume) App.showVolume(false);
         _viewEls.forEach(v => v.classList.remove('active'));
         const el = document.getElementById(`view-${name}`);
         if (el) {

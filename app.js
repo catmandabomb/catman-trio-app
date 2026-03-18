@@ -69,6 +69,10 @@ const App = (() => {
     const setlistsBtn = document.getElementById('btn-setlists');
     const practiceBtn = document.getElementById('btn-practice');
     const loggedIn = typeof Auth !== 'undefined' && Auth.isLoggedIn();
+
+    // Toggle body class for CSS-driven auth gating
+    document.body.classList.toggle('authed', loggedIn);
+
     if (loggedIn) {
       if (btn) { btn.textContent = 'Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); }
       addBtn?.classList.toggle('hidden', !Auth.canEditSongs());
@@ -1410,12 +1414,13 @@ const App = (() => {
     // (Admin Dashboard button removed — "Admin" button now goes directly to dashboard)
 
     // Master volume slider (hidden on mobile — iOS audio.volume is read-only, Android has system volume)
+    // Hidden by default on desktop too — shown only on detail view when song has audio/links
     const isMobile = _isMobile();
     const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
     if (!volWrap || !volSlider) { /* elements missing, skip volume setup */ }
     else if (isMobile) {
-      volWrap.style.display = 'none';
+      // Keep hidden on mobile (iOS audio.volume is read-only)
     } else {
       volSlider.value = Player.getVolume();
       function _updateVolFill() {
@@ -1665,6 +1670,10 @@ const App = (() => {
     renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
     handleVerifyEmail, checkEmailVerified: _checkEmailVerified, runDiagnostics,
     hapticHeavy: haptic.heavy, hapticSuccess: haptic.success, hapticTap: haptic.tap,
+    showVolume(visible) {
+      const vw = document.getElementById('master-volume');
+      if (vw && !_isMobile()) vw.classList.toggle('visible', visible);
+    },
     revokeBlobCache: _revokeBlobCache,
     cleanupPlayers: _cleanupPlayers,
     getBlobUrl: _getBlobUrl,
