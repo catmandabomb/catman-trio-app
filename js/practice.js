@@ -135,16 +135,20 @@ function _doSyncRefresh(afterCallback) {
   });
 }
 
-function _injectTopbarActions(id, innerHtml) {
-  const topbarRight = document.querySelector('.topbar-right');
-  if (!topbarRight) return;
-  topbarRight.querySelector(`#${id}`)?.remove();
-  const wrap = document.createElement('div');
-  wrap.id = id;
-  wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
-  wrap.innerHTML = innerHtml;
-  topbarRight.appendChild(wrap);
-  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+function _injectTopbarActions(id, innerHtml, onReady) {
+  // Double rAF: startViewTransition runs swap() async — single rAF can fire before it.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    topbarRight.querySelector(`#${id}`)?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = id;
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    wrap.innerHTML = innerHtml;
+    topbarRight.appendChild(wrap);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+    if (onReady) onReady(wrap);
+  }));
 }
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -358,7 +362,28 @@ function renderPractice(skipNavReset) {
 
   // Add "New List" to topbar right
   _injectTopbarActions('practice-topbar-actions',
-    `<button class="btn-ghost topbar-nav-btn" id="btn-new-practice-list"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New List</button>`);
+    `<button class="btn-ghost topbar-nav-btn" id="btn-new-practice-list"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New List</button>`,
+    () => {
+      document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
+        const uid = _userId();
+        if (!uid) { showToast('Log in to create practice lists'); return; }
+        const newList = {
+          id: Admin.generateId(_practice),
+          name: '',
+          songs: [],
+          createdBy: uid,
+          archived: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        _practice.push(newList);
+        _syncToStore();
+        savePractice();
+        _editPracticeList = deepClone(newList);
+        _editPracticeListIsNew = true;
+        _renderPracticeListEdit(newList, true);
+      });
+    });
 
   const container = document.getElementById('practice-list');
   const myLists = _myLists();
@@ -412,26 +437,7 @@ function renderPractice(skipNavReset) {
   container.innerHTML = html;
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-  // Wire "New List" button
-  document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
-    const uid = _userId();
-    if (!uid) { showToast('Log in to create practice lists'); return; }
-    const newList = {
-      id: Admin.generateId(_practice),
-      name: '',
-      songs: [],
-      createdBy: uid,
-      archived: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    _practice.push(newList);
-    _syncToStore();
-    savePractice();
-    _editPracticeList = deepClone(newList);
-    _editPracticeListIsNew = true;
-    _renderPracticeListEdit(newList, true);
-  });
+  // "New List" button wired inside _injectTopbarActions callback above
 
   // Wire practice list card clicks
   container.querySelectorAll('.practice-list-card').forEach(card => {
@@ -486,7 +492,30 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
   if (Admin.isEditMode() || _userId() === practiceList.createdBy) {
     plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" style="color:#e87c6a;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Delete</button>`;
   }
-  _injectTopbarActions('practice-list-detail-topbar-actions', plTopbarHtml);
+  _injectTopbarActions('practice-list-detail-topbar-actions', plTopbarHtml, (wrap) => {
+    wrap.querySelector('.btn-edit-practice-list')?.addEventListener('click', () => {
+      _renderPracticeListEdit(practiceList, false);
+    });
+    wrap.querySelector('.btn-delete-practice-list-top')?.addEventListener('click', () => {
+      if (_savingPractice) return;
+      Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
+        if (_savingPractice) return;
+        _savingPractice = true;
+        try {
+          _practice = _practice.filter(l => l.id !== practiceList.id);
+          await savePractice('Practice list deleted.');
+          _activePracticeList = null;
+          Store.set('activePracticeList', null);
+          renderPractice(true);
+        } catch (err) {
+          console.error('Delete practice list failed', err);
+          showToast('Delete failed.');
+        } finally {
+          _savingPractice = false;
+        }
+      });
+    });
+  });
 
   const container = document.getElementById('practice-edit-content');
   const songs = Store.get('songs') || [];
@@ -552,10 +581,7 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
     });
   });
 
-  // Wire edit button
-  document.querySelector('.btn-edit-practice-list')?.addEventListener('click', () => {
-    _renderPracticeListEdit(practiceList, false);
-  });
+  // Edit + Delete buttons wired inside _injectTopbarActions callback above
 
   // Wire add song button
   document.getElementById('btn-add-practice-song')?.addEventListener('click', () => {
@@ -567,26 +593,6 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
     _enterPracticeMode(practiceList);
   });
 
-  // Wire delete practice list
-  document.querySelector('.btn-delete-practice-list-top')?.addEventListener('click', () => {
-    if (_savingPractice) return;
-    Admin.showConfirm('Delete Practice List', `Permanently delete "${esc(practiceList.name || 'this practice list')}"?`, async () => {
-      if (_savingPractice) return;
-      _savingPractice = true;
-      try {
-        _practice = _practice.filter(l => l.id !== practiceList.id);
-        await savePractice('Practice list deleted.');
-        _activePracticeList = null;
-        Store.set('activePracticeList', null);
-        renderPractice(true);
-      } catch (err) {
-        console.error('Delete practice list failed', err);
-        showToast('Delete failed.');
-      } finally {
-        _savingPractice = false;
-      }
-    });
-  });
 }
 
 // ─── Song Picker (add songs to list) ──────────────────────

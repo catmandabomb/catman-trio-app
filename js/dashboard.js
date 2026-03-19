@@ -35,9 +35,9 @@ function renderDashboard() {
   Router.setTopbar('Dashboard', true);
 
   // Add Switch Mode + Log Out buttons to topbar right
-  // Deferred: showView uses startViewTransition which removes topbar actions async.
-  // requestAnimationFrame ensures we inject after the transition swap completes.
-  requestAnimationFrame(() => {
+  // startViewTransition runs swap() in a microtask — single rAF can fire before it.
+  // Double rAF guarantees we inject after the transition swap completes.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     const topbarRight = document.querySelector('.topbar-right');
     if (!topbarRight) return;
     topbarRight.querySelector('#dash-topbar-actions')?.remove();
@@ -53,7 +53,26 @@ function renderDashboard() {
     `;
     topbarRight.appendChild(wrap);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-  });
+    // Wire buttons inside rAF where they exist
+    wrap.querySelector('#dash-toggle-mode')?.addEventListener('click', () => {
+      if (Admin.isAdminModeActive()) {
+        Admin.exitEditMode();
+        showToast('Switched to User Mode');
+      } else {
+        Admin.enterEditMode();
+        showToast('Switched to Admin Mode');
+      }
+      App.updateAuthUI();
+      renderDashboard();
+    });
+    wrap.querySelector('#dash-logout')?.addEventListener('click', async () => {
+      await Auth.logout();
+      Admin.resetAdminMode(false);
+      App.updateAuthUI();
+      App.renderList();
+      showToast('Logged out');
+    });
+  }));
 
   const container = document.getElementById('dashboard-content');
   const songs     = Store.get('songs');
@@ -546,27 +565,7 @@ function renderDashboard() {
   container.innerHTML = html;
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-  // Wire Switch Mode toggle (admin/owner only)
-  document.getElementById('dash-toggle-mode')?.addEventListener('click', () => {
-    if (Admin.isAdminModeActive()) {
-      Admin.exitEditMode();
-      showToast('Switched to User Mode');
-    } else {
-      Admin.enterEditMode();
-      showToast('Switched to Admin Mode');
-    }
-    App.updateAuthUI();
-    renderDashboard(); // Re-render to update button text
-  });
-
-  // Wire Log Out button
-  document.getElementById('dash-logout')?.addEventListener('click', async () => {
-    await Auth.logout();
-    Admin.resetAdminMode(false);
-    App.updateAuthUI();
-    App.renderList();
-    showToast('Logged out');
-  });
+  // Switch Mode + Log Out buttons wired inside double-rAF callback above
 
   // BUG-28: Wire Remove Orphans buttons
   container.querySelectorAll('.btn-remove-orphans').forEach(btn => {

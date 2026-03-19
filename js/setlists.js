@@ -100,16 +100,20 @@ function _doSyncRefresh(afterCallback) {
   });
 }
 
-function _injectTopbarActions(id, innerHtml) {
-  const topbarRight = document.querySelector('.topbar-right');
-  if (!topbarRight) return;
-  topbarRight.querySelector(`#${id}`)?.remove();
-  const wrap = document.createElement('div');
-  wrap.id = id;
-  wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
-  wrap.innerHTML = innerHtml;
-  topbarRight.appendChild(wrap);
-  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+function _injectTopbarActions(id, innerHtml, onReady) {
+  // Double rAF: startViewTransition runs swap() async — single rAF can fire before it.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
+    topbarRight.querySelector(`#${id}`)?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = id;
+    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    wrap.innerHTML = innerHtml;
+    topbarRight.appendChild(wrap);
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+    if (onReady) onReady(wrap);
+  }));
 }
 
 // ─── SETLIST SONG PICKER (from song detail / batch) ───────────
@@ -298,7 +302,17 @@ function renderSetlists(skipNavReset) {
   // Add "New Setlist" to topbar right (admin only)
   if (Admin.isEditMode()) {
     _injectTopbarActions('setlists-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn" id="btn-new-setlist"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New Setlist</button>`);
+      `<button class="btn-ghost topbar-nav-btn" id="btn-new-setlist"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New Setlist</button>`,
+      () => {
+        document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
+          if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
+            Admin.showGitHubModal(() => {});
+            showToast('Configure GitHub to sync data, then try again.');
+            return;
+          }
+          renderSetlistEdit(Admin.newSetlist(_setlists), true);
+        });
+      });
   }
 
   _autoArchiveSetlists();
@@ -402,15 +416,6 @@ function renderSetlists(skipNavReset) {
     });
   });
 
-  // Wire new setlist
-  document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
-    if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
-      Admin.showGitHubModal(() => {});
-      showToast('Configure GitHub to sync data, then try again.');
-      return;
-    }
-    renderSetlistEdit(Admin.newSetlist(_setlists), true);
-  });
 }
 
 // ─── SETLIST DETAIL VIEW ─────────────────────────────────────
@@ -463,7 +468,23 @@ function renderSetlistDetail(setlist, skipNavPush) {
   const isAdmin = Admin.isEditMode();
   if (isAdmin) {
     _injectTopbarActions('setlist-detail-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`);
+      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`,
+      (wrap) => {
+        wrap.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
+          renderSetlistEdit(setlist, false);
+        });
+        wrap.querySelector('.btn-duplicate-setlist')?.addEventListener('click', () => {
+          haptic.success();
+          const dupe = deepClone(setlist);
+          dupe.id = 'sl_' + Date.now();
+          dupe.venue = (setlist.venue || '') + ' (Copy)';
+          dupe.overrideTitle = '';
+          dupe._ts = Date.now();
+          _setlists.push(dupe);
+          _saveSetlists('Setlist duplicated');
+          renderSetlistEdit(dupe, false);
+        });
+      });
   }
 
   const _songs = Store.get('songs');
@@ -574,23 +595,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
     });
   });
 
-  // Wire edit button
-  document.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
-    renderSetlistEdit(setlist, false);
-  });
-
-  // Wire duplicate button
-  document.querySelector('.btn-duplicate-setlist')?.addEventListener('click', () => {
-    haptic.success();
-    const dupe = deepClone(setlist);
-    dupe.id = 'sl_' + Date.now();
-    dupe.venue = (setlist.venue || '') + ' (Copy)';
-    dupe.overrideTitle = '';
-    dupe._ts = Date.now();
-    _setlists.push(dupe);
-    _saveSetlists('Setlist duplicated');
-    renderSetlistEdit(dupe, false);
-  });
+  // Edit + Duplicate buttons wired inside _injectTopbarActions callback above
 
   if (!Admin.isEditMode()) {
     container.querySelector('.detail-edit-bar')?.remove();

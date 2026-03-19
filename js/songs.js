@@ -673,9 +673,11 @@ function renderDetail(song, skipNavPush) {
   Router.setTopbar(song.title || 'Song', true);
 
   // Add to Setlist (admin) or Add to Practice List (non-admin) in topbar
+  // Double rAF: startViewTransition runs swap() async — single rAF can fire before it.
   if (Auth.isLoggedIn()) {
-    const topbarRight = document.querySelector('.topbar-right');
-    if (topbarRight) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const topbarRight = document.querySelector('.topbar-right');
+      if (!topbarRight) return;
       topbarRight.querySelector('#song-detail-topbar-actions')?.remove();
       const wrap = document.createElement('div');
       wrap.id = 'song-detail-topbar-actions';
@@ -687,7 +689,18 @@ function renderDetail(song, skipNavPush) {
       }
       topbarRight.appendChild(wrap);
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-    }
+      // Wire listeners inside rAF where buttons exist
+      wrap.querySelector('.btn-add-to-setlist')?.addEventListener('click', () => {
+        _showSetlistPicker(song);
+      });
+      wrap.querySelector('.btn-add-to-practice-list')?.addEventListener('click', () => {
+        if (Practice.showPracticeListPicker) {
+          Practice.showPracticeListPicker(song);
+        } else {
+          showToast('Practice module not loaded');
+        }
+      });
+    }));
   }
 
   const container = document.getElementById('detail-content');
@@ -717,18 +730,6 @@ function renderDetail(song, skipNavPush) {
   } else {
     container.querySelector('.detail-edit-bar')?.remove();
   }
-
-  // Topbar: Add to Setlist / Practice List
-  document.querySelector('#song-detail-topbar-actions .btn-add-to-setlist')?.addEventListener('click', () => {
-    _showSetlistPicker(song);
-  });
-  document.querySelector('#song-detail-topbar-actions .btn-add-to-practice-list')?.addEventListener('click', () => {
-    if (Practice.showPracticeListPicker) {
-      Practice.showPracticeListPicker(song);
-    } else {
-      showToast('Practice module not loaded');
-    }
-  });
 
   // Setlist history: toggle + click to navigate
   container.querySelector('.detail-section-toggle[data-toggle="setlist-history-list"]')?.addEventListener('click', () => {
