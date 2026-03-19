@@ -17,7 +17,6 @@
 
 import * as IDB from './idb.js';
 import * as Auth from './auth.js';
-import * as Drive from './drive.js';
 
 // ─── Worker Proxy ─────────────────────────────────────────
 //
@@ -138,81 +137,6 @@ function isConfigured() {
   return !!_getPat(); // Owner/repo have defaults — only PAT needed
 }
 
-// ─── PAT Auto-Propagation via Drive ─────────────────────
-//
-// When GitHub is first configured on any device, the PAT is encrypted
-// with the admin password hash and saved to Drive as _github_sync.enc.
-// Other devices load this file and prompt for the admin password to decrypt.
-// This means: configure once on desktop, enter admin password on each device.
-
-const SYNC_CONFIG_FILENAME = '_github_sync.enc';
-
-// App-level encryption key for PAT propagation via Drive.
-// This isn't a secret — it's obfuscation to prevent casual/automated token detection.
-// Real security comes from: (a) the PAT having limited repo scope, and
-// (b) the actual data on GitHub being encrypted with the PAT-derived AES key.
-const _PROP_KEY_SEED = 'catmantrio-sync-propagation-2024';
-
-async function _getPropagationKey(usage) {
-  const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(_PROP_KEY_SEED));
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [usage]);
-}
-
-/**
- * Encrypt the PAT with app-level key and save to Drive.
- * Called when GitHub is configured + Drive write is available.
- * Other devices auto-load this file at boot — no password prompt needed.
- * No-op when USE_WORKER — PAT is server-side.
- */
-async function publishPat() {
-  if (USE_WORKER) return; // PAT is server-side, no need to propagate
-  const pat = _getPat();
-  if (!pat || !Drive.isWriteConfigured()) return;
-  try {
-    const key = await _getPropagationKey('encrypt');
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(pat);
-    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-    const payload = JSON.stringify({
-      iv:   _toBase64(iv),
-      data: _toBase64(new Uint8Array(ciphertext)),
-    });
-    await Drive.saveRawFile(SYNC_CONFIG_FILENAME, payload);
-    console.info('GitHub: PAT published to Drive for other devices');
-  } catch (e) {
-    console.warn('GitHub: could not publish PAT to Drive', e);
-  }
-}
-
-/**
- * Load encrypted PAT from Drive and decrypt. No password needed.
- * Returns the PAT string on success, null on failure.
- * No-op when USE_WORKER — PAT is server-side.
- */
-async function loadPublishedPat() {
-  if (USE_WORKER) return null; // PAT is server-side
-  if (!Drive.isConfigured()) return null;
-  try {
-    const file = await Drive.findFilePublic(SYNC_CONFIG_FILENAME);
-    if (!file) return null;
-    const { apiKey } = Drive.getConfig();
-    const resp = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${apiKey}`
-    );
-    if (!resp.ok) return null;
-    const encryptedJson = await resp.text();
-    const { iv, data } = JSON.parse(encryptedJson);
-    const key = await _getPropagationKey('decrypt');
-    const ivBytes   = _fromBase64(iv);
-    const dataBytes = _fromBase64(data);
-    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ivBytes }, key, dataBytes);
-    return new TextDecoder().decode(plaintext);
-  } catch (e) {
-    console.warn('GitHub: could not load published PAT', e);
-    return null;
-  }
-}
-
 // ─── Encryption ───────────────────────────────────────────
 
 async function _ensureCryptoKey() {
@@ -222,14 +146,10 @@ async function _ensureCryptoKey() {
   if (USE_WORKER) {
     // Fetch key seed from Worker (cached in memory only — never localStorage)
     if (!_keySeed) {
-      const adminHash = _getAdminHash();
       const sessionToken = Auth.getToken ? Auth.getToken() : null;
-      if (!adminHash && !sessionToken) throw new Error('Not authenticated — log in first');
-      const authHeaders = adminHash
-        ? { 'X-Admin-Hash': adminHash }
-        : { 'Authorization': `Bearer ${sessionToken}` };
+      if (!sessionToken) throw new Error('Not authenticated — log in first');
       const resp = await fetch(`${WORKER_URL}/auth/key`, {
-        headers: authHeaders,
+        headers: { 'Authorization': `Bearer ${sessionToken}` },
       });
       if (!resp.ok) throw new Error(`Key fetch failed: ${resp.status}`);
       const data = await resp.json();
@@ -325,14 +245,6 @@ function _getMinDebounce() {
 function _owner() { return localStorage.getItem('ct_github_owner') || DEFAULT_OWNER; }
 function _repo()  { return localStorage.getItem('ct_github_repo')  || DEFAULT_REPO; }
 
-/**
- * Get the admin hash for Worker authentication.
- * Returns the stored PBKDF2 hash from localStorage.
- */
-function _getAdminHash() {
-  return localStorage.getItem('ct_pw_hash') || '';
-}
-
 async function _ghRequest(path, options = {}, _retryCount = 0) {
   const MAX_RETRIES = 5;
   _trackApiCall();
@@ -345,24 +257,19 @@ async function _ghRequest(path, options = {}, _retryCount = 0) {
 
     if (USE_WORKER) {
       // ─── Worker proxy path ─────────────────────────
-      const adminHash = _getAdminHash();
       const sessionToken = Auth.getToken ? Auth.getToken() : null;
-      if (!adminHash && !sessionToken) throw new Error('Not authenticated — log in first');
+      if (!sessionToken) throw new Error('Not authenticated — log in first');
 
       const owner = encodeURIComponent(_owner());
       const repo  = encodeURIComponent(_repo());
       const safePath = path
         .replace(`/${_owner()}/${_repo()}`, `/${owner}/${repo}`);
 
-      const authHeaders = adminHash
-        ? { 'X-Admin-Hash': adminHash }
-        : { 'Authorization': `Bearer ${sessionToken}` };
-
       resp = await fetch(`${WORKER_URL}/github${safePath}`, {
         ...options,
         signal: controller.signal,
         headers: {
-          ...authHeaders,
+          'Authorization': `Bearer ${sessionToken}`,
           'Accept': 'application/vnd.github+json',
           ...(options.headers || {}),
         },
@@ -1048,7 +955,7 @@ async function flushNow() {
 
 // ─── Public API ───────────────────────────────────────────
 
-export { isConfigured, getConfig, saveConfig, clearConfig, testConnection, init, loadSongs, loadSetlists, loadPractice, loadAllData, peekAllData, saveSongs, saveSetlists, savePractice, trackDeletion, createDataBranch, migrateData, publishPat, loadPublishedPat, getRateLimitStatus, getWriteQueueStatus, flushNow };
+export { isConfigured, getConfig, saveConfig, clearConfig, testConnection, init, loadSongs, loadSetlists, loadPractice, loadAllData, peekAllData, saveSongs, saveSetlists, savePractice, trackDeletion, migrateData, getRateLimitStatus, getWriteQueueStatus, flushNow };
 export { USE_WORKER as useWorker, WORKER_URL as workerUrl };
 export function setOnFlushError(fn) { _onFlushError = fn; }
 export function setOnFlushSuccess(fn) { _onFlushSuccess = fn; }

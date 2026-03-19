@@ -418,15 +418,15 @@ function renderList(force) {
             Practice.renderPractice();
           }
         } else if (target === 'dashboard') {
-          // Dashboard only accessible from song list view
-          if (currentView !== 'list') return;
+          if (!Auth.isLoggedIn() || !Auth.canEditSongs()) {
+            showToast('Log in as admin to access Dashboard');
+            return;
+          }
           if (Admin.isEditMode()) {
             Dashboard.renderDashboard();
           } else {
-            Admin.showPasswordModal(() => {
-              Admin.enterEditMode();
-              Dashboard.renderDashboard();
-            });
+            Admin.enterEditMode();
+            Dashboard.renderDashboard();
           }
         }
       });

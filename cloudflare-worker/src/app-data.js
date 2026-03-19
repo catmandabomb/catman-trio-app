@@ -154,17 +154,28 @@ export async function listPractice(env) {
   return json({ practice: lists });
 }
 
-export async function savePractice(request, env) {
+export async function savePractice(request, env, currentUser) {
   const body = await _parseBody(request);
   if (!body || !Array.isArray(body.practice)) {
     return json({ error: 'practice array required' }, 400);
   }
 
+  const isPrivileged = ['owner', 'admin'].includes(currentUser.role);
   const batch = [];
   const now = new Date().toISOString();
 
   for (const p of body.practice) {
     if (!p.id) continue;
+    // Non-admin users can only save their own practice lists.
+    // Check server-side ownership (not client-supplied createdBy) to prevent bypass.
+    if (!isPrivileged) {
+      const existing = await env.DB.prepare(
+        'SELECT created_by FROM practice_lists WHERE id = ?'
+      ).bind(p.id).first();
+      if (existing && existing.created_by !== currentUser.username) {
+        return json({ error: 'Cannot modify another user\'s practice list' }, 403);
+      }
+    }
     batch.push(
       env.DB.prepare(`
         INSERT INTO practice_lists (id, name, created_by, songs, archived, updated_at, created_at)
@@ -178,7 +189,7 @@ export async function savePractice(request, env) {
       `).bind(
         p.id,
         p.name || '',
-        p.createdBy || '',
+        p.createdBy || currentUser.username,
         JSON.stringify(p.songs || []),
         p.archived ? 1 : 0,
         now,
@@ -189,6 +200,13 @@ export async function savePractice(request, env) {
 
   if (Array.isArray(body.deletions)) {
     for (const id of body.deletions) {
+      // Non-admin: verify ownership before delete
+      if (!isPrivileged) {
+        const row = await env.DB.prepare('SELECT created_by FROM practice_lists WHERE id = ?').bind(id).first();
+        if (row && row.created_by !== currentUser.username) {
+          return json({ error: 'Cannot delete another user\'s practice list' }, 403);
+        }
+      }
       batch.push(env.DB.prepare('DELETE FROM practice_lists WHERE id = ?').bind(id));
     }
   }

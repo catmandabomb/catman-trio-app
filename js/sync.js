@@ -347,20 +347,7 @@ function _syncDone() {
 // ─── Auto-configure GitHub from Drive PAT ─────────────────
 
 async function tryAutoConfigureGitHub() {
-  if (Store.get('autoConfigAttempted')) return;
-  Store.set('autoConfigAttempted', true);
-  // When Worker proxy is active, GitHub is always configured server-side
-  if (GitHub.useWorker) return;
-  try {
-    const pat = await GitHub.loadPublishedPat();
-    if (!pat) return;
-    GitHub.saveConfig({ pat, owner: '', repo: '' });
-    console.info('GitHub auto-configured from Drive');
-    showToast('Sync connected.');
-    syncAll(true);
-  } catch (e) {
-    console.warn('GitHub auto-detect failed:', e);
-  }
+  // No-op — Worker proxy handles GitHub config server-side
 }
 
 // ─── Main sync orchestrator ────────────────────────────────

@@ -11,7 +11,7 @@
  *   GET     /auth/me      — Current user info (session auth)
  *   GET     /auth/sessions — List active sessions (session auth)
  *   DELETE  /auth/sessions/:id — Revoke a session (session auth)
- *   GET     /auth/key     — Encryption key seed (session or admin hash auth)
+ *   GET     /auth/key     — Encryption key seed (session auth)
  *   PUT     /users/me/password — Change own password (session auth)
  *   GET/POST/PUT/DELETE /users/* — User management (owner only)
  *   GET/POST /data/songs       — D1 songs CRUD (auth, write=admin/owner)
@@ -22,7 +22,7 @@
  *   DELETE  /files/:id         — R2 file delete (admin/owner)
  *   GET     /files?songId=     — List files (auth)
  *   GET/POST /migration/state  — Migration tracking (owner only)
- *   *       /github/*     — GitHub API proxy (session or admin hash auth)
+ *   *       /github/*     — GitHub API proxy (session auth)
  *   POST    /email/send   — Send email via Resend (admin/owner only)
  *   POST    /gig/share              — Create/replace shared packet (auth, admin/owner)
  *   DELETE  /gig/share/:setlistId   — Unshare a packet (auth, admin/owner)
@@ -34,7 +34,7 @@
  */
 
 import { handlePreflight, withCors } from './cors.js';
-import { validateAuth } from './auth.js';
+// Legacy admin hash auth removed — session-only auth now
 import { checkRateLimit } from './rate-limit.js';
 import { proxyToGitHub } from './github-proxy.js';
 import { handleGetKey } from './crypto.js';
@@ -108,27 +108,16 @@ function _safeAppUrl(env) {
 }
 
 /**
- * Authenticate via session token OR admin hash (Phase 1 backward compat).
+ * Authenticate via session token.
  * Returns { user, authMethod } or null.
  */
 async function authenticateRequest(request, env) {
-  // Try session token first (Authorization: Bearer <token>)
   const authHeader = request.headers.get('Authorization') || '';
   if (authHeader.startsWith('Bearer ') && env.DB) {
     const token = authHeader.slice(7);
     const user = await validateSession(env.DB, token);
     if (user) return { user, authMethod: 'session' };
   }
-
-  // Fall back to admin hash (Phase 1 compat)
-  const adminAuth = validateAuth(request, env);
-  if (adminAuth.ok) {
-    return {
-      user: { userId: '__admin__', username: 'admin', role: 'owner', displayName: 'Admin' },
-      authMethod: 'admin-hash',
-    };
-  }
-
   return null;
 }
 
@@ -900,10 +889,6 @@ export default {
 
     // ─── /users/* — User management (owner only, session auth required) ─────
     if (path.startsWith('/users')) {
-      // Block admin-hash from user management (security: prevent synthetic owner from managing real users)
-      if (authMethod === 'admin-hash') {
-        return respond(json({ error: 'Session auth required for user management' }, 403));
-      }
       if (currentUser.role !== 'owner') {
         return respond(json({ error: 'Owner access required' }, 403));
       }
@@ -1080,10 +1065,9 @@ export default {
     if (path === '/data/practice' && method === 'GET') {
       return respond(await AppData.listPractice(env));
     }
-    // POST /data/practice — save practice lists
+    // POST /data/practice — save practice lists (any authenticated user, owns their lists)
     if (path === '/data/practice' && method === 'POST') {
-      // Members can save practice (they own their lists)
-      return respond(await AppData.savePractice(request, env));
+      return respond(await AppData.savePractice(request, env, currentUser));
     }
 
     // ─── /files/* — R2-backed file storage (replaces Drive) ─────

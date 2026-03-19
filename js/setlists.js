@@ -970,7 +970,7 @@ async function _doSharePacket(setlist, allSongs, songs) {
   // Call Worker API
   const token = Auth.getToken ? Auth.getToken() : null;
   if (!token) {
-    showToast('Login required', 3000);
+    showToast('Log in to share setlists', 3000);
     return;
   }
 
@@ -1267,6 +1267,17 @@ function _renderLiveMode(setlist) {
       // B7: retry failed charts when app becomes visible again (e.g. after network restore)
       if (_failedCharts && _failedCharts.length > 0) {
         setTimeout(() => { if (_liveModeActive) _retryFailedCharts(); }, 500);
+      }
+      // IDLE FIX: Re-render visible slides after returning from background.
+      // iOS Safari can reclaim GPU memory from cached canvases or kill the
+      // render worker while idle, leaving black/blank slides. Use _updateSlots
+      // to re-render all 3 slots + update progress + retarget zoom-pan.
+      if (_lmRevealed) {
+        PDFViewer.clearRenderCache(); // cached canvases may have lost pixel data
+        setTimeout(() => {
+          if (!_liveModeActive) return;
+          _updateSlots();
+        }, 100);
       }
     }
   }
@@ -1910,8 +1921,8 @@ function _renderLiveMode(setlist) {
     _diagLog('goPage', { delta, from: currentPageIdx });
     // Clear snap-back timer to prevent it from killing our transition
     if (_snapBackTimer) { clearTimeout(_snapBackTimer); _snapBackTimer = null; }
-    // B4: deterministic stuck detection — no more unreliable transitionend
-    if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1000)) {
+    // B4: deterministic stuck detection — force-clear if animation stuck >500ms
+    if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 500)) {
       _diagLog('anim-stuck-reset');
       console.warn('Live mode: animation stuck, force-clearing');
       _isAnimating = false;
@@ -1978,11 +1989,16 @@ function _renderLiveMode(setlist) {
           _zpHandle = PDFViewer.attachZoomPan(_currentCanvas, _currentChartArea);
         }
 
-        // A3: Await center slide render BEFORE resetting carousel position.
-        // This prevents flash-then-black on page turns (Classic 4 fix).
-        await _renderPageIntoSlide(slots[1], currentPageIdx);
+        // CLASSIC 4 FIX: Skip center re-render if the slot already has correct content.
+        // The center slot was pre-rendered as the adjacent slot before recycling.
+        // Re-rendering it would increment _renderGen, which can cause the pre-render's
+        // .then() reveal callback to bail on the stale gen check, leaving chartArea hidden.
+        const centerAlreadyRendered = parseInt(slots[1].dataset.pageIdx, 10) === currentPageIdx;
+        if (!centerAlreadyRendered) {
+          await _renderPageIntoSlide(slots[1], currentPageIdx);
+        }
 
-        // Reset position to show center (no transition) — AFTER render completes
+        // Reset position to show center (no transition)
         carousel.style.transition = 'none';
         carousel.style.transform = 'translateX(-100%)';
 
@@ -2167,6 +2183,7 @@ function _renderLiveMode(setlist) {
 
   // -- Loading overlay reveal logic --
   let _lmRevealed = false;
+  let _revealTimeout = null;
   const _loadingOverlay = container.querySelector('.lm-loading-overlay');
   const _loadingTextEl = _loadingOverlay.querySelector('.lm-loading-text');
   const _lmHeader = container.querySelector('.lm-header');
@@ -2186,15 +2203,25 @@ function _renderLiveMode(setlist) {
     }
   }
 
-  function _revealLiveMode() {
+  async function _revealLiveMode() {
     if (_lmRevealed) return;
     _lmRevealed = true;
     _diagLog('reveal');
     // Carousel starts visible (opacity:1 in HTML) — no need to set here.
     // Ensure visibility in case CSS overrides it.
     _lmCarousel.style.visibility = 'visible';
-    // Update slots now that current page is loaded
-    _updateSlots();
+    // CLASSIC 4 FIX: Await center slide render BEFORE removing loading overlay.
+    // Without this, the overlay fades out while the async chart render is still in progress,
+    // and the user sees the black .lm-slide background instead of the PDF.
+    carousel.style.transition = 'none';
+    carousel.style.transform = 'translateX(-100%)';
+    await _renderPageIntoSlide(slots[1], currentPageIdx);
+    // Render adjacent slots (fire-and-forget)
+    if (currentPageIdx > 0) _renderPageIntoSlide(slots[0], currentPageIdx - 1);
+    else _renderPageIntoSlide(slots[0], -1);
+    if (currentPageIdx < _pages.length - 1) _renderPageIntoSlide(slots[2], currentPageIdx + 1);
+    else _renderPageIntoSlide(slots[2], -1);
+    _updateProgress();
     // Fade out loading overlay, fade in content
     if (_loadingOverlay) {
       _loadingOverlay.style.transition = 'opacity 0.2s ease-out';
@@ -2220,10 +2247,11 @@ function _renderLiveMode(setlist) {
       _lmCarousel.style.removeProperty('transition');
       _lmCarousel.style.removeProperty('opacity');
       // CLASSIC 4 FIX: Do NOT remove visibility — leave 'visible' permanently.
-      // If CSS default doesn't set visibility:visible, carousel disappears.
       // _lmCarousel.style.removeProperty('visibility'); // REMOVED
-      // Safety: re-render current slide after reveal to ensure content is painted
-      _renderPageIntoSlide(slots[1], currentPageIdx);
+      // CLASSIC 4 FIX: Do NOT re-render here — the _updateSlots() call above already
+      // kicked off the render. A second _renderPageIntoSlide increments _renderGen,
+      // which can cause the first render's .then() reveal callback to bail on the stale
+      // gen check, leaving chartArea hidden (= black screen).
     }, 300);
   }
 
@@ -2233,18 +2261,22 @@ function _renderLiveMode(setlist) {
     requestAnimationFrame(() => _revealLiveMode());
   } else {
     // Safety timeout -- never stay stuck on loading (5s)
-    const _revealTimeout = setTimeout(_revealLiveMode, 5000);
+    _revealTimeout = setTimeout(_revealLiveMode, 5000);
     // Patch _updateSlots to detect when current page is ready
     const _origUpdateSlots = _updateSlots;
     _updateSlots = function() {
-      _origUpdateSlots();
       if (!_lmRevealed) {
         const curPage = _pages[currentPageIdx];
         if (curPage && curPage.type !== 'loading') {
           clearTimeout(_revealTimeout);
+          // CLASSIC 4 FIX: Don't call _origUpdateSlots() before _revealLiveMode()
+          // — _revealLiveMode now handles its own rendering. Calling both causes
+          // duplicate renders that bump _renderGen and race with each other.
           _revealLiveMode();
+          return;
         }
       }
+      _origUpdateSlots();
     };
   }
 
@@ -2327,6 +2359,7 @@ function _renderLiveMode(setlist) {
     try { sessionStorage.removeItem('ct_live_state'); } catch (_) {}
     if (_clockInterval) { clearInterval(_clockInterval); _clockInterval = null; }
     if (_overlayTimer) { clearTimeout(_overlayTimer); _overlayTimer = null; }
+    if (_revealTimeout) { clearTimeout(_revealTimeout); _revealTimeout = null; }
     if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
     PDFViewer.clearRenderCache();
     // Destroy all loaded PDF documents to free memory
@@ -2503,9 +2536,10 @@ function _renderLiveMode(setlist) {
   const SWIPE_THRESHOLD = Math.max(40, Math.min(60, window.innerWidth * 0.15));
 
   function _onDragStart(e) {
-    // CLASSIC 4 FIX: Safety reset — if _isAnimating stuck >1500ms, force-clear.
+    // CLASSIC 4 FIX: Safety reset — if _isAnimating stuck >500ms, force-clear.
     // transitionend can fail to fire on iOS if compositing layers are recycled.
-    if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 1500)) {
+    // Animation is 150ms + 200ms margin = 350ms timeout, so 500ms is generous.
+    if (_isAnimating && _animStartTime && (Date.now() - _animStartTime > 500)) {
       _diagLog('anim-stuck-reset');
       _isAnimating = false;
     }

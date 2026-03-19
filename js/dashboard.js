@@ -687,13 +687,8 @@ function renderDashboard() {
         const curSongs = Store.get('songs');
         const curSetlists = Store.get('setlists');
         const curPractice = Store.get('practice');
-        localStorage.setItem('_migration_backup', JSON.stringify({
-          songs: curSongs, setlists: curSetlists, practice: curPractice,
-        }));
         await GitHub.migrateData({ songs: curSongs, setlists: curSetlists, practice: curPractice });
         localStorage.setItem('ct_migrated_to_github', '1');
-        localStorage.removeItem('_migration_backup');
-        GitHub.publishPat().catch(e => console.warn('Could not publish PAT to Drive', e));
         showToast('Migration complete! Data is now syncing via GitHub.');
         renderDashboard();
       } catch (e) {
@@ -986,7 +981,7 @@ async function _loadSharedPackets() {
 
   const token = Auth.getToken ? Auth.getToken() : null;
   if (!token) {
-    el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Login required to view shared packets.</div>';
+    el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Log in to view shared packets.</div>';
     return;
   }
 
@@ -1070,7 +1065,7 @@ async function _loadMigrationUI() {
   if (!el) return;
 
   const token = Auth.getToken ? Auth.getToken() : null;
-  if (!token) { el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Login required.</div>'; return; }
+  if (!token) { el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Log in to view migration status.</div>'; return; }
 
   const cfActive = Sync.useCloudflare();
 
@@ -1126,7 +1121,7 @@ async function _loadMigrationUI() {
     // Wire switch to cloudflare
     document.getElementById('dash-switch-cloudflare')?.addEventListener('click', () => {
       Modal.confirm('Switch to Cloudflare', 'The app will read/write data from Cloudflare D1/R2 instead of GitHub/Drive. You can switch back at any time.', () => {
-        localStorage.setItem('ct_use_cloudflare', '1');
+        localStorage.removeItem('ct_use_cloudflare');
         showToast('Switched to Cloudflare storage');
         renderDashboard();
       }, { okLabel: 'Switch', danger: false });
@@ -2196,18 +2191,7 @@ async function runDiagnostics(container) {
     }
   });
 
-  await _test(SEC3, 'PAT propagation file decryptable', async () => {
-    if (!Drive.isConfigured()) return { status: 'skip', detail: 'Drive not configured' };
-    const t = _timer('Decrypt PAT');
-    try {
-      const pat = await GitHub.loadPublishedPat();
-      if (!pat) return { status: 'warn', detail: 'Could not load/decrypt PAT — file may be missing or encrypted with old key. Re-save GitHub Setup on desktop.' };
-      const masked = pat.substring(0, 4) + '...' + pat.substring(pat.length - 4);
-      return { status: 'pass', detail: t() + ` — token: ${masked} (${pat.length} chars)` };
-    } catch (e) {
-      return { status: 'fail', detail: `Decryption failed: ${e.message}` };
-    }
-  });
+  // PAT propagation test removed — PAT is server-side via Worker proxy
 
   // ═════════════════════════════════════════════
   // SECTION 4: GitHub Configuration

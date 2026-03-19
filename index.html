@@ -69,10 +69,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.03" as="style">
+  <link rel="preload" href="app.css?v=20.04" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.03">
-  <link rel="stylesheet" href="app.css?v=20.03" />
+  <link rel="modulepreload" href="app.js?v=20.04">
+  <link rel="stylesheet" href="app.css?v=20.04" />
 
   <script src="lib/pdf.min.js"></script>
   <script src="lib/Sortable.min.js"></script>
@@ -306,21 +306,6 @@
     </div>
   </div>
 
-  <!-- PASSWORD MODAL (legacy fallback) -->
-  <div id="modal-password" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-password-title">
-    <div class="modal">
-      <h2 id="modal-password-title">Admin Access</h2>
-      <p class="muted">Enter password to enable edit mode.</p>
-      <label for="password-input" class="sr-only">Admin password</label>
-      <input type="password" id="password-input" placeholder="Password" autocomplete="current-password" maxlength="128" />
-      <div id="password-error" class="error-msg hidden">Incorrect password.</div>
-      <div class="modal-actions">
-        <button id="btn-password-cancel" class="btn-secondary" title="Cancel">Cancel</button>
-        <button id="btn-password-confirm" class="btn-primary" title="Submit password">Unlock</button>
-      </div>
-    </div>
-  </div>
-
   <!-- PDF VIEWER MODAL -->
   <div id="modal-pdf" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pdf-filename">
     <div class="modal modal-pdf">
@@ -424,6 +409,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.03"></script>
+  <script type="module" src="app.js?v=20.04"></script>
 </body>
 </html>

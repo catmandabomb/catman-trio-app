@@ -252,6 +252,20 @@ function _workerRender(pdfUrl, pageNum, containerWidth, dpr) {
     const id = ++_renderMsgId;
     const timer = setTimeout(() => {
       _renderCallbacks.delete(id);
+      // IDLE FIX: Worker may be dead (iOS kills idle workers silently).
+      // Terminate and re-init so next render attempt gets a fresh worker.
+      if (_renderWorker) {
+        try { _renderWorker.terminate(); } catch (_) {}
+        _renderWorker = null;
+        // Reject remaining callbacks too
+        for (const [cbId, cb] of _renderCallbacks) {
+          clearTimeout(cb.timer);
+          cb.reject(new Error('worker reset'));
+        }
+        _renderCallbacks.clear();
+        // Re-init for next attempt
+        _initRenderWorker();
+      }
       reject(new Error('worker timeout'));
     }, WORKER_TIMEOUT_MS);
     _renderCallbacks.set(id, { resolve, reject, timer });
@@ -452,6 +466,13 @@ async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthO
   const cached = _renderCache.get(cacheKey);
 
   if (cached) {
+    // IDLE FIX: Detect lost canvas context (iOS reclaims GPU memory from idle canvases).
+    // A canvas with lost context reports width/height=0 or its getContext returns null-ish.
+    const cachedCtx = cached.canvas.getContext('2d');
+    if (!cachedCtx || cached.canvas.width === 0 || cached.canvas.height === 0) {
+      _renderCache.delete(cacheKey);
+      return _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerWidth);
+    }
     // ─── Cache HIT: check dimensions match ───
     // Compute expected display dimensions
     const page = await pdfDoc.getPage(pageNum);

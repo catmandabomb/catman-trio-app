@@ -32,6 +32,87 @@ let _practiceNoteTimer     = null;
 let _practiceNoteFlush     = null;
 const _accordionState      = new Map();
 
+// ─── Tuning fork (A440) ──────────────────────────────────
+let _tfCtx = null;   // AudioContext
+let _tfOsc = null;   // OscillatorNode (active = sounding)
+let _tfGain = null;  // GainNode
+
+const _TUNING_FORK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v9a5 5 0 0 0 5 5 5 5 0 0 0 5-5V2"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9" y1="22" x2="15" y2="22"/></svg>`;
+
+function _playTuningFork() {
+  // If already sounding, stop it
+  if (_tfOsc) { _stopTuningFork(); return; }
+
+  if (!_tfCtx || _tfCtx.state === 'closed') _tfCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_tfCtx.state === 'suspended') _tfCtx.resume();
+
+  const now = _tfCtx.currentTime;
+  _tfGain = _tfCtx.createGain();
+  _tfGain.gain.setValueAtTime(0.4, now);
+  // Tuning fork decay: quick initial drop then slow ring-out (~8s total)
+  _tfGain.gain.exponentialRampToValueAtTime(0.25, now + 0.5);
+  _tfGain.gain.exponentialRampToValueAtTime(0.001, now + 8);
+
+  _tfOsc = _tfCtx.createOscillator();
+  _tfOsc.type = 'sine';
+  _tfOsc.frequency.setValueAtTime(440, now);
+  _tfOsc.connect(_tfGain);
+  _tfGain.connect(_tfCtx.destination);
+  _tfOsc.start(now);
+  _tfOsc.stop(now + 8);
+  _tfOsc.onended = () => { _tfOsc = null; _tfGain = null; _updateTfBtn(false); };
+  _updateTfBtn(true);
+}
+
+function _stopTuningFork() {
+  if (_tfOsc) {
+    try {
+      const now = _tfCtx.currentTime;
+      _tfGain.gain.cancelScheduledValues(now);
+      _tfGain.gain.setValueAtTime(_tfGain.gain.value, now);
+      _tfGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      _tfOsc.stop(now + 0.06);
+    } catch (_) {
+      try { _tfOsc.stop(); } catch (__) {}
+      try { _tfGain.disconnect(); } catch (__) {} // guarantee silence on iOS
+    }
+    _tfOsc.onended = null; // prevent stale callback
+    _tfOsc = null; _tfGain = null;
+  }
+  _updateTfBtn(false);
+}
+
+function _updateTfBtn(active) {
+  const btn = document.getElementById('btn-tuning-fork');
+  if (!btn) return;
+  if (active) {
+    btn.classList.remove('tf-active');
+    void btn.offsetWidth; // force reflow to restart animation
+  }
+  btn.classList.toggle('tf-active', active);
+}
+
+function _injectTuningForkBtn() {
+  // Remove any stale one
+  document.getElementById('btn-tuning-fork')?.remove();
+  const topbarRight = document.querySelector('.topbar-right');
+  if (!topbarRight) return;
+  const btn = document.createElement('button');
+  btn.id = 'btn-tuning-fork';
+  btn.className = 'icon-btn tuning-fork-btn';
+  btn.title = 'A440 Tuning Fork';
+  btn.setAttribute('aria-label', 'Tuning fork');
+  btn.innerHTML = _TUNING_FORK_SVG;
+  btn.addEventListener('click', _playTuningFork);
+  topbarRight.prepend(btn);
+}
+
+function _cleanupTuningFork() {
+  _stopTuningFork();
+  if (_tfCtx && _tfCtx.state !== 'closed') _tfCtx.suspend().catch(() => {});
+  document.getElementById('btn-tuning-fork')?.remove();
+}
+
 // ─── Store sync helpers ───────────────────────────────────
 function _syncFromStore() {
   _practice = Store.get('practice') || [];
@@ -744,7 +825,6 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
         <div class="muted" style="font-size:12px">${plSongs.length} songs</div>
       </div>
     </div>
-    <button class="btn-secondary" id="btn-exit-practice-mode" style="width:100%;margin-bottom:16px;">Exit Practice Mode</button>
   </div>`;
 
   html += _metronomeHTML();
@@ -979,11 +1059,8 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
     });
   });
 
-  // Wire exit
-  document.getElementById('btn-exit-practice-mode')?.addEventListener('click', () => {
-    _flushPendingNotesSave();
-    _exitPracticeMode();
-  });
+  // Inject tuning fork button into topbar-right
+  _injectTuningForkBtn();
 }
 
 // ─── Practice list picker (from song detail) ──────────────
@@ -1092,6 +1169,7 @@ function _flushPendingNotesSave() {
 
 function _exitPracticeMode() {
   _flushPendingNotesSave();
+  _cleanupTuningFork();
   document.body.classList.remove('practice-mode-active');
   document.getElementById('practice-jump-bar')?.remove();
   _practiceList = null;

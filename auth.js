@@ -466,14 +466,6 @@ function canViewAuditLog() {
   return _user && ['owner', 'admin'].includes(_user.role);
 }
 
-/**
- * Get the admin hash (PBKDF2) for backward compat with Worker auth.
- * Used by github.js when both auth methods are supported.
- */
-function getAdminHash() {
-  return localStorage.getItem('ct_pw_hash') || '';
-}
-
 async function changeUsername(newUsername, currentPassword) {
   try {
     const resp = await _api('/users/me/username', {
@@ -523,4 +515,4 @@ async function deleteAccount() {
 
 // ─── Public API ─────────────────────────────────────────
 
-export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, getAdminHash };
+export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog };

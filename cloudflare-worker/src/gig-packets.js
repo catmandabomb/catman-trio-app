@@ -398,7 +398,7 @@ export async function handleVerifyPin(request, env, token) {
   let body;
   try { body = await request.json(); } catch (_) { return json({ error: 'Invalid request' }, 400); }
 
-  // Rate limit: 5 attempts per token per 15 minutes
+  // Rate limit: 5 attempts per token per 15 minutes (fail closed)
   if (env.CATMAN_RATE) {
     const window = Math.floor(Date.now() / 900000); // 15-min windows
     const rateKey = `pin:${token}:${window}`;
@@ -406,12 +406,24 @@ export async function handleVerifyPin(request, env, token) {
       const attempts = parseInt(await env.CATMAN_RATE.get(rateKey) || '0', 10);
       if (attempts >= 5) return json({ error: 'Too many attempts — try again later' }, 429);
       await env.CATMAN_RATE.put(rateKey, String(attempts + 1), { expirationTtl: 900 });
-    } catch (_) {} // rate limit failure is non-fatal
+    } catch (_) {
+      return json({ error: 'Rate limit unavailable — try again later' }, 429);
+    }
   }
 
   const packet = await env.DB.prepare('SELECT pin FROM shared_packets WHERE token = ?').bind(token).first();
   if (!packet) return json({ error: 'Invalid link' }, 404);
-  if (body.pin !== packet.pin) return json({ error: 'Incorrect PIN' }, 403);
+
+  // Timing-safe PIN comparison via constant-time hash compare
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(body.pin || '')),
+    crypto.subtle.digest('SHA-256', enc.encode(packet.pin || '')),
+  ]);
+  const da = new Uint8Array(ha), db = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < da.length; i++) diff |= da[i] ^ db[i];
+  if (diff !== 0) return json({ error: 'Incorrect PIN' }, 403);
 
   const sessionValue = `${token}:${Date.now()}`;
   const secret = env.ENCRYPTION_KEY_SEED;

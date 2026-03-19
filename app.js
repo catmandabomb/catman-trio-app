@@ -183,19 +183,25 @@ let _cachedPdfSet = new Set();
     return typeof id === 'string' && /^[0-9a-f]{16}$/.test(id);
   }
 
-  // Look up R2 file ID for a given Drive ID across all songs
+  // Look up R2 file ID for a given Drive ID — cached Map, rebuilt when songs change
+  let _r2Map = null;
+  let _r2MapSongsRef = null;
   function _findR2FileId(driveId) {
     const songs = Store.get('songs') || [];
-    for (const song of songs) {
-      if (!song.assets) continue;
-      for (const c of (song.assets.charts || [])) {
-        if (c.driveId === driveId && c.r2FileId) return c.r2FileId;
-      }
-      for (const a of (song.assets.audio || [])) {
-        if (a.driveId === driveId && a.r2FileId) return a.r2FileId;
+    if (songs !== _r2MapSongsRef) {
+      _r2Map = new Map();
+      _r2MapSongsRef = songs;
+      for (const song of songs) {
+        if (!song.assets) continue;
+        for (const c of (song.assets.charts || [])) {
+          if (c.driveId && c.r2FileId) _r2Map.set(c.driveId, c.r2FileId);
+        }
+        for (const a of (song.assets.audio || [])) {
+          if (a.driveId && a.r2FileId) _r2Map.set(a.driveId, a.r2FileId);
+        }
       }
     }
-    return null;
+    return _r2Map.get(driveId) || null;
   }
 
   /**
@@ -1207,29 +1213,26 @@ let _cachedPdfSet = new Set();
         _updateAuthUI();
         renderList();
         showToast('Logged out');
-      } else if (GitHub.useWorker) {
-        // User accounts available — show login modal
+      } else {
+        // Show login modal
         Admin.showLoginModal(() => {
           Admin.resetAdminMode();
-          _updateAuthUI();
-          renderList();
-        });
-      } else {
-        // Legacy password flow
-        Admin.showPasswordModal(() => {
-          Admin.enterEditMode();
           _updateAuthUI();
           renderList();
         });
       }
     });
 
-    // Title click: admin on desktop + songs page → dashboard; otherwise → home
+    // Title click: admin on song list → dashboard; non-admin on song list → refresh; other views → home
     document.getElementById('topbar-title').addEventListener('click', () => {
       const onSongList = Store.get('view') === 'list';
       const isAdmin = Auth.isLoggedIn() && Auth.canEditSongs();
       if (onSongList && isAdmin) {
         renderDashboard();
+      } else if (onSongList && Auth.isLoggedIn()) {
+        // Non-admin on song list: trigger a sync refresh (like PTR)
+        haptic.double();
+        Sync.doSyncRefresh(() => { Router.rerenderCurrentView(); });
       } else {
         renderList();
       }
@@ -1342,7 +1345,6 @@ let _cachedPdfSet = new Set();
       _refreshTimes.push(now);
       try { sessionStorage.setItem('ct_refresh_times', JSON.stringify(_refreshTimes)); } catch (_) {}
 
-      const wasPtr = _ptrTriggered;
       _ptrTriggered = false;
       await Sync.doSyncRefresh(() => {
         // Re-render current view after sync

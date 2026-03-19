@@ -639,11 +639,11 @@ function stopAll() {
 }
 
 function playIcon() {
-  return `<i data-lucide="play" style="width:16px;height:16px;fill:currentColor;"></i>`;
+  return `<i data-lucide="play" style="width:14px;height:14px;fill:currentColor;"></i>`;
 }
 
 function pauseIcon() {
-  return `<i data-lucide="pause" style="width:16px;height:16px;fill:currentColor;"></i>`;
+  return `<i data-lucide="pause" style="width:14px;height:14px;fill:currentColor;"></i>`;
 }
 
 function escHtml(str) {

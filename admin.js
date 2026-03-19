@@ -1,9 +1,7 @@
 /**
- * admin.js — Edit mode, password gate, CRUD operations
+ * admin.js — Edit mode, CRUD operations
  *
- * Password is stored as a SHA-256 hex hash in localStorage (ct_pw_hash).
- * Default password on first run: see DEFAULT_HASH — change it in the app.
- *
+ * Auth is handled by D1 user accounts (Auth module).
  * Generates 4-digit hex IDs for new songs (e.g. "3f9a").
  */
 
@@ -19,127 +17,7 @@ function _getApp() {
   return _App;
 }
 
-// Default password hash — SHA-256 of "Administraitor1!" (legacy, for migration)
-const DEFAULT_HASH = 'e5c128a06031c45577c71b9a49a5fffa3a93e077354ce609bd616b5cf70d32f4';
-
 let _adminModeActive = true; // Defaults to true on each login; toggle via dashboard
-
-// ─── Brute Force Protection ─────────────────────────────────
-let _failedAttempts = 0;
-let _lockoutUntil = 0;
-const MAX_ATTEMPTS = 5;
-const LOCKOUT_DURATIONS = [0, 0, 0, 0, 0, 15000, 30000, 60000, 120000, 300000]; // ms
-
-function _getLockoutDuration() {
-  const idx = Math.min(_failedAttempts, LOCKOUT_DURATIONS.length - 1);
-  return LOCKOUT_DURATIONS[idx];
-}
-
-function _isLockedOut() {
-  if (_lockoutUntil > 0 && Date.now() < _lockoutUntil) return true;
-  if (_lockoutUntil > 0 && Date.now() >= _lockoutUntil) { _lockoutUntil = 0; }
-  return false;
-}
-
-function _getRemainingLockout() {
-  if (!_isLockedOut()) return 0;
-  return Math.ceil((_lockoutUntil - Date.now()) / 1000);
-}
-
-// ─── Password (PBKDF2 with salt, legacy SHA-256 fallback) ───
-
-async function _sha256(str) {
-  const buf = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(str)
-  );
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function _randomSalt() {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function _pbkdf2Hash(password, saltHex) {
-  // Try Web Worker first to avoid blocking UI
-  if (typeof Worker !== 'undefined') {
-    try {
-      return await new Promise((resolve, reject) => {
-        const w = new Worker('./workers/crypto-worker.js');
-        const timer = setTimeout(() => { w.terminate(); reject(new Error('timeout')); }, 10000);
-        w.onmessage = (e) => {
-          clearTimeout(timer);
-          w.terminate();
-          if (e.data.error) reject(new Error(e.data.error));
-          else resolve(e.data.hash);
-        };
-        w.onerror = (e) => { clearTimeout(timer); w.terminate(); reject(e); };
-        w.postMessage({ password, saltHex, iterations: 100000 });
-      });
-    } catch (_) { /* fall through to main-thread */ }
-  }
-  // Fallback: main-thread PBKDF2
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']
-  );
-  const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
-    keyMaterial, 256
-  );
-  const hashHex = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return 'pbkdf2:' + saltHex + ':' + hashHex;
-}
-
-async function checkPassword(input) {
-  // Brute force protection
-  if (_isLockedOut()) return false;
-
-  const stored = localStorage.getItem('ct_pw_hash') || DEFAULT_HASH;
-  let ok = false;
-
-  if (stored.startsWith('pbkdf2:')) {
-    // New PBKDF2 format: "pbkdf2:<salt>:<hash>"
-    const parts = stored.split(':');
-    if (parts.length === 3) {
-      const computed = await _pbkdf2Hash(input, parts[1]);
-      ok = computed === stored;
-    }
-  } else {
-    // Legacy SHA-256 format (unsalted)
-    const hash = await _sha256(input);
-    ok = hash === stored;
-    // Auto-migrate to PBKDF2 on successful legacy login
-    if (ok) {
-      const salt = _randomSalt();
-      const newHash = await _pbkdf2Hash(input, salt);
-      localStorage.setItem('ct_pw_hash', newHash);
-    }
-  }
-
-  if (ok) {
-    _failedAttempts = 0;
-    _lockoutUntil = 0;
-  } else {
-    _failedAttempts++;
-    if (_failedAttempts >= MAX_ATTEMPTS) {
-      _lockoutUntil = Date.now() + _getLockoutDuration();
-    }
-  }
-
-  return ok;
-}
-
-async function setPassword(newPassword) {
-  const salt = _randomSalt();
-  const hash = await _pbkdf2Hash(newPassword, salt);
-  localStorage.setItem('ct_pw_hash', hash);
-}
 
 // ─── Password Complexity Validation ────────────────────────
 
@@ -158,21 +36,12 @@ function validatePassword(password) {
 
 // ─── Edit mode (Auth-based shim) ──────────────────────────
 
-/** Backward-compat shim: all existing Admin.isEditMode() calls work without mass-renaming */
 function isEditMode() {
-  // When Worker/auth is configured, use session-based auth
-  if (GitHub.useWorker) {
-    return Auth.isLoggedIn() && Auth.canEditSongs() && _adminModeActive;
-  }
-  // Legacy fallback: password-based edit mode (when Worker not configured)
-  return _adminModeActive && !!localStorage.getItem('ct_pw_hash');
+  return Auth.isLoggedIn() && Auth.canEditSongs() && _adminModeActive;
 }
 
 function enterEditMode() {
-  // Require auth when Worker is active
-  if (GitHub.useWorker) {
-    if (!Auth.isLoggedIn() || !Auth.canEditSongs()) return;
-  }
+  if (!Auth.isLoggedIn() || !Auth.canEditSongs()) return;
   _adminModeActive = true;
   document.getElementById('btn-add-song')?.classList.remove('hidden');
 }
@@ -243,121 +112,6 @@ function newSetlist(existingSetlists) {
     createdAt:     now.toISOString(),
     updatedAt:     now.toISOString(),
   };
-}
-
-// ─── Password modal ───────────────────────────────────────
-
-let _pwCleanup = null;
-function showPasswordModal(onSuccess) {
-  if (_pwCleanup) _pwCleanup(); // Clean up any prior open
-  const overlay = document.getElementById('modal-password');
-  const input   = document.getElementById('password-input');
-  const error   = document.getElementById('password-error');
-
-  input.value = '';
-  input.disabled = false;
-  document.getElementById('btn-password-confirm').disabled = false;
-  error.classList.add('hidden');
-  overlay.classList.remove('hidden');
-  const _ft = _trapFocus(overlay);
-
-  let _lockTimer = null;
-  // Show lockout message if already locked out
-  if (_isLockedOut()) {
-    const secs = _getRemainingLockout();
-    error.textContent = `Too many attempts. Try again in ${secs}s.`;
-    error.classList.remove('hidden');
-    input.disabled = true;
-    document.getElementById('btn-password-confirm').disabled = true;
-    _lockTimer = setInterval(() => {
-      if (!_isLockedOut()) {
-        clearInterval(_lockTimer);
-        _lockTimer = null;
-        error.classList.add('hidden');
-        error.textContent = 'Incorrect password.';
-        input.disabled = false;
-        document.getElementById('btn-password-confirm').disabled = false;
-        input.focus();
-      } else {
-        error.textContent = `Too many attempts. Try again in ${_getRemainingLockout()}s.`;
-      }
-    }, 1000);
-  }
-
-  let _confirming = false;
-  const confirm = async () => {
-    if (_confirming) return;
-    if (_isLockedOut()) return;
-    _confirming = true;
-    try {
-      const ok = await checkPassword(input.value);
-      if (ok) {
-        input.value = '';
-        overlay.classList.add('hidden');
-        if (_ft) _ft.release();
-        cleanup();
-        onSuccess();
-      } else {
-        if (_isLockedOut()) {
-          const secs = _getRemainingLockout();
-          error.textContent = `Too many attempts. Try again in ${secs}s.`;
-          input.disabled = true;
-          document.getElementById('btn-password-confirm').disabled = true;
-          if (_lockTimer) clearInterval(_lockTimer);
-          _lockTimer = setInterval(() => {
-            if (!_isLockedOut()) {
-              clearInterval(_lockTimer);
-              _lockTimer = null;
-              error.textContent = 'Incorrect password.';
-              input.disabled = false;
-              document.getElementById('btn-password-confirm').disabled = false;
-              input.focus();
-            } else {
-              error.textContent = `Too many attempts. Try again in ${_getRemainingLockout()}s.`;
-            }
-          }, 1000);
-        } else {
-          error.textContent = 'Incorrect password.';
-        }
-        error.classList.remove('hidden');
-        input.value = '';
-        input.focus();
-      }
-    } finally {
-      _confirming = false;
-    }
-  };
-
-  const cancel = () => {
-    overlay.classList.add('hidden');
-    if (_ft) _ft.release();
-    cleanup();
-  };
-
-  const keydown = (e) => {
-    if (e.key === 'Enter') confirm();
-    if (e.key === 'Escape') cancel();
-  };
-
-  // Dismiss on backdrop click (outside the modal card)
-  const backdropClick = (e) => {
-    if (e.target === overlay) cancel();
-  };
-
-  document.getElementById('btn-password-confirm').addEventListener('click', confirm);
-  document.getElementById('btn-password-cancel').addEventListener('click', cancel);
-  input.addEventListener('keydown', keydown);
-  overlay.addEventListener('click', backdropClick);
-
-  function cleanup() {
-    if (_lockTimer) { clearInterval(_lockTimer); _lockTimer = null; }
-    document.getElementById('btn-password-confirm').removeEventListener('click', confirm);
-    document.getElementById('btn-password-cancel').removeEventListener('click', cancel);
-    input.removeEventListener('keydown', keydown);
-    overlay.removeEventListener('click', backdropClick);
-    _pwCleanup = null;
-  }
-  _pwCleanup = cleanup;
 }
 
 // ─── Confirm modal ────────────────────────────────────────
@@ -523,13 +277,6 @@ function showGitHubModal(onSave) {
     if (_ft) _ft.release();
     cleanup();
     if (onSave) onSave();
-    // Publish encrypted PAT to Drive for other devices to auto-detect
-    try {
-      await GitHub.publishPat();
-    } catch (e) {
-      console.warn('Could not publish PAT', e);
-      Utils.showToast('GitHub config saved locally — PAT sync to Drive failed.');
-    }
   };
 
   const cancel = () => {
@@ -571,10 +318,7 @@ let _loginCleanup = null;
 async function showLoginModal(onSuccess, opts) {
   if (_loginCleanup) _loginCleanup();
   const overlay  = document.getElementById('modal-login');
-  if (!overlay) {
-    showPasswordModal(onSuccess);
-    return;
-  }
+  if (!overlay) return;
   const titleEl    = document.getElementById('modal-login-title');
   const subtextEl  = document.getElementById('login-subtext');
   const username   = document.getElementById('login-username');
@@ -899,4 +643,4 @@ async function showLoginModal(onSuccess, opts) {
 // ─── Focus trap (delegated to Modal module) ──────────────
 const _trapFocus = Modal.trapFocus;
 
-export { isEditMode, enterEditMode, exitEditMode, resetAdminMode, isAdminModeActive, generateId, newSong, newSetlist, checkPassword, setPassword, showPasswordModal, showLoginModal, showConfirm, showDriveModal, showGitHubModal, validatePassword, _trapFocus };
+export { isEditMode, enterEditMode, exitEditMode, resetAdminMode, isAdminModeActive, generateId, newSong, newSetlist, showLoginModal, showConfirm, showDriveModal, showGitHubModal, validatePassword, _trapFocus };
