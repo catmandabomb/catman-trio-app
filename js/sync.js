@@ -16,11 +16,15 @@ import * as Auth from '../auth.js';
 import * as Admin from '../admin.js';
 
 // ─── Storage backend toggle ─────────────────────────────────
-// When 'ct_use_cloudflare' is '1', sync goes through D1/R2 Worker endpoints.
-// Otherwise falls back to GitHub/Drive (legacy).
+// Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
+// explicitly opted out. The 'ct_use_cloudflare' flag can force '0' to
+// revert to GitHub/Drive (legacy), but defaults to Cloudflare when Worker exists.
 
 function useCloudflare() {
-  return localStorage.getItem('ct_use_cloudflare') === '1';
+  const flag = localStorage.getItem('ct_use_cloudflare');
+  if (flag === '0') return false;   // explicitly opted out
+  if (flag === '1') return true;    // explicitly opted in
+  return !!GitHub.workerUrl;        // default: use Cloudflare when Worker is configured
 }
 
 async function _workerFetch(path, options = {}) {

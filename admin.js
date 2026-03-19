@@ -687,8 +687,8 @@ async function showLoginModal(onSuccess, opts) {
       return;
     }
 
-    // Timing check — reject if submitted in under 2 seconds
-    if (Date.now() - _openedAt < 2000) {
+    // Timing check — reject if submitted in under 0.8 seconds (anti-bot only)
+    if (Date.now() - _openedAt < 800) {
       error.textContent = 'Please wait a moment before submitting.';
       error.classList.remove('hidden');
       return;

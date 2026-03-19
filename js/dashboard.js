@@ -32,7 +32,7 @@ function renderDashboard() {
   Store.set('navStack', []);
   Router.pushNav(() => App.renderList());
   Router.showView('dashboard');
-  Router.setTopbar('Admin Dashboard', true);
+  Router.setTopbar('Dashboard', true);
 
   // Add Switch Mode + Log Out buttons to topbar right
   const topbarRight = document.querySelector('.topbar-right');
@@ -1132,7 +1132,7 @@ async function _loadMigrationUI() {
     // Wire switch back to legacy
     document.getElementById('dash-switch-legacy')?.addEventListener('click', () => {
       Modal.confirm('Switch Back', 'The app will read/write from GitHub + Google Drive again (legacy mode).', () => {
-        localStorage.removeItem('ct_use_cloudflare');
+        localStorage.setItem('ct_use_cloudflare', '0');
         showToast('Switched back to GitHub + Drive');
         renderDashboard();
       }, { okLabel: 'Switch Back', danger: false });
