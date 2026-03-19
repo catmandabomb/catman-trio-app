@@ -5,22 +5,22 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.07';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.07';
-import * as Modal from './modal.js?v=20.07';
-import * as Router from './router.js?v=20.07';
-import * as Admin from '../admin.js?v=20.07';
-import * as Auth from '../auth.js?v=20.07';
-import * as Sync from './sync.js?v=20.07';
-import * as Drive from '../drive.js?v=20.07';
-import * as GitHub from '../github.js?v=20.07';
-import * as Player from '../player.js?v=20.07';
-import * as PDFViewer from '../pdf-viewer.js?v=20.07';
-import * as Metronome from '../metronome.js?v=20.07';
-import * as App from '../app.js?v=20.07';
-import * as Setlists from './setlists.js?v=20.07';
-import * as Practice from './practice.js?v=20.07';
-import * as Dashboard from './dashboard.js?v=20.07';
+import * as Store from './store.js?v=20.08';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.08';
+import * as Modal from './modal.js?v=20.08';
+import * as Router from './router.js?v=20.08';
+import * as Admin from '../admin.js?v=20.08';
+import * as Auth from '../auth.js?v=20.08';
+import * as Sync from './sync.js?v=20.08';
+import * as Drive from '../drive.js?v=20.08';
+import * as GitHub from '../github.js?v=20.08';
+import * as Player from '../player.js?v=20.08';
+import * as PDFViewer from '../pdf-viewer.js?v=20.08';
+import * as Metronome from '../metronome.js?v=20.08';
+import * as App from '../app.js?v=20.08';
+import * as Setlists from './setlists.js?v=20.08';
+import * as Practice from './practice.js?v=20.08';
+import * as Dashboard from './dashboard.js?v=20.08';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -991,7 +991,7 @@ function _buildDetailHTML(song) {
   if (containingSl.length) {
     const slRows = containingSl.map(sl => {
       const dateStr = sl.gigDate && sl.gigDate !== 'TBD'
-        ? new Date(sl.gigDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        ? (() => { const d = new Date(sl.gigDate + 'T00:00:00'); return isNaN(d) ? sl.gigDate : `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`; })()
         : (sl.gigDate || '');
       return `<div class="setlist-history-row" data-sl-id="${esc(sl.id)}">
         <span class="setlist-history-name">${esc(_slTitle(sl))}</span>

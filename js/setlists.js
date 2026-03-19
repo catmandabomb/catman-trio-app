@@ -5,19 +5,19 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.07';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.07';
-import * as Modal from './modal.js?v=20.07';
-import * as Router from './router.js?v=20.07';
-import * as Admin from '../admin.js?v=20.07';
-import * as Auth from '../auth.js?v=20.07';
-import * as Sync from './sync.js?v=20.07';
-import * as Drive from '../drive.js?v=20.07';
-import * as GitHub from '../github.js?v=20.07';
-import * as Player from '../player.js?v=20.07';
-import * as PDFViewer from '../pdf-viewer.js?v=20.07';
-import * as App from '../app.js?v=20.07';
-import * as Songs from './songs.js?v=20.07';
+import * as Store from './store.js?v=20.08';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.08';
+import * as Modal from './modal.js?v=20.08';
+import * as Router from './router.js?v=20.08';
+import * as Admin from '../admin.js?v=20.08';
+import * as Auth from '../auth.js?v=20.08';
+import * as Sync from './sync.js?v=20.08';
+import * as Drive from '../drive.js?v=20.08';
+import * as GitHub from '../github.js?v=20.08';
+import * as Player from '../player.js?v=20.08';
+import * as PDFViewer from '../pdf-viewer.js?v=20.08';
+import * as App from '../app.js?v=20.08';
+import * as Songs from './songs.js?v=20.08';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -36,7 +36,11 @@ function _formatGigDate(dateStr) {
   if (!dateStr || dateStr === 'TBD') return 'TBD';
   const d = new Date(dateStr + 'T00:00:00'); // avoid timezone shift
   if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  // MM/DD/YY — compact American format to save horizontal space
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
 }
 
 function _displayTitle(sl) {
@@ -1367,7 +1371,7 @@ function _renderLiveMode(setlist) {
       <div class="lm-loading-spinner"></div>
       <div class="lm-loading-text">Loading Live Mode\u2026</div>
     </div>
-    <div class="lm-header" style="opacity:0">
+    <div class="lm-header" style="opacity:1">
       <div class="lm-header-row1">
         <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:18px;height:18px;"></i></button>
         <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:10px;height:10px;opacity:0.15;"></i></span>
@@ -2082,14 +2086,20 @@ function _renderLiveMode(setlist) {
     try {
       const blobUrl = await _getBlobUrl(chartDriveId);
       if (!_liveModeActive) return; // exited during load
-      // B2: 10-second timeout on PDF load to prevent indefinite hangs
+      // B2: 10-second timeout on PDF load to prevent indefinite hangs.
+      // CRITICAL: Clear the timeout on success — loadTask.destroy() after a
+      // successful load destroys the pdfDoc's worker connection (messageHandler),
+      // causing "can't access sendWithPromise" errors on subsequent getPage() calls.
       const loadTask = pdfjsLib.getDocument(blobUrl);
+      let timeoutId;
       const pdfDoc = await Promise.race([
-        loadTask.promise,
-        new Promise((_, reject) => setTimeout(() => {
-          try { loadTask.destroy(); } catch (_) {}
-          reject(new Error('PDF load timeout (10s)'));
-        }, 10000))
+        loadTask.promise.then(doc => { clearTimeout(timeoutId); return doc; }),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            try { loadTask.destroy(); } catch (_) {}
+            reject(new Error('PDF load timeout (10s)'));
+          }, 10000);
+        })
       ]);
       if (!_liveModeActive) { pdfDoc.destroy(); return; } // exited during load
       // Register URL so PDFViewer can use worker path (non-iOS) and render cache keying
@@ -2492,7 +2502,8 @@ function _renderLiveMode(setlist) {
         el.style.pointerEvents = '';
       });
     }
-    _resetChromeTimer();
+    // Auto-hide timer disabled by default — will be a user preference.
+    // When enabled, uncomment: _resetChromeTimer();
   }
 
   function _hideChrome() {
@@ -2522,8 +2533,9 @@ function _renderLiveMode(setlist) {
   _lmHeader.addEventListener('mousedown', _onInteraction, { passive: true });
   _lmHeader.addEventListener('click', _onInteraction, { passive: true });
   // 'C' key or center-tap toggles chrome (handled in _onKey for 'C', tap zones for center)
-  // Start the auto-hide timer
-  _resetChromeTimer();
+  // Auto-hide disabled by default — will be a user preference in User Settings.
+  // Users can still toggle via 'C' key or center-tap.
+  // _resetChromeTimer();
 
   // -- B7: Offline recovery — retry failed charts on visibility change or 'R' key --
   function _retryFailedCharts() {

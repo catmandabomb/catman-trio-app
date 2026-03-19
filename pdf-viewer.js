@@ -22,8 +22,8 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.07';
-import { showToast } from './js/utils.js?v=20.07';
+import * as Admin from './admin.js?v=20.08';
+import { showToast } from './js/utils.js?v=20.08';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -474,8 +474,24 @@ async function renderToCanvasCached(pdfDoc, pageNum, canvas, containerEl, widthO
       return _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerWidth);
     }
     // ─── Cache HIT: check dimensions match ───
-    // Compute expected display dimensions
-    const page = await pdfDoc.getPage(pageNum);
+    // Compute expected display dimensions.
+    // Guard: pdfDoc may have been destroyed (e.g. worker connection closed).
+    // If getPage fails, blit the cached render as-is rather than failing entirely.
+    let page;
+    try {
+      page = await pdfDoc.getPage(pageNum);
+    } catch (e) {
+      // pdfDoc destroyed — use cached render without dimension check
+      const cachedCanvas = cached.canvas;
+      canvas.width = cachedCanvas.width;
+      canvas.height = cachedCanvas.height;
+      canvas.style.width = cached.displayW + 'px';
+      canvas.style.height = cached.displayH + 'px';
+      canvas.getContext('2d').drawImage(cachedCanvas, 0, 0);
+      _renderCache.delete(cacheKey);
+      _renderCache.set(cacheKey, cached);
+      return;
+    }
     const viewport = page.getViewport({ scale: 1 });
     const fitScale = containerWidth / viewport.width;
     const expectedW = viewport.width * fitScale;

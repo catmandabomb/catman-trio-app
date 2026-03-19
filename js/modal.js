@@ -5,7 +5,7 @@
  * All modals go through this module for consistent UX.
  */
 
-import { haptic } from './utils.js?v=20.07';
+import { haptic } from './utils.js?v=20.08';
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
