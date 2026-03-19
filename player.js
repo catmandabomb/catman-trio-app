@@ -162,7 +162,7 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
   // --- A/B Loop (practice mode only) ---
   let loopA = null, loopB = null, loopCount = 0, loopActive = false;
 
-  let _loopTimeUpdate = null, _loopEnded = null;
+  let _loopTimeUpdate = null, _loopEnded = null, _loopUICallback = null;
 
   if (loopMode) {
     const loopSection = document.createElement('div');
@@ -234,6 +234,9 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
         }
       }
     }
+
+    // Expose _updateLoopUI to outer scope for rAF loop
+    _loopUICallback = _updateLoopUI;
 
     // Toggle controls visibility
     loopToggleBtn.addEventListener('click', () => {
@@ -422,7 +425,7 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
       if (loopActive && !audio.seeking && audio.currentTime >= loopB) {
         audio.currentTime = loopA;
         loopCount++;
-        _updateLoopUI();
+        if (_loopUICallback) _loopUICallback();
       }
       if (!audio.seeking) {
         progress.value = audio.currentTime;

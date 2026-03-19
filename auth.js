@@ -7,7 +7,7 @@
  * Dependencies: GitHub (for workerUrl), Utils (for showToast)
  */
 
-import * as GitHub from './github.js?v=20.11';
+import * as GitHub from './github.js?v=20.12';
 
 // ─── State ──────────────────────────────────────────────
 
@@ -515,4 +515,18 @@ async function deleteAccount() {
 
 // ─── Public API ─────────────────────────────────────────
 
-export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog };
+/**
+ * Authenticated JSON API helper (public wrapper for _api).
+ * Returns parsed JSON or null on failure.
+ */
+async function api(path, options = {}) {
+  try {
+    const resp = await _api(path, options);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, api };

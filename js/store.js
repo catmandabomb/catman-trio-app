@@ -62,7 +62,7 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.11',
+  APP_VERSION:        'v20.12',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────

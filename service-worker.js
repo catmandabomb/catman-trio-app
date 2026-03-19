@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.11';
+const CACHE_NAME = 'catmantrio-v20.12';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -276,6 +276,44 @@ self.addEventListener('sync', (e) => {
       })
     );
   }
+});
+
+// ─── Push Notifications ──────────────────────────────────
+self.addEventListener('push', (e) => {
+  if (!e.data) return;
+  let payload;
+  try { payload = e.data.json(); } catch (_) {
+    payload = { title: 'Catman Trio', body: e.data.text() };
+  }
+  const { title = 'Catman Trio', body = '', icon, tag, url, data } = payload;
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: icon || '/img/icon-192.png',
+      badge: '/img/icon-192.png',
+      tag: tag || 'catman-default',
+      data: { url: url || '/', ...(data || {}) },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const targetUrl = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      // Focus existing window if possible
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.focus();
+          if (targetUrl !== '/') client.navigate(targetUrl);
+          return;
+        }
+      }
+      // Open new window
+      return self.clients.openWindow(targetUrl);
+    })
+  );
 });
 
 // Fetch strategy:

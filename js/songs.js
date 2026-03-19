@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.11';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.11';
-import * as Modal from './modal.js?v=20.11';
-import * as Router from './router.js?v=20.11';
-import * as Admin from '../admin.js?v=20.11';
-import * as Auth from '../auth.js?v=20.11';
-import * as Sync from './sync.js?v=20.11';
-import * as Drive from '../drive.js?v=20.11';
-import * as GitHub from '../github.js?v=20.11';
-import * as Player from '../player.js?v=20.11';
-import * as PDFViewer from '../pdf-viewer.js?v=20.11';
-import * as Metronome from '../metronome.js?v=20.11';
-import * as App from '../app.js?v=20.11';
-import * as Setlists from './setlists.js?v=20.11';
-import * as Practice from './practice.js?v=20.11';
-import * as Dashboard from './dashboard.js?v=20.11';
-import * as IDB from '../idb.js?v=20.11';
+import * as Store from './store.js?v=20.12';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.12';
+import * as Modal from './modal.js?v=20.12';
+import * as Router from './router.js?v=20.12';
+import * as Admin from '../admin.js?v=20.12';
+import * as Auth from '../auth.js?v=20.12';
+import * as Sync from './sync.js?v=20.12';
+import * as Drive from '../drive.js?v=20.12';
+import * as GitHub from '../github.js?v=20.12';
+import * as Player from '../player.js?v=20.12';
+import * as PDFViewer from '../pdf-viewer.js?v=20.12';
+import * as Metronome from '../metronome.js?v=20.12';
+import * as App from '../app.js?v=20.12';
+import * as Setlists from './setlists.js?v=20.12';
+import * as Practice from './practice.js?v=20.12';
+import * as Dashboard from './dashboard.js?v=20.12';
+import * as IDB from '../idb.js?v=20.12';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -1045,13 +1045,15 @@ function _buildDetailHTML(song) {
           return `
           <div class="audio-row">
             <div class="audio-row-player" data-audio-container="${esc(fid)}" data-name="${esc(a.name)}" data-song-title="${esc(song.title || '')}"></div>
-            <button class="btn-cache-audio" data-cache-id="${esc(fid)}" data-cache-name="${esc(a.name)}" data-song-id="${esc(song.id)}" aria-label="Save for offline" title="Save for offline">
-              <i data-lucide="hard-drive-download" style="width:14px;height:14px;"></i>
-            </button>
-            <button class="dl-btn" data-dl-id="${esc(fid)}" data-dl-name="${esc(a.name)}" aria-label="Download">
-              <i data-lucide="download" class="dl-icon"></i>
-              <span class="dl-spinner hidden"></span>
-            </button>
+            <div class="audio-row-actions">
+              <button class="btn-cache-audio" data-cache-id="${esc(fid)}" data-cache-name="${esc(a.name)}" data-song-id="${esc(song.id)}" aria-label="Save for offline" title="Save for offline">
+                <i data-lucide="hard-drive-download" style="width:14px;height:14px;"></i>
+              </button>
+              <button class="dl-btn" data-dl-id="${esc(fid)}" data-dl-name="${esc(a.name)}" aria-label="Download" title="Download to device">
+                <i data-lucide="download" class="dl-icon"></i>
+                <span class="dl-spinner hidden"></span>
+              </button>
+            </div>
           </div>`;
         }).join('')}
       </div>

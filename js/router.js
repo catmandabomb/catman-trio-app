@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.11';
-import * as Player from '../player.js?v=20.11';
-import * as Metronome from '../metronome.js?v=20.11';
+import * as Store from './store.js?v=20.12';
+import * as Player from '../player.js?v=20.12';
+import * as Metronome from '../metronome.js?v=20.12';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.11');
+  if (!_App) _App = import('../app.js?v=20.12');
   return _App;
 }
 
@@ -143,6 +143,11 @@ function showView(name) {
         _callHook('cleanupPractice');
         document.body.classList.remove('practice-mode-active');
       }
+      // Also clean up practice mode (tuning fork, metronome) when leaving practice-detail for another practice view
+      if (currentView === 'practice-detail' && name !== 'practice-detail') {
+        _callHook('cleanupPractice');
+        document.body.classList.remove('practice-mode-active');
+      }
       // Clean up live mode classes inside transition to avoid layout jitter
       if (name !== 'setlist-live') {
         document.body.classList.remove('live-mode-active');
@@ -152,6 +157,8 @@ function showView(name) {
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
       document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions').forEach(el => el.remove());
+      // Tuning fork wrap: only remove when NOT entering practice-detail (it injects its own)
+      if (name !== 'practice-detail') document.getElementById('tuning-fork-wrap')?.remove();
       _viewEls.forEach(v => v.classList.remove('active'));
       const el = document.getElementById(`view-${name}`);
       if (el) {

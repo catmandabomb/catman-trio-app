@@ -2,22 +2,22 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.11';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.11';
-import * as Modal from './js/modal.js?v=20.11';
-import * as Router from './js/router.js?v=20.11';
-import * as Sync from './js/sync.js?v=20.11';
-import * as Drive from './drive.js?v=20.11';
-import * as GitHub from './github.js?v=20.11';
-import * as Admin from './admin.js?v=20.11';
-import * as Auth from './auth.js?v=20.11';
-import * as Player from './player.js?v=20.11';
-import * as Songs from './js/songs.js?v=20.11';
-import * as Setlists from './js/setlists.js?v=20.11';
-import * as Practice from './js/practice.js?v=20.11';
-import * as Dashboard from './js/dashboard.js?v=20.11';
-import * as Migrate from './js/migrate.js?v=20.11';
-import * as IDB from './idb.js?v=20.11';
+import * as Store from './js/store.js?v=20.12';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.12';
+import * as Modal from './js/modal.js?v=20.12';
+import * as Router from './js/router.js?v=20.12';
+import * as Sync from './js/sync.js?v=20.12';
+import * as Drive from './drive.js?v=20.12';
+import * as GitHub from './github.js?v=20.12';
+import * as Admin from './admin.js?v=20.12';
+import * as Auth from './auth.js?v=20.12';
+import * as Player from './player.js?v=20.12';
+import * as Songs from './js/songs.js?v=20.12';
+import * as Setlists from './js/setlists.js?v=20.12';
+import * as Practice from './js/practice.js?v=20.12';
+import * as Dashboard from './js/dashboard.js?v=20.12';
+import * as Migrate from './js/migrate.js?v=20.12';
+import * as IDB from './idb.js?v=20.12';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -711,6 +711,86 @@ let _cachedPdfSet = new Set();
     try { localStorage.setItem('ct_pref_' + key, value); } catch (_) {}
   }
 
+  async function _requestPushPermission(container) {
+    const toggle = container?.querySelector('#pref-push-enabled');
+    const hint = container?.querySelector('#pref-push-hint');
+    try {
+      if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
+        showToast('Push notifications not supported');
+        if (toggle) toggle.checked = false;
+        return;
+      }
+      let perm = Notification.permission;
+      if (perm === 'default') {
+        perm = await Notification.requestPermission();
+      }
+      if (perm !== 'granted') {
+        showToast('Notification permission denied');
+        if (toggle) toggle.checked = false;
+        if (hint) hint.textContent = perm === 'denied' ? 'Blocked by browser — enable in site settings' : 'Permission not granted';
+        return;
+      }
+      // Get VAPID public key from worker
+      const vapidResp = await Auth.api('/push/vapid-key');
+      if (!vapidResp || !vapidResp.key) {
+        showToast('Push not configured on server');
+        if (toggle) toggle.checked = false;
+        return;
+      }
+      const vapidKey = _urlBase64ToUint8Array(vapidResp.key);
+      const reg = await navigator.serviceWorker.ready;
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey,
+      });
+      const subJson = subscription.toJSON();
+      await Auth.api('/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({
+          endpoint: subJson.endpoint,
+          keys: subJson.keys,
+        }),
+      });
+      _setPref('push_enabled', '1');
+      if (hint) hint.textContent = 'Enabled — you will receive push notifications';
+      showToast('Push notifications enabled');
+    } catch (e) {
+      console.warn('Push subscribe error:', e);
+      showToast('Could not enable push: ' + (e.message || e));
+      if (toggle) toggle.checked = false;
+    }
+  }
+
+  async function _unsubscribePush(container) {
+    const hint = container?.querySelector('#pref-push-hint');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const subscription = await reg.pushManager.getSubscription();
+      if (subscription) {
+        const endpoint = subscription.endpoint;
+        await subscription.unsubscribe();
+        // Best-effort server cleanup
+        Auth.api('/push/unsubscribe', {
+          method: 'POST',
+          body: JSON.stringify({ endpoint }),
+        }).catch(() => {});
+      }
+      _setPref('push_enabled', '0');
+      if (hint) hint.textContent = 'Receive alerts for setlist updates & announcements';
+      showToast('Push notifications disabled');
+    } catch (e) {
+      console.warn('Push unsubscribe error:', e);
+      showToast('Could not disable push');
+    }
+  }
+
+  function _urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  }
+
   function renderSettings() {
     if (!Auth.isLoggedIn()) { showToast('Sign in to access settings'); Songs.renderList(); return; }
     Router.pushNav(() => renderAccount());
@@ -728,6 +808,7 @@ let _cachedPdfSet = new Set();
     const lmShowNavButtons  = _getPref('lm_show_nav_buttons', '1') === '1';
     const lmStageRedMode    = _getPref('lm_stage_red', '0') === '1';
     const lmRehearsalNotes  = _getPref('lm_rehearsal_notes', '0') === '1';
+    const pracTfPitch       = _getPref('tf_default_pitch', '0');
     const dispDateFormat    = _getPref('date_format', 'relative');
     const dispListDensity   = _getPref('list_density', 'normal');
     const notifSyncConflict = _getPref('notif_sync_conflict', '1') === '1';
@@ -829,6 +910,27 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
+        <!-- PRACTICE -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="music" style="width:16px;height:16px;"></i> Practice</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Default tuning pitch</div>
+              <div class="settings-hint">Tuning fork frequency in practice mode</div>
+            </div>
+            <select class="settings-select" id="pref-tf-pitch">
+              <option value="0" ${pracTfPitch === '0' ? 'selected' : ''}>A440 (Standard)</option>
+              <option value="1" ${pracTfPitch === '1' ? 'selected' : ''}>E4 (Guitar)</option>
+              <option value="2" ${pracTfPitch === '2' ? 'selected' : ''}>A442</option>
+              <option value="3" ${pracTfPitch === '3' ? 'selected' : ''}>A445</option>
+              <option value="4" ${pracTfPitch === '4' ? 'selected' : ''}>A435 (Verdi)</option>
+              <option value="5" ${pracTfPitch === '5' ? 'selected' : ''}>A432</option>
+              <option value="6" ${pracTfPitch === '6' ? 'selected' : ''}>A415 (Baroque)</option>
+            </select>
+          </div>
+        </div>
+
         <!-- DISPLAY -->
         <div class="settings-section">
           <div class="settings-section-title"><i data-lucide="palette" style="width:16px;height:16px;"></i> Display</div>
@@ -869,6 +971,23 @@ let _cachedPdfSet = new Set();
             </div>
             <label class="settings-toggle">
               <input type="checkbox" id="pref-notif-sync-conflict" ${notifSyncConflict ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row" id="pref-push-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Push notifications</div>
+              <div class="settings-hint" id="pref-push-hint">${
+                typeof Notification === 'undefined' ? 'Not supported in this browser'
+                : Notification.permission === 'denied' ? 'Blocked by browser — enable in site settings'
+                : 'Receive alerts for setlist updates & announcements'
+              }</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-push-enabled" ${_getPref('push_enabled', '0') === '1' ? 'checked' : ''}${
+                typeof Notification === 'undefined' || Notification.permission === 'denied' ? ' disabled' : ''
+              }>
               <span class="settings-toggle-track"></span>
             </label>
           </div>
@@ -939,6 +1058,18 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
     wire('pref-notif-sync-conflict', 'notif_sync_conflict');
 
+    // Push notification toggle — special handler (async permission + subscription)
+    const pushToggle = container.querySelector('#pref-push-enabled');
+    if (pushToggle && !pushToggle.disabled) {
+      pushToggle.addEventListener('change', async () => {
+        if (pushToggle.checked) {
+          await _requestPushPermission(container);
+        } else {
+          await _unsubscribePush(container);
+        }
+      });
+    }
+
     // Auto-hide toggle enables/disables delay row
     container.querySelector('#pref-lm-auto-hide')?.addEventListener('change', (e) => {
       const row = container.querySelector('#pref-auto-hide-delay-row');
@@ -956,6 +1087,7 @@ let _cachedPdfSet = new Set();
     };
     wireSelect('pref-lm-auto-hide-delay', 'lm_auto_hide_delay');
     wireSelect('pref-lm-auto-advance', 'lm_auto_advance_secs');
+    wireSelect('pref-tf-pitch', 'tf_default_pitch');
     wireSelect('pref-date-format', 'date_format');
     wireSelect('pref-list-density', 'list_density');
 

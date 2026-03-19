@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.11';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.11';
-import * as Modal from './modal.js?v=20.11';
-import * as Router from './router.js?v=20.11';
-import * as Sync from './sync.js?v=20.11';
-import * as Drive from '../drive.js?v=20.11';
-import * as GitHub from '../github.js?v=20.11';
-import * as Admin from '../admin.js?v=20.11';
-import * as Auth from '../auth.js?v=20.11';
-import * as Player from '../player.js?v=20.11';
-import * as Metronome from '../metronome.js?v=20.11';
-import * as PDFViewer from '../pdf-viewer.js?v=20.11';
-import * as App from '../app.js?v=20.11';
+import * as Store from './store.js?v=20.12';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.12';
+import * as Modal from './modal.js?v=20.12';
+import * as Router from './router.js?v=20.12';
+import * as Sync from './sync.js?v=20.12';
+import * as Drive from '../drive.js?v=20.12';
+import * as GitHub from '../github.js?v=20.12';
+import * as Admin from '../admin.js?v=20.12';
+import * as Auth from '../auth.js?v=20.12';
+import * as Player from '../player.js?v=20.12';
+import * as Metronome from '../metronome.js?v=20.12';
+import * as PDFViewer from '../pdf-viewer.js?v=20.12';
+import * as App from '../app.js?v=20.12';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -32,30 +32,40 @@ let _practiceNoteTimer     = null;
 let _practiceNoteFlush     = null;
 const _accordionState      = new Map();
 
-// ─── Tuning fork (A440) ──────────────────────────────────
+// ─── Tuning fork ─────────────────────────────────────────
 let _tfCtx = null;   // AudioContext
 let _tfOsc = null;   // OscillatorNode (active = sounding)
 let _tfGain = null;  // GainNode
 
+const _TF_PITCHES = [
+  { freq: 440,    label: 'A440 (Standard)' },
+  { freq: 329.63, label: 'E4 (Guitar)' },
+  { freq: 442,    label: 'A442' },
+  { freq: 445,    label: 'A445' },
+  { freq: 435,    label: 'A435 (Verdi)' },
+  { freq: 432,    label: 'A432' },
+  { freq: 415,    label: 'A415 (Baroque)' },
+];
+let _tfPitchIdx = 0; // index into _TF_PITCHES, default A440
+
 const _TUNING_FORK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v9a5 5 0 0 0 5 5 5 5 0 0 0 5-5V2"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9" y1="22" x2="15" y2="22"/></svg>`;
 
 function _playTuningFork() {
-  // If already sounding, stop it
   if (_tfOsc) { _stopTuningFork(); return; }
 
   if (!_tfCtx || _tfCtx.state === 'closed') _tfCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (_tfCtx.state === 'suspended') _tfCtx.resume();
 
+  const freq = _TF_PITCHES[_tfPitchIdx].freq;
   const now = _tfCtx.currentTime;
   _tfGain = _tfCtx.createGain();
   _tfGain.gain.setValueAtTime(0.4, now);
-  // Tuning fork decay: quick initial drop then slow ring-out (~8s total)
   _tfGain.gain.exponentialRampToValueAtTime(0.25, now + 0.5);
   _tfGain.gain.exponentialRampToValueAtTime(0.001, now + 8);
 
   _tfOsc = _tfCtx.createOscillator();
   _tfOsc.type = 'sine';
-  _tfOsc.frequency.setValueAtTime(440, now);
+  _tfOsc.frequency.setValueAtTime(freq, now);
   _tfOsc.connect(_tfGain);
   _tfGain.connect(_tfCtx.destination);
   _tfOsc.start(now);
@@ -87,30 +97,107 @@ function _updateTfBtn(active) {
   if (!btn) return;
   if (active) {
     btn.classList.remove('tf-active');
-    void btn.offsetWidth; // force reflow to restart animation
+    void btn.offsetWidth;
+    btn.title = `${_TF_PITCHES[_tfPitchIdx].label} — Playing`;
+  } else {
+    btn.title = `${_TF_PITCHES[_tfPitchIdx].label} Tuning Fork`;
   }
   btn.classList.toggle('tf-active', active);
 }
 
+function _updatePitchBtnLabel() {
+  const pitchBtn = document.getElementById('btn-tuning-fork-pitch');
+  if (!pitchBtn) return;
+  const isDefault = _tfPitchIdx === 0;
+  const labelSpan = pitchBtn.querySelector('.tf-pitch-label');
+  if (labelSpan) {
+    labelSpan.textContent = isDefault ? '' : _TF_PITCHES[_tfPitchIdx].freq + '';
+    labelSpan.style.display = isDefault ? 'none' : '';
+  }
+}
+
+function _togglePitchDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('tuning-fork-dropdown');
+  if (!dd) return;
+  const isOpen = dd.classList.contains('open');
+  if (isOpen) { _closePitchDropdown(); return; }
+  dd.innerHTML = _TF_PITCHES.map((p, i) =>
+    `<button class="tuning-fork-dropdown-item${i === _tfPitchIdx ? ' active' : ''}" data-idx="${i}">${esc(p.label)}</button>`
+  ).join('');
+  dd.classList.add('open');
+  document.addEventListener('click', _closePitchDropdown, { once: true, capture: true });
+}
+
+function _closePitchDropdown() {
+  const dd = document.getElementById('tuning-fork-dropdown');
+  if (dd) dd.classList.remove('open');
+}
+
+function _selectPitch(e) {
+  const item = e.target.closest('.tuning-fork-dropdown-item');
+  if (!item) return;
+  const idx = parseInt(item.dataset.idx, 10);
+  if (isNaN(idx) || idx < 0 || idx >= _TF_PITCHES.length) return;
+  _tfPitchIdx = idx;
+  _closePitchDropdown();
+  _updatePitchBtnLabel();
+  if (_tfOsc) {
+    _stopTuningFork();
+    _playTuningFork();
+  }
+  _updateTfBtn(!!_tfOsc);
+}
+
 function _injectTuningForkBtn() {
-  // Remove any stale one
-  document.getElementById('btn-tuning-fork')?.remove();
+  document.getElementById('tuning-fork-wrap')?.remove();
+  // Read default pitch from user settings
+  try {
+    const saved = localStorage.getItem('ct_pref_tf_default_pitch');
+    if (saved !== null) {
+      const idx = parseInt(saved, 10);
+      if (idx >= 0 && idx < _TF_PITCHES.length) _tfPitchIdx = idx;
+    }
+  } catch (_) {}
   const topbarRight = document.querySelector('.topbar-right');
   if (!topbarRight) return;
+
+  const wrap = document.createElement('div');
+  wrap.id = 'tuning-fork-wrap';
+  wrap.style.cssText = 'position:relative;display:inline-flex;align-items:center;';
+
   const btn = document.createElement('button');
   btn.id = 'btn-tuning-fork';
   btn.className = 'icon-btn tuning-fork-btn';
-  btn.title = 'A440 Tuning Fork';
+  btn.title = `${_TF_PITCHES[_tfPitchIdx].label} Tuning Fork`;
   btn.setAttribute('aria-label', 'Tuning fork');
   btn.innerHTML = _TUNING_FORK_SVG;
   btn.addEventListener('click', _playTuningFork);
-  topbarRight.prepend(btn);
+
+  const pitchBtn = document.createElement('button');
+  pitchBtn.id = 'btn-tuning-fork-pitch';
+  pitchBtn.className = 'icon-btn tuning-fork-pitch-btn';
+  pitchBtn.title = 'Select pitch';
+  pitchBtn.setAttribute('aria-label', 'Select tuning fork pitch');
+  const isDefault = _tfPitchIdx === 0;
+  pitchBtn.innerHTML = `<span class="tf-pitch-label" style="${isDefault ? 'display:none' : ''}">${isDefault ? '' : _TF_PITCHES[_tfPitchIdx].freq}</span><i data-lucide="chevron-down" style="width:12px;height:12px;"></i>`;
+  pitchBtn.addEventListener('click', _togglePitchDropdown);
+
+  const dd = document.createElement('div');
+  dd.id = 'tuning-fork-dropdown';
+  dd.className = 'tuning-fork-dropdown';
+  dd.addEventListener('click', _selectPitch);
+
+  wrap.append(btn, pitchBtn, dd);
+  topbarRight.prepend(wrap);
+
+  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [pitchBtn] });
 }
 
 function _cleanupTuningFork() {
   _stopTuningFork();
   if (_tfCtx && _tfCtx.state !== 'closed') _tfCtx.suspend().catch(() => {});
-  document.getElementById('btn-tuning-fork')?.remove();
+  document.getElementById('tuning-fork-wrap')?.remove();
 }
 
 // ─── Store sync helpers ───────────────────────────────────

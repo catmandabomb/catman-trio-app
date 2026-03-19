@@ -24,6 +24,10 @@
  *   GET/POST /migration/state  — Migration tracking (owner only)
  *   *       /github/*     — GitHub API proxy (session auth)
  *   POST    /email/send   — Send email via Resend (admin/owner only)
+ *   GET     /push/vapid-key       — VAPID public key (auth)
+ *   POST    /push/subscribe       — Store push subscription (auth)
+ *   POST    /push/unsubscribe     — Remove push subscription (auth)
+ *   POST    /push/send            — Send push to users (owner only)
  *   POST    /gig/share              — Create/replace shared packet (auth, admin/owner)
  *   DELETE  /gig/share/:setlistId   — Unshare a packet (auth, admin/owner)
  *   GET     /gig/shared             — List active shared packets (auth)
@@ -96,6 +100,177 @@ async function _trackEmailSend(env, count = 1) {
     await env.CATMAN_RATE.put(dayKey, String(dayCount), { expirationTtl: 86400 * 2 });
     await env.CATMAN_RATE.put(monthKey, String(monthCount), { expirationTtl: 86400 * 35 });
   } catch (_) {}
+}
+
+/**
+ * Send a Web Push notification using the Web Push protocol (RFC 8291).
+ * Uses VAPID for auth and ECDH + HKDF + AES-128-GCM for payload encryption.
+ */
+async function _sendWebPush(env, subscription, payload) {
+  const vapidSubject = 'mailto:cat@catmanbeats.com';
+  const vapidPublicKey = env.VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = env.VAPID_PRIVATE_KEY;
+
+  // Parse subscription endpoint for audience
+  const endpointUrl = new URL(subscription.endpoint);
+  const audience = endpointUrl.origin;
+
+  // Import VAPID private key (base64url-encoded raw ECDSA P-256 private key)
+  const vapidPrivateKeyBytes = _base64urlToBytes(vapidPrivateKey);
+  const vapidPublicKeyBytes = _base64urlToBytes(vapidPublicKey);
+
+  // Create JWT for VAPID
+  const jwtHeader = _base64urlEncode(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+  const jwtPayload = _base64urlEncode(JSON.stringify({
+    aud: audience,
+    exp: Math.floor(Date.now() / 1000) + 86400,
+    sub: vapidSubject,
+  }));
+  const unsignedToken = `${jwtHeader}.${jwtPayload}`;
+
+  // Import ECDSA key and sign
+  const ecdsaKey = await crypto.subtle.importKey(
+    'jwk',
+    {
+      kty: 'EC', crv: 'P-256',
+      x: _base64urlEncode(vapidPublicKeyBytes.slice(1, 33)),
+      y: _base64urlEncode(vapidPublicKeyBytes.slice(33, 65)),
+      d: _base64urlEncode(vapidPrivateKeyBytes),
+    },
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    ecdsaKey,
+    new TextEncoder().encode(unsignedToken)
+  );
+  // Convert DER signature to raw r||s (64 bytes)
+  const sig = new Uint8Array(sigBuf);
+  let jwtSig;
+  if (sig.length === 64) {
+    jwtSig = _base64urlEncodeBytes(sig);
+  } else {
+    // WebCrypto returns raw r||s on Workers, but handle DER just in case
+    jwtSig = _base64urlEncodeBytes(sig);
+  }
+  const jwt = `${unsignedToken}.${jwtSig}`;
+
+  // Encrypt payload using aes128gcm (RFC 8291)
+  const payloadBytes = new TextEncoder().encode(payload);
+
+  // Subscriber keys
+  const clientPublicKey = _base64urlToBytes(subscription.keys.p256dh);
+  const clientAuth = _base64urlToBytes(subscription.keys.auth);
+
+  // Generate ephemeral ECDH key pair
+  const localKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits']
+  );
+  const localPublicKey = new Uint8Array(await crypto.subtle.exportKey('raw', localKeyPair.publicKey));
+
+  // Import client's public key
+  const clientKey = await crypto.subtle.importKey(
+    'raw', clientPublicKey, { name: 'ECDH', namedCurve: 'P-256' }, false, []
+  );
+
+  // ECDH shared secret
+  const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: clientKey },
+    localKeyPair.privateKey,
+    256
+  ));
+
+  // HKDF for IKM: info = "WebPush: info\0" + clientPublicKey + localPublicKey
+  const authInfo = new Uint8Array([
+    ...new TextEncoder().encode('WebPush: info\0'),
+    ...clientPublicKey,
+    ...localPublicKey,
+  ]);
+  const ikm = await _hkdf(clientAuth, sharedSecret, authInfo, 32);
+
+  // Salt (16 random bytes)
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  // HKDF for CEK and nonce
+  const keyInfo = new TextEncoder().encode('Content-Encoding: aes128gcm\0');
+  const nonceInfo = new TextEncoder().encode('Content-Encoding: nonce\0');
+  const cek = await _hkdf(salt, ikm, keyInfo, 16);
+  const nonce = await _hkdf(salt, ikm, nonceInfo, 12);
+
+  // Pad payload (add delimiter 0x02 + zero padding)
+  const paddedPayload = new Uint8Array(payloadBytes.length + 1);
+  paddedPayload.set(payloadBytes);
+  paddedPayload[payloadBytes.length] = 2; // delimiter
+
+  // AES-128-GCM encrypt
+  const aesKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    aesKey,
+    paddedPayload
+  ));
+
+  // Build aes128gcm payload: salt(16) + rs(4) + idlen(1) + keyid(65) + ciphertext
+  const rs = 4096;
+  const header = new Uint8Array(16 + 4 + 1 + localPublicKey.length);
+  header.set(salt, 0);
+  header[16] = (rs >> 24) & 0xff;
+  header[17] = (rs >> 16) & 0xff;
+  header[18] = (rs >> 8) & 0xff;
+  header[19] = rs & 0xff;
+  header[20] = localPublicKey.length;
+  header.set(localPublicKey, 21);
+
+  const body = new Uint8Array(header.length + encrypted.length);
+  body.set(header);
+  body.set(encrypted, header.length);
+
+  // Send to push service
+  const vapidKeyBase64 = _base64urlEncodeBytes(vapidPublicKeyBytes);
+  const resp = await fetch(subscription.endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `vapid t=${jwt}, k=${vapidKeyBase64}`,
+      'Content-Encoding': 'aes128gcm',
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(body.length),
+      'TTL': '86400',
+      'Urgency': 'normal',
+    },
+    body: body.buffer,
+  });
+
+  return { ok: resp.ok || resp.status === 201, status: resp.status };
+}
+
+// HKDF-SHA256: extract + expand
+async function _hkdf(salt, ikm, info, length) {
+  const key = await crypto.subtle.importKey('raw', salt, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const prk = new Uint8Array(await crypto.subtle.sign('HMAC', key, ikm));
+  const infoKey = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const t = new Uint8Array(await crypto.subtle.sign('HMAC', infoKey, new Uint8Array([...info, 1])));
+  return t.slice(0, length);
+}
+
+function _base64urlToBytes(str) {
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+  const binary = atob(base64 + pad);
+  return new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+}
+
+function _base64urlEncode(input) {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : input;
+  return _base64urlEncodeBytes(bytes);
+}
+
+function _base64urlEncodeBytes(bytes) {
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function _safeAppUrl(env) {
@@ -1331,6 +1506,122 @@ export default {
         return respond(json({ errors: results || [] }));
       } catch (_) {
         return respond(json({ errors: [] }));
+      }
+    }
+
+    // ─── GET /push/vapid-key — Public VAPID key (authenticated) ──
+    if (path === '/push/vapid-key' && method === 'GET') {
+      if (!env.VAPID_PUBLIC_KEY) {
+        return respond(json({ error: 'Push not configured' }, 501));
+      }
+      return respond(json({ key: env.VAPID_PUBLIC_KEY }));
+    }
+
+    // ─── POST /push/subscribe — Store push subscription ──
+    if (path === '/push/subscribe' && method === 'POST') {
+      if (!env.DB) return respond(json({ error: 'Database not configured' }, 500));
+      const body = await parseBody(request);
+      if (!body || !body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+        return respond(json({ error: 'endpoint, keys.p256dh, and keys.auth required' }, 400));
+      }
+      if (body.endpoint.length > 2048 || body.keys.p256dh.length > 256 || body.keys.auth.length > 256) {
+        return respond(json({ error: 'Invalid subscription data' }, 400));
+      }
+      try {
+        // Upsert: replace if same endpoint exists
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?)'
+        ).bind(currentUser.userId, body.endpoint, body.keys.p256dh, body.keys.auth, new Date().toISOString()).run();
+        return respond(json({ ok: true }));
+      } catch (e) {
+        return respond(json({ error: 'Failed to save subscription' }, 500));
+      }
+    }
+
+    // ─── POST /push/unsubscribe — Remove push subscription ──
+    if (path === '/push/unsubscribe' && method === 'POST') {
+      if (!env.DB) return respond(json({ error: 'Database not configured' }, 500));
+      const body = await parseBody(request);
+      if (!body || !body.endpoint) {
+        return respond(json({ error: 'endpoint required' }, 400));
+      }
+      try {
+        await env.DB.prepare(
+          'DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?'
+        ).bind(body.endpoint, currentUser.userId).run();
+        return respond(json({ ok: true }));
+      } catch (_) {
+        return respond(json({ error: 'Failed to remove subscription' }, 500));
+      }
+    }
+
+    // ─── POST /push/send — Send push notification (owner only) ──
+    if (path === '/push/send' && method === 'POST') {
+      if (currentUser.role !== 'owner') {
+        return respond(json({ error: 'Owner access required' }, 403));
+      }
+      if (!env.DB || !env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) {
+        return respond(json({ error: 'Push not configured' }, 501));
+      }
+      const body = await parseBody(request);
+      if (!body || !body.title) {
+        return respond(json({ error: 'title required' }, 400));
+      }
+      try {
+        // Get subscriptions — optionally filter by userIds
+        let subs;
+        if (body.userIds && Array.isArray(body.userIds) && body.userIds.length > 0) {
+          const placeholders = body.userIds.map(() => '?').join(',');
+          const result = await env.DB.prepare(
+            `SELECT * FROM push_subscriptions WHERE user_id IN (${placeholders})`
+          ).bind(...body.userIds).all();
+          subs = result.results || [];
+        } else {
+          const result = await env.DB.prepare('SELECT * FROM push_subscriptions').all();
+          subs = result.results || [];
+        }
+
+        const payload = JSON.stringify({
+          title: body.title,
+          body: body.body || '',
+          icon: body.icon || '/img/icon-192.png',
+          tag: body.tag || 'catman-push',
+          url: body.url || '/',
+        });
+
+        let sent = 0, failed = 0;
+        const staleEndpoints = [];
+
+        for (const sub of subs) {
+          try {
+            const pushResult = await _sendWebPush(env, {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
+            }, payload);
+            if (pushResult.ok) {
+              sent++;
+            } else if (pushResult.status === 404 || pushResult.status === 410) {
+              // Subscription expired — mark for cleanup
+              staleEndpoints.push(sub.endpoint);
+              failed++;
+            } else {
+              failed++;
+            }
+          } catch (_) {
+            failed++;
+          }
+        }
+
+        // Clean up stale subscriptions
+        for (const ep of staleEndpoints) {
+          try {
+            await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(ep).run();
+          } catch (_) {}
+        }
+
+        return respond(json({ ok: true, sent, failed, cleaned: staleEndpoints.length }));
+      } catch (e) {
+        return respond(json({ error: 'Push send failed: ' + (e.message || e) }, 500));
       }
     }
 
