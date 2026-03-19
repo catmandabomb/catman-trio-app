@@ -70,18 +70,21 @@ function renderDashboard() {
   const warnOrange = [];
   const warnYellow = [];
 
-  // Collect all driveIds referenced by songs
+  // Collect all file IDs referenced by songs (Drive or R2)
   const referencedDriveIds = new Set();
   const driveIdToSong = {};
   const emptyDriveIds = [];
   songs.forEach(s => {
     const a = s.assets || {};
     [...(a.charts || []), ...(a.audio || [])].forEach(f => {
-      if (f.driveId && f.driveId.trim()) {
+      const hasDrive = f.driveId && f.driveId.trim();
+      const hasR2 = f.r2FileId && f.r2FileId.trim();
+      if (hasDrive) {
         referencedDriveIds.add(f.driveId);
         if (!driveIdToSong[f.driveId]) driveIdToSong[f.driveId] = [];
         driveIdToSong[f.driveId].push(s);
-      } else {
+      }
+      if (!hasDrive && !hasR2) {
         emptyDriveIds.push({ song: s.title || s.id, file: f.name || '(unnamed)' });
       }
     });
@@ -102,8 +105,8 @@ function renderDashboard() {
   if (emptyDriveIds.length) {
     errors.push({
       code: 1101,
-      title: `${emptyDriveIds.length} file${emptyDriveIds.length > 1 ? 's' : ''} with missing Drive ID`,
-      detail: 'These attachments cannot be loaded. Fix: Edit the song and re-upload the file, or remove the broken attachment.',
+      title: `${emptyDriveIds.length} file${emptyDriveIds.length > 1 ? 's' : ''} with missing file ID`,
+      detail: 'These attachments have no Drive or R2 file ID and cannot be loaded. Fix: Edit the song and re-upload the file, or remove the broken attachment.',
       items: emptyDriveIds.map(e => `"${esc(e.file)}" in "${esc(e.song)}"`)
     });
   }

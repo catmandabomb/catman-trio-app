@@ -122,7 +122,7 @@ function showView(name) {
       // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
-      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions').forEach(el => el.remove());
+      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions').forEach(el => el.remove());
       _viewEls.forEach(v => v.classList.remove('active'));
       const el = document.getElementById(`view-${name}`);
       if (el) {

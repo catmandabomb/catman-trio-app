@@ -672,6 +672,24 @@ function renderDetail(song, skipNavPush) {
   Store.set('showViewCalled', true);
   Router.setTopbar(song.title || 'Song', true);
 
+  // Add to Setlist (admin) or Add to Practice List (non-admin) in topbar
+  if (Auth.isLoggedIn()) {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (topbarRight) {
+      topbarRight.querySelector('#song-detail-topbar-actions')?.remove();
+      const wrap = document.createElement('div');
+      wrap.id = 'song-detail-topbar-actions';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      if (Admin.isEditMode()) {
+        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-setlist"><i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist</button>`;
+      } else {
+        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-practice-list"><i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Practice</button>`;
+      }
+      topbarRight.appendChild(wrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+    }
+  }
+
   const container = document.getElementById('detail-content');
   container.innerHTML = _buildDetailHTML(song);
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
@@ -700,12 +718,11 @@ function renderDetail(song, skipNavPush) {
     container.querySelector('.detail-edit-bar')?.remove();
   }
 
-  container.querySelector('.btn-add-to-setlist')?.addEventListener('click', () => {
+  // Topbar: Add to Setlist / Practice List
+  document.querySelector('#song-detail-topbar-actions .btn-add-to-setlist')?.addEventListener('click', () => {
     _showSetlistPicker(song);
   });
-
-  // FEAT-26: Add to Practice List
-  container.querySelector('.btn-add-to-practice-list')?.addEventListener('click', () => {
+  document.querySelector('#song-detail-topbar-actions .btn-add-to-practice-list')?.addEventListener('click', () => {
     if (Practice.showPracticeListPicker) {
       Practice.showPracticeListPicker(song);
     } else {
@@ -893,13 +910,7 @@ function _buildDetailHTML(song) {
         ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
       </div>
     </div>
-    <div class="detail-quick-add">
-      ${Admin.isEditMode() ? `<button class="btn-ghost btn-add-to-setlist detail-quick-add-btn">
-        <i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist
-      </button>` : `<button class="btn-ghost btn-add-to-practice-list detail-quick-add-btn">
-        <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Practice List
-      </button>`}
-    </div>`;
+    `;
 
   if (song.notes) {
     html += `<div class="detail-section" id="detail-notes">

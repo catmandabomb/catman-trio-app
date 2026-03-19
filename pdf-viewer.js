@@ -1090,6 +1090,10 @@ async function open(url, name, opts) {
     },
   });
 
+  // Hide canvas until first render completes to prevent layout shift on iOS
+  const _cvs = canvasEl();
+  _cvs.style.visibility = 'hidden';
+
   try {
     const doc = await pdfjsLib.getDocument(url).promise;
     if (gen !== _openGen) { doc.destroy(); return; } // stale — user already opened another or closed
@@ -1097,7 +1101,9 @@ async function open(url, name, opts) {
     _pdfUrlMap.set(doc, url);
     _updateNav();
     await _renderPage(1);
+    _cvs.style.visibility = '';
   } catch (e) {
+    _cvs.style.visibility = '';
     if (gen !== _openGen) return; // stale
     console.error('PDF load error', e);
     showToast('Failed to load PDF.');

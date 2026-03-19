@@ -9,7 +9,8 @@
 const RATE_LIMIT = 200;        // general requests per window
 const LOGIN_RATE_LIMIT = 10;   // login attempts per window
 const RESET_RATE_LIMIT = 3;    // forgot-password requests per window
-const WINDOW_SECS = 3600;      // 1 hour
+const WINDOW_SECS = 3600;      // 1 hour (general + forgot-password)
+const LOGIN_WINDOW_SECS = 900; // 15 minutes (login + register + reset-consume + setup)
 
 /**
  * Check and increment rate limit for the requesting IP.
@@ -24,7 +25,6 @@ async function checkRateLimit(request, env) {
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const window = Math.floor(Date.now() / (WINDOW_SECS * 1000));
 
   // Determine rate limit tier based on endpoint
   const url = new URL(request.url);
@@ -35,6 +35,8 @@ async function checkRateLimit(request, env) {
   const isSetup = url.pathname === '/setup/init' && request.method === 'POST';
   const isSensitive = isLogin || isRegister || isResetConsume || isSetup;
   const limit = isSensitive ? LOGIN_RATE_LIMIT : isReset ? RESET_RATE_LIMIT : RATE_LIMIT;
+  const windowSecs = isSensitive ? LOGIN_WINDOW_SECS : WINDOW_SECS;
+  const window = Math.floor(Date.now() / (windowSecs * 1000));
   const prefix = isLogin ? 'login' : isRegister ? 'register' : isReset ? 'reset' : isResetConsume ? 'resetpw' : isSetup ? 'setup' : 'rate';
   const key = `${prefix}:${ip}:${window}`;
 
@@ -48,7 +50,7 @@ async function checkRateLimit(request, env) {
     // is idempotent at the same value so at worst we lose 1 count.
     const next = current + 1;
     await env.CATMAN_RATE.put(key, String(next), {
-      expirationTtl: WINDOW_SECS + 60,
+      expirationTtl: windowSecs + 60,
     });
     // For sensitive endpoints (login, reset), add a secondary D1-based
     // check if available — D1 UPDATE is atomic

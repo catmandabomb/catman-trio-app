@@ -4039,15 +4039,8 @@ html.live-mode-active { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════
-   QUICK-ADD TO SETLIST
+   SETLIST PICKER OVERLAY
 ═══════════════════════════════════════════ */
-.detail-quick-add {
-  margin-top: 8px;
-  margin-bottom: 24px;
-}
-.detail-quick-add-btn {
-  font-size: 13px;
-}
 #setlist-picker-overlay {
   z-index: 1000;
 }

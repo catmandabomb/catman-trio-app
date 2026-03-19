@@ -713,7 +713,11 @@ let _cachedPdfSet = new Set();
         if (result.ok) {
           showToast('Password reset! Please log in.');
           location.hash = '#';
-          renderList();
+          if (_isMobile() && !_isPWAInstalled()) {
+            _showInstallGate();
+          } else {
+            renderList();
+          }
         } else {
           errorEl.textContent = result.error || 'Reset failed';
           errorEl.style.display = 'block';
@@ -735,12 +739,16 @@ let _cachedPdfSet = new Set();
     showToast('Verifying email...');
     const result = await Auth.verifyEmailToken(token);
     location.hash = '#';
-    renderList();
-    _updateAuthUI();
     if (result.ok) {
       showToast('Email verified! You\'re all set.', 5000);
     } else {
       showToast(result.error || 'Verification failed', 5000);
+    }
+    if (_isMobile() && !_isPWAInstalled()) {
+      _showInstallGate();
+    } else {
+      renderList();
+      _updateAuthUI();
     }
   }
 
@@ -1159,8 +1167,9 @@ let _cachedPdfSet = new Set();
       navigator.storage.persist().catch(() => {});
     }
 
-    // PWA install gate — mobile browsers only
-    if (_isMobile() && !_isPWAInstalled()) {
+    // PWA install gate — mobile browsers only (skip for auth action links)
+    const _isAuthLink = location.hash.startsWith('#reset-password') || location.hash.startsWith('#verify-email');
+    if (_isMobile() && !_isPWAInstalled() && !_isAuthLink) {
       _showInstallGate();
       return; // Don't load the app
     }
