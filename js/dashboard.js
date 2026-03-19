@@ -313,6 +313,19 @@ function renderDashboard() {
     </div>
   `;
 
+  // Shared Setlist Packets (admin/owner only)
+  if (['owner', 'admin'].includes(Auth.getRole())) {
+    html += `
+      <div class="dash-section">
+        <div class="dash-section-title">
+          <i data-lucide="package" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Shared Setlist Packets
+        </div>
+        <div id="dash-shared-packets" class="dash-alert info">
+          <div class="dash-alert-detail" style="color:var(--text-3)">Loading...</div>
+        </div>
+      </div>`;
+  }
+
   // GitHub sync status
   html += `<div class="dash-section"><div class="dash-section-title">GitHub Sync</div>`;
   if (GitHub.isConfigured()) {
@@ -941,6 +954,92 @@ function renderDashboard() {
   // Async Drive check
   _renderDriveSection(container, songs, setlists, practice, _codeTag);
 
+  // Async Shared Packets loader
+  _loadSharedPackets();
+
+}
+
+async function _loadSharedPackets() {
+  const el = document.getElementById('dash-shared-packets');
+  if (!el) return;
+
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token) {
+    el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Login required to view shared packets.</div>';
+    return;
+  }
+
+  try {
+    const resp = await fetch(GitHub.workerUrl + '/gig/shared', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const data = await resp.json();
+    const packets = data.packets || [];
+
+    if (packets.length === 0) {
+      el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">No active shared packets.</div>';
+      return;
+    }
+
+    let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+    packets.forEach(p => {
+      const dateStr = p.gig_date ? new Date(p.gig_date).toLocaleDateString() : '';
+      const sharedDate = p.created_at ? timeAgo(new Date(p.created_at)) : '';
+      const url = `${GitHub.workerUrl}/gig/${p.token}`;
+      html += `
+        <div class="dash-shared-packet-row">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:13px;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.title)}</div>
+            <div style="font-size:11px;color:var(--text-3);">
+              ${p.venue ? esc(p.venue) : ''}${p.venue && dateStr ? ' \u00b7 ' : ''}${dateStr}
+              ${sharedDate ? ' \u00b7 shared ' + sharedDate : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+            <button class="btn-ghost dash-packet-copy" data-packet-url="${esc(url)}" title="Copy link" style="padding:4px 8px;font-size:11px;">
+              <i data-lucide="clipboard-copy" style="width:12px;height:12px;"></i>
+            </button>
+            <button class="btn-ghost dash-packet-unshare" data-unshare-setlist="${esc(p.setlist_id)}" title="Unshare" style="padding:4px 8px;font-size:11px;color:var(--red,#e57373);">
+              <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
+            </button>
+          </div>
+        </div>`;
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [el] });
+
+    // Wire copy buttons
+    el.querySelectorAll('.dash-packet-copy').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.dataset.packetUrl;
+        navigator.clipboard?.writeText(url)
+          .then(() => showToast('Packet link copied!'))
+          .catch(() => showToast('Copy failed'));
+      });
+    });
+
+    // Wire unshare buttons
+    el.querySelectorAll('.dash-packet-unshare').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const setlistId = btn.dataset.unshareSetlist;
+        Modal.confirm('Unshare Packet', 'Remove this shared packet? The link will stop working.', async () => {
+          try {
+            await fetch(GitHub.workerUrl + '/gig/share/' + encodeURIComponent(setlistId), {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` },
+            });
+            showToast('Packet unshared');
+            _loadSharedPackets(); // Refresh the list
+          } catch (e) {
+            showToast('Failed to unshare');
+          }
+        }, { okLabel: 'Unshare', danger: true });
+      });
+    });
+  } catch (e) {
+    el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Could not load shared packets.</div>';
+  }
 }
 
 // ─── Tag Manager (subpage) ──────────────────────────────

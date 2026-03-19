@@ -1865,6 +1865,13 @@ document.addEventListener('DOMContentLoaded', () => {
   GitHub.setOnDataChanged((types) => {
     showToast('Data synced from another tab — pull down to refresh', 3000);
   });
+  GitHub.setOnMergeApplied((type, mergedData) => {
+    // Update in-memory data when a merge was applied during write
+    if (type === 'songs')    { Store.set('songs', mergedData); }
+    if (type === 'setlists') { Store.set('setlists', mergedData); }
+    if (type === 'practice') { Store.set('practice', mergedData); }
+    showToast('Sync conflict auto-resolved', 2000);
+  });
 
   init();
 });

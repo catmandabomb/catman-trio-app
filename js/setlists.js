@@ -236,16 +236,20 @@ function _autoArchiveSetlists() {
   const now = Date.now();
   const twoDays = 2 * 24 * 60 * 60 * 1000;
   let changed = false;
+  const newlyArchived = [];
   _setlists.forEach(sl => {
     if (sl.gigDate && !sl.archived) {
       const gigTime = new Date(sl.gigDate).getTime();
       if (!isNaN(gigTime) && now - gigTime > twoDays) {
         sl.archived = true;
         changed = true;
+        newlyArchived.push(sl.id);
       }
     }
   });
   if (changed) _saveSetlistsLocal();
+  // Kill active shares for newly archived setlists (best-effort, non-blocking)
+  if (newlyArchived.length > 0) _killSharesForSetlists(newlyArchived);
 }
 
 function _setlistCardHTML(sl) {
@@ -473,7 +477,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
     <div class="detail-title">${esc(detailTitle)}</div>
     ${venueNote}
     <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
-    ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}</div>` : ''}
+    ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}${isAdmin ? '<button class="btn-share-packet" title="Share setlist as gig packet"><i data-lucide="package" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Packet</button>' : ''}</div>` : ''}
   </div>`;
 
   if (songs.length === 0) {
@@ -651,6 +655,11 @@ function renderSetlistDetail(setlist, skipNavPush) {
   // Wire Email Setlist button (any logged-in user)
   container.querySelector('.btn-email-setlist')?.addEventListener('click', () => {
     _showEmailSetlistModal(setlist, _songs);
+  });
+
+  // Wire Share as Packet button (admin/owner only)
+  container.querySelector('.btn-share-packet')?.addEventListener('click', () => {
+    _shareAsPacket(setlist, _songs);
   });
 }
 
@@ -865,6 +874,188 @@ function _copyToClipboard(text) {
   } else {
     _fallbackCopy(text);
   }
+}
+
+// ─── KILL SHARES (archive hook) ─────────────────────────────────
+
+function _killSharesForSetlists(setlistIds) {
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token) return; // Can't call Worker without auth
+  setlistIds.forEach(id => {
+    fetch(GitHub.workerUrl + '/gig/share/' + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).catch(() => {}); // Best-effort, non-blocking
+  });
+}
+
+// ─── SHARE AS GIG PACKET ────────────────────────────────────────
+
+function _shareAsPacket(setlist, allSongs) {
+  const songs = setlist.songs || [];
+  if (!songs.length) { showToast('Setlist is empty'); return; }
+
+  // Confirm before sharing
+  Modal.confirm(
+    'Share Setlist as Packet',
+    'This creates a public page with the setlist and files. A PIN will be generated for download access. If already shared, the old link will be replaced.',
+    () => _doSharePacket(setlist, allSongs, songs),
+    { okLabel: 'Share', danger: false }
+  );
+}
+
+async function _doSharePacket(setlist, allSongs, songs) {
+  showToast('Building gig packet...', 0); // persistent toast
+
+  // Build song data snapshot
+  const songData = songs.map((entry, i) => {
+    if (entry.freetext) {
+      return {
+        num: i + 1,
+        title: entry.title || 'Untitled',
+        key: entry.key || '',
+        bpm: entry.bpm || '',
+        songNotes: entry.notes || '',
+        comment: entry.comment || '',
+        freetext: true,
+      };
+    }
+    const song = allSongs.find(s => s.id === entry.id);
+    if (!song) return { num: i + 1, title: 'Unknown', freetext: false };
+    return {
+      num: i + 1,
+      title: song.title || 'Untitled',
+      key: song.key || '',
+      bpm: song.bpm || '',
+      timeSig: song.timeSig || '',
+      songNotes: song.notes || '',
+      comment: entry.comment || '',
+      freetext: false,
+      links: (song.assets?.links || []).map(l => ({ url: l.url, label: l.label || l.url })),
+    };
+  });
+
+  // Build file manifest (charts + audio with Drive IDs)
+  const files = [];
+  songs.forEach((entry) => {
+    if (entry.freetext) return;
+    const song = allSongs.find(s => s.id === entry.id);
+    if (!song || !song.assets) return;
+    const songTitle = song.title || 'Untitled';
+
+    (song.assets.charts || []).forEach(c => {
+      if (!c.driveId) return;
+      files.push({
+        filename: c.name || `${songTitle}.pdf`,
+        driveFileId: c.driveId,
+        type: 'pdf',
+        songTitle,
+        contentType: c.mimeType || 'application/pdf',
+      });
+    });
+    (song.assets.audio || []).forEach(a => {
+      if (!a.driveId) return;
+      files.push({
+        filename: a.name || `${songTitle}.mp3`,
+        driveFileId: a.driveId,
+        type: 'audio',
+        songTitle,
+        contentType: a.mimeType || 'audio/mpeg',
+      });
+    });
+  });
+
+  // Call Worker API
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token) {
+    showToast('Login required', 3000);
+    return;
+  }
+
+  try {
+    const resp = await fetch(GitHub.workerUrl + '/gig/share', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        setlistId: setlist.id,
+        title: _displayTitle(setlist),
+        venue: setlist.venue || '',
+        gigDate: setlist.gigDate || '',
+        songs: songData,
+        files,
+        setlistNotes: setlist.notes || '',
+      }),
+    });
+
+    const data = await resp.json();
+    if (!data.ok) {
+      showToast(data.error || 'Share failed', 4000);
+      return;
+    }
+
+    // Show persistent result toast with PIN + URL + COPY
+    const packetUrl = `${GitHub.workerUrl}/gig/${data.token}`;
+    _showPacketResult(packetUrl, data.pin, _displayTitle(setlist));
+  } catch (e) {
+    showToast('Network error — try again', 4000);
+  }
+}
+
+function _showPacketResult(url, pin, title) {
+  // Remove any existing packet result toast
+  document.querySelector('.packet-result-toast')?.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'packet-result-toast';
+  toast.innerHTML = `
+    <div class="packet-result-header">
+      <span>Gig Packet Shared</span>
+      <button class="packet-result-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="packet-result-body">
+      <div class="packet-result-field">
+        <label>Link</label>
+        <div class="packet-result-value">
+          <input type="text" readonly value="${esc(url)}" class="packet-result-url">
+          <button class="btn-ghost packet-copy-url" title="Copy link">
+            <i data-lucide="clipboard-copy" style="width:14px;height:14px;"></i>
+          </button>
+        </div>
+      </div>
+      <div class="packet-result-field">
+        <label>PIN for downloads</label>
+        <div class="packet-result-value">
+          <span class="packet-result-pin">${esc(pin)}</span>
+          <button class="btn-ghost packet-copy-pin" title="Copy PIN">
+            <i data-lucide="clipboard-copy" style="width:14px;height:14px;"></i>
+          </button>
+        </div>
+      </div>
+      <button class="btn-primary packet-copy-all" style="margin-top:8px;width:100%;">Copy Link + PIN</button>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [toast] });
+
+  // Wire events
+  toast.querySelector('.packet-result-close').addEventListener('click', () => toast.remove());
+  toast.querySelector('.packet-copy-url').addEventListener('click', () => {
+    navigator.clipboard?.writeText(url).then(() => showToast('Link copied!')).catch(() => _fallbackCopy(url));
+  });
+  toast.querySelector('.packet-copy-pin').addEventListener('click', () => {
+    navigator.clipboard?.writeText(pin).then(() => showToast('PIN copied!')).catch(() => _fallbackCopy(pin));
+  });
+  toast.querySelector('.packet-copy-all').addEventListener('click', () => {
+    const text = `${title}\nLink: ${url}\nPIN: ${pin}`;
+    navigator.clipboard?.writeText(text).then(() => showToast('Copied!')).catch(() => _fallbackCopy(text));
+  });
+
+  // Auto-dismiss after 60s
+  setTimeout(() => toast.remove(), 60000);
 }
 
 // ─── EMAIL SETLIST ──────────────────────────────────────────────

@@ -85,6 +85,107 @@ function _evictIfFull() {
   _renderCache.delete(oldestKey);
 }
 
+// ─── Margin Cropping (mobile only) ─────────────────────────
+// Scans rendered canvas pixels to find the bounding box of non-white content,
+// then crops whitespace margins for better mobile display.
+
+/**
+ * Detect the bounding box of non-white content on a canvas.
+ * Scans at reduced resolution for speed.
+ * @param {HTMLCanvasElement} srcCanvas — the rendered PDF canvas
+ * @param {number} [threshold=245] — R/G/B above this = "white"
+ * @returns {{ top, right, bottom, left, width, height } | null}
+ */
+function _detectContentBounds(srcCanvas, threshold = 245) {
+  const w = srcCanvas.width;
+  const h = srcCanvas.height;
+  if (w <= 0 || h <= 0) return null;
+
+  // Scan at reduced resolution (max 400px wide) for speed
+  const scanScale = Math.min(1, 400 / w);
+  const sw = Math.round(w * scanScale);
+  const sh = Math.round(h * scanScale);
+
+  const scanCanvas = document.createElement('canvas');
+  scanCanvas.width = sw;
+  scanCanvas.height = sh;
+  const ctx = scanCanvas.getContext('2d');
+  ctx.drawImage(srcCanvas, 0, 0, sw, sh);
+
+  const data = ctx.getImageData(0, 0, sw, sh).data;
+
+  let minX = sw, minY = sh, maxX = 0, maxY = 0;
+  let found = false;
+
+  for (let y = 0; y < sh; y++) {
+    for (let x = 0; x < sw; x++) {
+      const i = (y * sw + x) * 4;
+      // Check if pixel is non-white (any channel below threshold, and not transparent)
+      if (data[i + 3] > 10 && (data[i] < threshold || data[i + 1] < threshold || data[i + 2] < threshold)) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        found = true;
+      }
+    }
+  }
+
+  // Clean up scan canvas
+  scanCanvas.width = 0;
+  scanCanvas.height = 0;
+
+  if (!found) return null;
+
+  // Map back to original canvas coordinates
+  const scale = 1 / scanScale;
+  return {
+    top:    Math.max(0, Math.floor(minY * scale) - 2),
+    left:   Math.max(0, Math.floor(minX * scale) - 2),
+    bottom: Math.min(h, Math.ceil((maxY + 1) * scale) + 2),
+    right:  Math.min(w, Math.ceil((maxX + 1) * scale) + 2),
+    width:  w,
+    height: h,
+  };
+}
+
+/**
+ * Crop a canvas to the given content bounds with padding.
+ * Returns a new canvas with only the content area.
+ * @param {HTMLCanvasElement} srcCanvas
+ * @param {object} bounds — from _detectContentBounds
+ * @param {number} paddingPx — padding in canvas pixels
+ * @returns {{ canvas: HTMLCanvasElement, cropRatioW: number, cropRatioH: number } | null}
+ */
+function _cropToContent(srcCanvas, bounds, paddingPx = 0) {
+  if (!bounds) return null;
+
+  const cropX = Math.max(0, bounds.left - paddingPx);
+  const cropY = Math.max(0, bounds.top - paddingPx);
+  const cropR = Math.min(bounds.width, bounds.right + paddingPx);
+  const cropB = Math.min(bounds.height, bounds.bottom + paddingPx);
+  const cropW = cropR - cropX;
+  const cropH = cropB - cropY;
+
+  if (cropW <= 0 || cropH <= 0) return null;
+
+  // Skip cropping if margins are tiny (< 3% on each side)
+  const marginPct = 1 - (cropW * cropH) / (bounds.width * bounds.height);
+  if (marginPct < 0.06) return null;
+
+  const croppedCanvas = document.createElement('canvas');
+  croppedCanvas.width = cropW;
+  croppedCanvas.height = cropH;
+  const ctx = croppedCanvas.getContext('2d');
+  ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  return {
+    canvas: croppedCanvas,
+    cropRatioW: cropW / bounds.width,
+    cropRatioH: cropH / bounds.height,
+  };
+}
+
 // ─── Phase 2: OffscreenCanvas feature detection ───────────
 const _hasOffscreen = typeof OffscreenCanvas !== 'undefined';
 
@@ -169,6 +270,15 @@ const _rIC = typeof requestIdleCallback === 'function'
   ? requestIdleCallback
   : (cb) => setTimeout(cb, 1);
 
+// ─── Landscape / dual-page detection ────────────────────
+const _landscapeMQ = typeof window !== 'undefined'
+  ? window.matchMedia('(orientation: landscape) and (min-width: 768px)')
+  : { matches: false };
+
+function _isDualPage() {
+  return _landscapeMQ.matches && _pdfDoc && _pdfDoc.numPages > 1;
+}
+
 // ─── Modal viewer state ─────────────────────────────────
 let _pdfDoc      = null;
 let _pageNum     = 1;
@@ -177,11 +287,13 @@ let _pendingPage = null;
 let _blobUrl     = null;
 let _ownsBlobUrl = false;
 let _zpHandle    = null;  // zoom/pan handle for modal
+let _zpHandleR   = null;  // zoom/pan for right canvas in dual mode
 let _openGen     = 0;     // generation counter for rapid open/close race
 let _focusTrap   = null;  // focus trap handle for modal
 
 const modal     = () => document.getElementById('modal-pdf');
 const canvasEl  = () => document.getElementById('pdf-canvas');
+const canvasR   = () => document.getElementById('pdf-canvas-right');
 const container = () => document.getElementById('pdf-canvas-container');
 const pageInfo  = () => document.getElementById('pdf-page-info');
 const fileLabel = () => document.getElementById('pdf-filename');
@@ -193,7 +305,13 @@ function _updateNav() {
   if (prev) prev.disabled = _pageNum <= 1;
   if (next) next.disabled = !_pdfDoc || _pageNum >= _pdfDoc.numPages;
   const pi = pageInfo();
-  if (pi) pi.textContent = _pdfDoc ? `${_pageNum} / ${_pdfDoc.numPages}` : '1 / 1';
+  if (pi) {
+    if (_isDualPage() && _pageNum + 1 <= _pdfDoc.numPages) {
+      pi.textContent = `${_pageNum}-${_pageNum + 1} / ${_pdfDoc.numPages}`;
+    } else {
+      pi.textContent = _pdfDoc ? `${_pageNum} / ${_pdfDoc.numPages}` : '1 / 1';
+    }
+  }
 }
 
 // ─── Reusable: render a PDF page to any canvas ──────────
@@ -412,26 +530,48 @@ async function _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerW
     try {
       const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
       const { bitmap, displayW, displayH } = await _workerRender(pdfUrl, pageNum, containerWidth, dpr);
-      // Draw ImageBitmap to visible canvas (canvas.width assignment already clears)
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.style.width = displayW + 'px';
-      canvas.style.height = displayH + 'px';
-      canvas.getContext('2d').drawImage(bitmap, 0, 0);
+      // Draw ImageBitmap to a temp canvas for potential cropping
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = bitmap.width;
+      tmpCanvas.height = bitmap.height;
+      tmpCanvas.getContext('2d').drawImage(bitmap, 0, 0);
       bitmap.close();
+
+      let finalCanvas = tmpCanvas;
+      let finalDisplayW = displayW;
+      let finalDisplayH = displayH;
+
+      // Mobile margin cropping: detect and trim whitespace
+      if (_isMobileDevice) {
+        const bounds = _detectContentBounds(tmpCanvas);
+        const dpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
+        const cropped = _cropToContent(tmpCanvas, bounds, Math.round(8 * dpr));
+        if (cropped) {
+          finalCanvas = cropped.canvas;
+          finalDisplayW = displayW * cropped.cropRatioW;
+          finalDisplayH = displayH * cropped.cropRatioH;
+          tmpCanvas.width = 0; tmpCanvas.height = 0; // free memory
+        }
+      }
+
+      canvas.width = finalCanvas.width;
+      canvas.height = finalCanvas.height;
+      canvas.style.width = finalDisplayW + 'px';
+      canvas.style.height = finalDisplayH + 'px';
+      canvas.getContext('2d').drawImage(finalCanvas, 0, 0);
 
       // Store in render cache
       const pdfId = _getPdfId(pdfDoc);
       const cacheKey = `${pdfId}-${pageNum}`;
       canvas.dataset.renderKey = cacheKey;
       _evictIfFull();
-      // Pre-render to cache via worker as well (create offscreen copy)
       const cacheCanvas = document.createElement('canvas');
-      cacheCanvas.width = canvas.width;
-      cacheCanvas.height = canvas.height;
-      cacheCanvas.getContext('2d').drawImage(canvas, 0, 0);
+      cacheCanvas.width = finalCanvas.width;
+      cacheCanvas.height = finalCanvas.height;
+      cacheCanvas.getContext('2d').drawImage(finalCanvas, 0, 0);
       _renderCache.delete(cacheKey);
-      _renderCache.set(cacheKey, { canvas: cacheCanvas, displayW, displayH });
+      _renderCache.set(cacheKey, { canvas: cacheCanvas, displayW: finalDisplayW, displayH: finalDisplayH });
+      if (finalCanvas !== tmpCanvas) { finalCanvas.width = 0; finalCanvas.height = 0; }
       return;
     } catch (e) {
       // Worker failed — fall through to main-thread rendering
@@ -471,6 +611,23 @@ async function _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerW
     return; // render failed (doc destroyed, etc.)
   }
 
+  // Mobile margin cropping: apply to the low-res immediate render too
+  let cropInfo = null;
+  if (_isMobileDevice) {
+    const bounds = _detectContentBounds(canvas);
+    const lowDpr = Math.min(window.devicePixelRatio || 1, _maxDPR);
+    const cropped = _cropToContent(canvas, bounds, Math.round(8 * lowDpr));
+    if (cropped) {
+      cropInfo = cropped; // save for hi-res pass
+      canvas.width = cropped.canvas.width;
+      canvas.height = cropped.canvas.height;
+      canvas.style.width = (displayW * cropped.cropRatioW) + 'px';
+      canvas.style.height = (displayH * cropped.cropRatioH) + 'px';
+      canvas.getContext('2d').drawImage(cropped.canvas, 0, 0);
+      cropped.canvas.width = 0; cropped.canvas.height = 0;
+    }
+  }
+
   // Step 2: Schedule sharp 2x render in idle time (Phase 3)
   const pdfId = _getPdfId(pdfDoc);
   const cacheKey = `${pdfId}-${pageNum}`;
@@ -508,25 +665,37 @@ async function _renderCacheMiss(pdfDoc, pageNum, canvas, containerEl, containerW
       return;
     }
 
+    // Mobile margin cropping on hi-res canvas
+    let finalHiCanvas = hiCanvas;
+    let finalHiDisplayW = displayW;
+    let finalHiDisplayH = displayH;
+    if (_isMobileDevice) {
+      const hiBounds = _detectContentBounds(hiCanvas);
+      const hiCropped = _cropToContent(hiCanvas, hiBounds, Math.round(8 * hiDpr));
+      if (hiCropped) {
+        finalHiCanvas = hiCropped.canvas;
+        finalHiDisplayW = displayW * hiCropped.cropRatioW;
+        finalHiDisplayH = displayH * hiCropped.cropRatioH;
+        hiCanvas.width = 0; hiCanvas.height = 0; // free uncropped
+      }
+    }
+
     // Re-check staleness after await — page or container width may have changed
-    // (orientation change, slot recycling, etc.)
     if (canvas.dataset.renderKey === cacheKey &&
         parseFloat(canvas.dataset.renderWidth) === containerWidth) {
-      // Use rAF to guarantee dimension change + draw happen in a single paint frame
       requestAnimationFrame(() => {
-        if (canvas.dataset.renderKey !== cacheKey) return; // re-check after rAF
-        canvas.width = hiVP.width;
-        canvas.height = hiVP.height;
-        canvas.style.width = displayW + 'px';
-        canvas.style.height = displayH + 'px';
-        canvas.getContext('2d').drawImage(hiCanvas, 0, 0);
+        if (canvas.dataset.renderKey !== cacheKey) return;
+        canvas.width = finalHiCanvas.width;
+        canvas.height = finalHiCanvas.height;
+        canvas.style.width = finalHiDisplayW + 'px';
+        canvas.style.height = finalHiDisplayH + 'px';
+        canvas.getContext('2d').drawImage(finalHiCanvas, 0, 0);
       });
     }
 
-    // Use safe eviction (respects active canvases) instead of naive oldest-first
     _evictIfFull();
     _renderCache.delete(cacheKey);
-    _renderCache.set(cacheKey, { canvas: hiCanvas, displayW, displayH });
+    _renderCache.set(cacheKey, { canvas: finalHiCanvas, displayW: finalHiDisplayW, displayH: finalHiDisplayH });
   });
 }
 
@@ -850,9 +1019,35 @@ async function _renderPage(num) {
   if (_rendering) { _pendingPage = num; return; }
   _rendering = true;
   try {
-    await renderToCanvasCached(_pdfDoc, num, canvasEl(), container());
+    const dual = _isDualPage();
+    const cont = container();
+    const rightCanvas = canvasR();
+
+    if (dual) {
+      // Side-by-side: each canvas gets ~half the container width
+      cont.classList.add('pdf-dual');
+      rightCanvas.classList.remove('hidden');
+      const halfWidth = Math.floor(cont.clientWidth / 2) - 4;
+      // Render left page
+      await renderToCanvasCached(_pdfDoc, num, canvasEl(), cont, halfWidth);
+      if (!_pdfDoc) return;
+      // Render right page if it exists
+      if (num + 1 <= _pdfDoc.numPages) {
+        await renderToCanvasCached(_pdfDoc, num + 1, rightCanvas, cont, halfWidth);
+      } else {
+        // Last page is odd — hide right canvas
+        rightCanvas.classList.add('hidden');
+      }
+    } else {
+      // Single page mode
+      cont.classList.remove('pdf-dual');
+      rightCanvas.classList.add('hidden');
+      await renderToCanvasCached(_pdfDoc, num, canvasEl(), cont);
+    }
+
     if (!_pdfDoc) return; // closed while rendering
     if (_zpHandle) _zpHandle.resetZoom();
+    if (_zpHandleR) _zpHandleR.resetZoom();
     const lbl = zoomLabel();
     if (lbl) lbl.textContent = '100%';
     _updateNav();
@@ -931,20 +1126,38 @@ function close() {
   _rendering = false;
   _pendingPage = null;
   if (_zpHandle) { _zpHandle.destroy(); _zpHandle = null; }
+  if (_zpHandleR) { _zpHandleR.destroy(); _zpHandleR = null; }
   const cvs = canvasEl();
   cvs.style.transform = '';
   cvs.getContext('2d').clearRect(0, 0, cvs.width, cvs.height);
+  const rCvs = canvasR();
+  rCvs.classList.add('hidden');
+  rCvs.style.transform = '';
+  rCvs.getContext('2d').clearRect(0, 0, rCvs.width, rCvs.height);
+  container().classList.remove('pdf-dual');
+}
+
+// Re-render on orientation change while PDF modal is open
+if (typeof _landscapeMQ.addEventListener === 'function') {
+  _landscapeMQ.addEventListener('change', () => {
+    if (_pdfDoc && !modal().classList.contains('hidden')) {
+      clearRenderCache(_pdfDoc);
+      _renderPage(_pageNum);
+    }
+  });
 }
 
 function prevPage() {
   if (_pageNum <= 1) return;
-  _pageNum--;
+  const step = _isDualPage() ? 2 : 1;
+  _pageNum = Math.max(1, _pageNum - step);
   _renderPage(_pageNum);
 }
 
 function nextPage() {
   if (!_pdfDoc || _pageNum >= _pdfDoc.numPages) return;
-  _pageNum++;
+  const step = _isDualPage() ? 2 : 1;
+  _pageNum = Math.min(_pdfDoc.numPages, _pageNum + step);
   _renderPage(_pageNum);
 }
 

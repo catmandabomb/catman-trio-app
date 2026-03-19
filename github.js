@@ -94,6 +94,7 @@ let _apiCallTimestamps = [];
 let _onFlushError = null;
 let _onFlushSuccess = null;
 let _onRateLimitWarning = null;
+let _onMergeApplied = null; // called with (type, mergedData) when auto-merge changes local data
 
 // ─── Config ───────────────────────────────────────────────
 
@@ -664,7 +665,54 @@ async function _flushInner() {
   }
 }
 
+/**
+ * Check if our cached SHA is still current for a given file.
+ * Returns { stale: true, sha, content } if stale, { stale: false } if fresh.
+ * This pre-flight check avoids the 409 → re-fetch → merge → retry cycle.
+ */
+async function _checkFreshness(type) {
+  if (!_shaCache[type]) return { stale: false }; // No cached SHA = new file, always fresh
+
+  const owner = _owner();
+  const repo = _repo();
+  try {
+    const resp = await _ghRequest(
+      `/repos/${owner}/${repo}/contents/${FILES[type]}?ref=${DATA_BRANCH}`
+    );
+    if (!resp.ok) return { stale: false }; // Can't check = assume fresh
+    const data = await resp.json();
+    if (data.sha !== _shaCache[type]) {
+      // SHA mismatch — file was modified by another client
+      const content = data.content ? atob(data.content.replace(/\n/g, '')) : null;
+      return { stale: true, sha: data.sha, content };
+    }
+    return { stale: false };
+  } catch (e) {
+    return { stale: false }; // Network error = proceed normally
+  }
+}
+
 async function _flushType(type, data, deletionsForMerge, retryCount = 0) {
+  // Pre-flight freshness check: merge proactively if stale (saves a 409 round-trip)
+  if (retryCount === 0) {
+    const freshness = await _checkFreshness(type);
+    if (freshness.stale) {
+      console.info(`GitHub: pre-flight stale detected for ${type}, merging before write`);
+      _shaCache[type] = freshness.sha;
+      if (freshness.content) {
+        try {
+          const remoteData = await _decrypt(freshness.content);
+          const merged = _mergeRecords(remoteData, data, deletionsForMerge);
+          data = merged;
+          // Notify app that data was merged
+          if (_onMergeApplied) _onMergeApplied(type, merged);
+        } catch (e) {
+          console.warn('GitHub: pre-flight merge decrypt failed, proceeding with write', e);
+        }
+      }
+    }
+  }
+
   const encrypted = await _encrypt(data);
   try {
     const newSha = await _putFile(
@@ -699,7 +747,7 @@ async function _mergeAndRetry(type, localData, deletionsForMerge, retryCount) {
 
   // Notify user that a conflict was auto-resolved
   console.info(`GitHub: auto-merged ${type} conflict (attempt ${retryCount + 1})`);
-  if (_onFlushSuccess) _onFlushSuccess();
+  if (_onMergeApplied) _onMergeApplied(type, merged);
   if (_onRateLimitWarning) _onRateLimitWarning(`Sync conflict in ${type} auto-resolved`);
 
   return _flushType(type, merged, deletionsForMerge, retryCount + 1);
@@ -1006,3 +1054,4 @@ export function setOnFlushError(fn) { _onFlushError = fn; }
 export function setOnFlushSuccess(fn) { _onFlushSuccess = fn; }
 export function setOnRateLimitWarning(fn) { _onRateLimitWarning = fn; }
 export function setOnDataChanged(fn) { _onDataChanged = fn; }
+export function setOnMergeApplied(fn) { _onMergeApplied = fn; }

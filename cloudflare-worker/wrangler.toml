@@ -14,10 +14,16 @@ database_name = "catman-db"
 database_id = "e5b6f730-5635-4795-bd0b-6df448d9ca5b"
 migrations_dir = "migrations"
 
+# R2 bucket for gig packet files (PDFs, audio, zip bundles)
+[[r2_buckets]]
+binding = "PACKETS"
+bucket_name = "catman-packets"
+
 # Secrets (set via `wrangler secret put <NAME>`):
 #   GITHUB_PAT          — GitHub Personal Access Token
 #   ADMIN_HASH          — PBKDF2 admin password hash (from localStorage ct_pw_hash)
 #   ENCRYPTION_KEY_SEED — 64-char hex string for AES key derivation
+#   DRIVE_API_KEY       — Google Drive API key (for proxying file downloads to gig packets)
 
 # [vars]
 # ALLOWED_ORIGIN = "https://catmandabomb.github.io"

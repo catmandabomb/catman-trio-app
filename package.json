@@ -1,0 +1,20 @@
+{
+  "name": "catman-trio-app",
+  "version": "20.00.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "build:bump": "node build.js --bump",
+    "build:watch": "npx esbuild app.js --bundle --format=esm --outfile=app.bundle.js --sourcemap --watch",
+    "version": "node build.js --version",
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui",
+    "serve": "npx serve . -p 8080 -s"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "esbuild": "^0.27.4",
+    "serve": "^14.2.0"
+  }
+}

@@ -16,6 +16,13 @@
  *   GET/POST/PUT/DELETE /users/* — User management (owner only)
  *   *       /github/*     — GitHub API proxy (session or admin hash auth)
  *   POST    /email/send   — Send email via Resend (admin/owner only)
+ *   POST    /gig/share              — Create/replace shared packet (auth, admin/owner)
+ *   DELETE  /gig/share/:setlistId   — Unshare a packet (auth, admin/owner)
+ *   GET     /gig/shared             — List active shared packets (auth)
+ *   GET     /gig/:token             — Serve public gig packet page (no auth)
+ *   POST    /gig/:token/verify-pin  — Verify PIN for downloads (no auth)
+ *   GET     /gig/:token/file/:idx   — Download individual file (PIN cookie required)
+ *   GET     /gig/:token/zip         — Download zip bundle (PIN cookie required)
  */
 
 import { handlePreflight, withCors } from './cors.js';
@@ -23,6 +30,7 @@ import { validateAuth } from './auth.js';
 import { checkRateLimit } from './rate-limit.js';
 import { proxyToGitHub } from './github-proxy.js';
 import { handleGetKey } from './crypto.js';
+import * as GigPackets from './gig-packets.js';
 import {
   verifyPassword, createSession, validateSession, deleteSession, rotateSession,
   cleanExpiredSessions, listUserSessions, deleteSessionByPrefix,
@@ -615,6 +623,32 @@ export default {
       return cors(json({ ok: true, message: 'Verification email sent' }));
     }
 
+    // ─── Public gig packet routes (no auth required) ─────
+    // GET /gig/:token — serve the public packet page
+    const gigTokenMatch = path.match(/^\/gig\/([a-f0-9]{32})$/);
+    if (gigTokenMatch && method === 'GET') {
+      return GigPackets.handleServePage(env, gigTokenMatch[1]);
+    }
+
+    // POST /gig/:token/verify-pin — verify PIN for download access
+    const gigPinMatch = path.match(/^\/gig\/([a-f0-9]{32})\/verify-pin$/);
+    if (gigPinMatch && method === 'POST') {
+      const resp = await GigPackets.handleVerifyPin(request, env, gigPinMatch[1]);
+      return resp;
+    }
+
+    // GET /gig/:token/file/:idx — download individual file (PIN cookie required)
+    const gigFileMatch = path.match(/^\/gig\/([a-f0-9]{32})\/file\/(\d+)$/);
+    if (gigFileMatch && method === 'GET') {
+      return GigPackets.handleFileDownload(request, env, gigFileMatch[1], parseInt(gigFileMatch[2], 10));
+    }
+
+    // GET /gig/:token/zip — download zip bundle (PIN cookie required)
+    const gigZipMatch = path.match(/^\/gig\/([a-f0-9]{32})\/zip$/);
+    if (gigZipMatch && method === 'GET') {
+      return GigPackets.handleZipDownload(request, env, gigZipMatch[1]);
+    }
+
     // ─── All other routes require authentication ─────
     const authResult = await authenticateRequest(request, env);
     if (!authResult) {
@@ -1015,6 +1049,33 @@ export default {
       }
       const resp = await proxyToGitHub(request, env);
       return respond(resp);
+    }
+
+    // ─── Gig packet sharing (authenticated routes) ─────
+
+    // POST /gig/share — create or replace a shared packet
+    if (path === '/gig/share' && method === 'POST') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      const result = await GigPackets.handleShare(request, env, currentUser);
+      return respond(result);
+    }
+
+    // DELETE /gig/share/:setlistId — unshare a packet
+    const unshareMatch = path.match(/^\/gig\/share\/(.+)$/);
+    if (unshareMatch && method === 'DELETE') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      const result = await GigPackets.handleUnshare(env, decodeURIComponent(unshareMatch[1]));
+      return respond(result);
+    }
+
+    // GET /gig/shared — list all active shared packets
+    if (path === '/gig/shared' && method === 'GET') {
+      const result = await GigPackets.handleListShared(env);
+      return respond(result);
     }
 
     // ─── POST /email/send — Send email via Resend (any authenticated user) ──
