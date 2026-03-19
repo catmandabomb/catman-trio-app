@@ -5972,6 +5972,22 @@ body:not(.authed) #search-bar .search-refresh-btn {
 
 /* ─── List View ──────────────────────────────────── */
 .wc-search-bar { margin-bottom: 12px; }
+.wc-search-bar input {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-radius: 100px;
+  padding: 11px 14px 11px 42px;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+.wc-search-bar input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(212,180,120,0.18);
+}
+.wc-search-bar input::placeholder { color: var(--text-3); }
 .wc-tag-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .wc-tag-chip {
   padding: 4px 10px;

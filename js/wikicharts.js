@@ -375,20 +375,21 @@ function renderWikiChartsList(opts) {
   const container = document.getElementById('wikicharts-list');
   if (!container) return;
 
-  // Inject topbar action buttons
-  const existingActions = document.getElementById('wikicharts-topbar-actions');
-  if (existingActions) existingActions.remove();
-  const topbar = document.querySelector('.topbar-right');
-  if (topbar && Auth.isLoggedIn()) {
-    const actionsWrap = document.createElement('span');
-    actionsWrap.id = 'wikicharts-topbar-actions';
-    actionsWrap.innerHTML = `<button id="btn-add-wikichart" class="icon-btn" aria-label="New WikiChart" title="New WikiChart"><i data-lucide="plus"></i></button>`;
-    topbar.prepend(actionsWrap);
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
-    actionsWrap.querySelector('#btn-add-wikichart').addEventListener('click', () => {
-      _renderCreateEdit(null);
-    });
-  }
+  // Inject topbar action buttons (deferred to survive view transition cleanup)
+  requestAnimationFrame(() => {
+    document.getElementById('wikicharts-topbar-actions')?.remove();
+    const topbar = document.querySelector('.topbar-right');
+    if (topbar && Auth.isLoggedIn()) {
+      const actionsWrap = document.createElement('span');
+      actionsWrap.id = 'wikicharts-topbar-actions';
+      actionsWrap.innerHTML = `<button id="btn-add-wikichart" class="icon-btn" aria-label="New WikiChart" title="New WikiChart"><i data-lucide="plus"></i></button>`;
+      topbar.prepend(actionsWrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
+      actionsWrap.querySelector('#btn-add-wikichart').addEventListener('click', () => {
+        _renderCreateEdit(null);
+      });
+    }
+  });
 
   // Search/filter state
   let searchText = '';
@@ -510,31 +511,32 @@ function renderWikiChartDetail(chart, opts) {
   let capoFret = 0;
   let fontSize = parseInt(localStorage.getItem('ct_pref_wc_fontsize') || '18', 10);
 
-  // Inject topbar actions
-  const existingActions = document.getElementById('wikichart-detail-topbar-actions');
-  if (existingActions) existingActions.remove();
-  const topbar = document.querySelector('.topbar-right');
-  if (topbar) {
-    const actionsWrap = document.createElement('span');
-    actionsWrap.id = 'wikichart-detail-topbar-actions';
-    let btns = '';
-    if (_canEdit(chart)) {
-      btns += `<button id="wc-btn-edit" class="icon-btn" aria-label="Edit" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>`;
-    }
-    btns += `<button id="wc-btn-copy" class="icon-btn" aria-label="Copy to clipboard" title="Copy"><i data-lucide="clipboard-copy" style="width:16px;height:16px;"></i></button>`;
-    btns += `<button id="wc-btn-duplicate" class="icon-btn" aria-label="Duplicate" title="Duplicate"><i data-lucide="copy" style="width:16px;height:16px;"></i></button>`;
-    if (_canEdit(chart) && chart.versions && chart.versions.length) {
-      btns += `<button id="wc-btn-history" class="icon-btn" aria-label="History" title="Version history"><i data-lucide="history" style="width:16px;height:16px;"></i></button>`;
-    }
-    actionsWrap.innerHTML = btns;
-    topbar.prepend(actionsWrap);
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
+  // Inject topbar actions (deferred to survive view transition cleanup)
+  requestAnimationFrame(() => {
+    document.getElementById('wikichart-detail-topbar-actions')?.remove();
+    const topbar = document.querySelector('.topbar-right');
+    if (topbar) {
+      const actionsWrap = document.createElement('span');
+      actionsWrap.id = 'wikichart-detail-topbar-actions';
+      let btns = '';
+      if (_canEdit(chart)) {
+        btns += `<button id="wc-btn-edit" class="icon-btn" aria-label="Edit" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>`;
+      }
+      btns += `<button id="wc-btn-copy" class="icon-btn" aria-label="Copy to clipboard" title="Copy"><i data-lucide="clipboard-copy" style="width:16px;height:16px;"></i></button>`;
+      btns += `<button id="wc-btn-duplicate" class="icon-btn" aria-label="Duplicate" title="Duplicate"><i data-lucide="copy" style="width:16px;height:16px;"></i></button>`;
+      if (_canEdit(chart) && chart.versions && chart.versions.length) {
+        btns += `<button id="wc-btn-history" class="icon-btn" aria-label="History" title="Version history"><i data-lucide="history" style="width:16px;height:16px;"></i></button>`;
+      }
+      actionsWrap.innerHTML = btns;
+      topbar.prepend(actionsWrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
 
-    actionsWrap.querySelector('#wc-btn-edit')?.addEventListener('click', () => _renderCreateEdit(chart));
-    actionsWrap.querySelector('#wc-btn-copy')?.addEventListener('click', () => _copyToClipboard(chart, transposeSemitones));
-    actionsWrap.querySelector('#wc-btn-duplicate')?.addEventListener('click', () => _duplicateChart(chart));
-    actionsWrap.querySelector('#wc-btn-history')?.addEventListener('click', () => _showVersionHistory(chart));
-  }
+      actionsWrap.querySelector('#wc-btn-edit')?.addEventListener('click', () => _renderCreateEdit(chart));
+      actionsWrap.querySelector('#wc-btn-copy')?.addEventListener('click', () => _copyToClipboard(chart, transposeSemitones));
+      actionsWrap.querySelector('#wc-btn-duplicate')?.addEventListener('click', () => _duplicateChart(chart));
+      actionsWrap.querySelector('#wc-btn-history')?.addEventListener('click', () => _showVersionHistory(chart));
+    }
+  });
 
   function _render() {
     const useFlats = FLAT_KEYS.has(chart.key || 'C');
