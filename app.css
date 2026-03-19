@@ -531,6 +531,8 @@ body.is-mobile .search-refresh-btn { display: none; }
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   padding-bottom: calc(20px + var(--safe-bottom));
 }
@@ -4950,6 +4952,7 @@ body:not(.authed) #ptr-indicator {
 .list-footer {
   padding: 32px 16px 16px;
   text-align: center;
+  margin-top: auto;
 }
 @media (min-width: 768px) {
   .list-footer { padding-top: 32px; }
@@ -5532,14 +5535,9 @@ body:not(.authed) #ptr-indicator {
   cursor: default;
 }
 
-/* When not authed, show footer below the gate message */
-body:not(.authed) #song-list-scroll {
-  display: flex !important;
-  flex-direction: column;
-}
+/* When not authed, extra spacing above footer */
 body:not(.authed) #list-footer {
   display: block !important;
-  margin-top: 40px;
 }
 
 /* Disable search bar for unauth */

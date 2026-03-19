@@ -376,8 +376,8 @@ function renderList(force) {
   const listFooter = document.getElementById('list-footer');
   if (listFooter) {
     const isLoggedIn = Auth.isLoggedIn();
-    // Show footer when there are results, OR when user is not logged in (so unauth page isn't barren)
-    listFooter.classList.toggle('hidden', isLoggedIn && _preFiltered.length === 0);
+    // Always show footer on the main song list page
+    listFooter.classList.remove('hidden');
     // Wire footer nav links (once — check for data attribute to avoid duplicate listeners)
     if (!listFooter.dataset.wired) {
       listFooter.dataset.wired = '1';
