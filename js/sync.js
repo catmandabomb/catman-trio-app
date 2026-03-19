@@ -8,14 +8,14 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.12';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.12';
-import * as GitHub from '../github.js?v=20.12';
-import * as Drive from '../drive.js?v=20.12';
-import * as Router from './router.js?v=20.12';
-import * as IDB from '../idb.js?v=20.12';
-import * as Auth from '../auth.js?v=20.12';
-import * as Admin from '../admin.js?v=20.12';
+import * as Store from './store.js?v=20.13';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.13';
+import * as GitHub from '../github.js?v=20.13';
+import * as Drive from '../drive.js?v=20.13';
+import * as Router from './router.js?v=20.13';
+import * as IDB from '../idb.js?v=20.13';
+import * as Auth from '../auth.js?v=20.13';
+import * as Admin from '../admin.js?v=20.13';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
@@ -64,15 +64,17 @@ async function _workerFetch(path, options = {}) {
 }
 
 async function _loadFromD1() {
-  const [songsRes, setlistsRes, practiceRes] = await Promise.all([
+  const [songsRes, setlistsRes, practiceRes, wikiChartsRes] = await Promise.all([
     _workerFetch('/data/songs'),
     _workerFetch('/data/setlists'),
     _workerFetch('/data/practice'),
+    _workerFetch('/data/wikiCharts').catch(() => ({ wikiCharts: [] })),
   ]);
   return {
     songs: songsRes.songs || [],
     setlists: setlistsRes.setlists || [],
     practice: practiceRes.practice || [],
+    wikiCharts: wikiChartsRes.wikiCharts || [],
   };
 }
 
@@ -329,6 +331,66 @@ async function loadPracticeInstant() {
   }
 }
 
+// ─── WikiCharts: local storage helpers ──────────────────
+
+function _loadWikiChartsLocal() {
+  try { return migrateSchema(JSON.parse(localStorage.getItem('ct_wikicharts') || '[]'), 'wikiCharts'); }
+  catch { return []; }
+}
+
+async function _saveWikiChartsLocal(data) {
+  if (IDB.isAvailable()) {
+    try { await IDB.saveWikiCharts(data); }
+    catch (e) { console.warn('IDB save wikiCharts failed', e); }
+  }
+  try { localStorage.setItem('ct_wikicharts', JSON.stringify(data)); }
+  catch (e) { console.warn('localStorage save failed (wikiCharts)', e); showToast('Storage full — data may not persist.'); }
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CACHE_WIKICHARTS', wikiCharts: data });
+  }
+}
+
+function _loadWikiChartsFromSWCache() {
+  return new Promise((resolve) => {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
+    const handler = (e) => {
+      if (e.data && e.data.type === 'CACHED_WIKICHARTS') {
+        clearTimeout(timeout);
+        navigator.serviceWorker.removeEventListener('message', handler);
+        resolve(e.data.wikiCharts);
+      }
+    };
+    const timeout = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', handler); resolve(null); }, 500);
+    navigator.serviceWorker.addEventListener('message', handler);
+    navigator.serviceWorker.controller.postMessage({ type: 'GET_CACHED_WIKICHARTS' });
+  });
+}
+
+async function loadWikiChartsInstant() {
+  if (IDB.isAvailable()) {
+    try {
+      const idbData = await IDB.loadWikiCharts();
+      if (idbData && idbData.length > 0) {
+        Store.set('wikiCharts', migrateSchema(idbData, 'wikiCharts'));
+        return;
+      }
+    } catch (e) { console.warn('IDB load wikiCharts failed', e); }
+  }
+  const local = _loadWikiChartsLocal();
+  if (local.length > 0) {
+    Store.set('wikiCharts', local);
+    if (IDB.isAvailable()) {
+      IDB.saveWikiCharts(local).catch(() => {});
+    }
+    return;
+  }
+  const sw = await _loadWikiChartsFromSWCache();
+  if (sw && sw.length > 0) {
+    Store.set('wikiCharts', sw);
+    _saveWikiChartsLocal(sw);
+  }
+}
+
 function migratePracticeData() {
   let changed = false;
   const practice = Store.get('practice');
@@ -462,7 +524,7 @@ async function syncAll(force) {
         ? await GitHub.loadAllData()
         : await Drive.loadAllData();
     Store.set('lastDriveSnapshot', remoteData);
-    const { songs, setlists, practice } = remoteData;
+    const { songs, setlists, practice, wikiCharts } = remoteData;
     let dataChanged = false;
 
     if (songs !== null) {
@@ -485,6 +547,11 @@ async function syncAll(force) {
       Store.set('practice', practice);
       migratePracticeData();
       _savePracticeLocal(Store.get('practice'));
+    }
+    if (wikiCharts !== null && wikiCharts !== undefined) {
+      if (_fingerprint(wikiCharts) !== _fingerprint(Store.get('wikiCharts'))) dataChanged = true;
+      Store.set('wikiCharts', wikiCharts);
+      _saveWikiChartsLocal(wikiCharts);
     }
 
     if (_useGitHub && (songs !== null || setlists !== null || practice !== null)) {
@@ -549,6 +616,8 @@ function _rerenderAfterSync() {
   } else if (view === 'practice-detail') {
     Router.rerenderCurrentView();
   } else if (view === 'dashboard') {
+    Router.rerenderCurrentView();
+  } else if (view === 'wikicharts' || view === 'wikichart-detail') {
     Router.rerenderCurrentView();
   }
 }
@@ -676,6 +745,29 @@ async function savePractice(toastMsg) {
   }
 }
 
+/**
+ * Save WikiCharts to local storage and sync to remote backend.
+ * @param {string} [toastMsg]
+ */
+async function saveWikiCharts(toastMsg) {
+  const wikiCharts = Store.get('wikiCharts');
+  _saveWikiChartsLocal(wikiCharts);
+  if (useCloudflare()) {
+    _saveToD1('wikiCharts', wikiCharts).then(() => _markSynced()).catch(e => {
+      if (e.status === 409) { _handleConflict('wikiCharts', wikiCharts, _saveWikiChartsLocal); return; }
+      console.warn('D1 save wikiCharts failed', e);
+    });
+    showToast(toastMsg || 'Saved.');
+    return;
+  }
+  if (GitHub.isConfigured()) {
+    GitHub.saveWikiCharts(wikiCharts).then(() => _markSynced()).catch(() => {});
+    showToast(toastMsg || 'Saved. Syncing to GitHub…');
+    return;
+  }
+  showToast((toastMsg || 'Saved') + ' (local only)');
+}
+
 // ─── Real-time sync polling ─────────────────────────────────
 // Lightweight polling — checks /data/changes for timestamp diffs,
 // only does full sync when data has actually changed.
@@ -713,7 +805,9 @@ async function _pollForChanges() {
       changes.setlists?.latest !== _lastChanges.setlists?.latest ||
       changes.setlists?.count !== _lastChanges.setlists?.count ||
       changes.practice?.latest !== _lastChanges.practice?.latest ||
-      changes.practice?.count !== _lastChanges.practice?.count
+      changes.practice?.count !== _lastChanges.practice?.count ||
+      changes.wikiCharts?.latest !== _lastChanges.wikiCharts?.latest ||
+      changes.wikiCharts?.count !== _lastChanges.wikiCharts?.count
     );
     _lastChanges = changes;
     if (changed) {
@@ -728,5 +822,5 @@ async function _pollForChanges() {
 
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, useCloudflare, startSyncPolling, stopSyncPolling };
-export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling };
+export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal, _saveWikiChartsLocal as saveWikiChartsLocal };

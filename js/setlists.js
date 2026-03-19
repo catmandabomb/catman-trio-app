@@ -5,19 +5,20 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.12';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.12';
-import * as Modal from './modal.js?v=20.12';
-import * as Router from './router.js?v=20.12';
-import * as Admin from '../admin.js?v=20.12';
-import * as Auth from '../auth.js?v=20.12';
-import * as Sync from './sync.js?v=20.12';
-import * as Drive from '../drive.js?v=20.12';
-import * as GitHub from '../github.js?v=20.12';
-import * as Player from '../player.js?v=20.12';
-import * as PDFViewer from '../pdf-viewer.js?v=20.12';
-import * as App from '../app.js?v=20.12';
-import * as Songs from './songs.js?v=20.12';
+import * as Store from './store.js?v=20.13';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.13';
+import * as Modal from './modal.js?v=20.13';
+import * as Router from './router.js?v=20.13';
+import * as Admin from '../admin.js?v=20.13';
+import * as Auth from '../auth.js?v=20.13';
+import * as Sync from './sync.js?v=20.13';
+import * as WikiCharts from './wikicharts.js?v=20.13';
+import * as Drive from '../drive.js?v=20.13';
+import * as GitHub from '../github.js?v=20.13';
+import * as Player from '../player.js?v=20.13';
+import * as PDFViewer from '../pdf-viewer.js?v=20.13';
+import * as App from '../app.js?v=20.13';
+import * as Songs from './songs.js?v=20.13';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -524,6 +525,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
               </span>
               ${entry.notes ? `<span class="setlist-song-comment">${esc(entry.notes)}</span>` : ''}
               ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
+              ${entry.wikiChartId ? `<span class="setlist-song-comment" style="color:var(--accent);font-style:normal;"><i data-lucide="music" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"></i>WikiChart linked</span>` : ''}
             </div>
             ${isAdmin ? `<button class="icon-btn ft-edit-btn" data-idx="${i}" aria-label="Edit freetext song" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>` : ''}
           </div>`;
@@ -1208,6 +1210,7 @@ function _renderLiveMode(setlist) {
         notes: entry.notes || '',
         comment: entry.comment || '',
         _freetext: true,
+        _wikiChartId: entry.wikiChartId || null,
       };
     }
     const song = _songs.find(s => s.id === entry.id);
@@ -1345,6 +1348,14 @@ function _renderLiveMode(setlist) {
         orderedCharts.forEach(chart => {
           _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.r2FileId || chart.driveId, chartName: chart.name });
         });
+      } else if (song._wikiChartId) {
+        // Freetext song with linked WikiChart — render chord grid
+        const wc = (Store.get('wikiCharts') || []).find(c => c.id === song._wikiChartId);
+        if (wc) {
+          _pages.push({ type: 'wikichart', songIdx: si, song, wikiChart: wc });
+        } else {
+          _pages.push({ type: 'metadata', songIdx: si, song });
+        }
       } else {
         _pages.push({ type: 'metadata', songIdx: si, song });
       }
@@ -1937,6 +1948,11 @@ function _renderLiveMode(setlist) {
         ${song.comment ? `<div class="lm-comment">${esc(song.comment)}</div>` : ''}
         ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
       `;
+      return Promise.resolve();
+    } else if (page.type === 'wikichart') {
+      // Linked WikiChart — render chord grid in Live Mode
+      const wc = page.wikiChart;
+      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode });
       return Promise.resolve();
     }
     return Promise.resolve();
@@ -2891,6 +2907,55 @@ function _renderLiveMode(setlist) {
   _clockInterval = setInterval(_updateClock, 1000);
 }
 
+// ─── WIKICHART HELPERS FOR FREETEXT LINKING ─────────────────────
+
+function _getWikiChartTitle(wcId) {
+  const wcs = Store.get('wikiCharts') || [];
+  const wc = wcs.find(c => c.id === wcId);
+  return wc ? wc.title : '(deleted)';
+}
+
+function _showWikiChartPicker(onSelect) {
+  const wcs = (Store.get('wikiCharts') || []).slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  if (!wcs.length) { showToast('No WikiCharts created yet.'); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  let listHtml = wcs.map(wc => `
+    <div class="wc-picker-row" data-wc-id="${esc(wc.id)}" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);">
+      <strong>${esc(wc.title)}</strong>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px;">${wc.key ? esc(wc.key) : ''}${wc.key && wc.bpm ? ' · ' : ''}${wc.bpm ? wc.bpm + ' bpm' : ''}</span>
+    </div>`).join('');
+  overlay.innerHTML = `
+    <div class="modal" style="max-height:70vh;overflow-y:auto;">
+      <h2>Link WikiChart</h2>
+      <input class="form-input" id="wc-picker-search" type="text" placeholder="Search charts…" style="margin-bottom:8px;" />
+      <div id="wc-picker-list">${listHtml}</div>
+      <div class="modal-actions"><button class="btn-secondary" id="wc-picker-cancel">Cancel</button></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const searchInput = overlay.querySelector('#wc-picker-search');
+  searchInput.focus();
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.toLowerCase().trim();
+    overlay.querySelectorAll('.wc-picker-row').forEach(row => {
+      const title = (row.querySelector('strong')?.textContent || '').toLowerCase();
+      row.style.display = title.includes(q) ? '' : 'none';
+    });
+  });
+  overlay.querySelectorAll('.wc-picker-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const wcId = row.dataset.wcId;
+      overlay.remove();
+      if (onSelect) onSelect(wcId);
+    });
+  });
+  overlay.querySelector('#wc-picker-cancel').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.remove(); });
+}
+
 // ─── FREETEXT SONG EDIT MODAL ──────────────────────────────────
 
 function _showFreetextEditModal(entry, onSave) {
@@ -2919,6 +2984,14 @@ function _showFreetextEditModal(entry, onSave) {
         <label class="form-label" for="ft-notes">Notes <span class="muted" style="font-weight:400">(optional)</span></label>
         <textarea class="form-input" id="ft-notes" rows="3" placeholder="Chord changes, arrangement notes…" maxlength="2000">${esc(entry.notes || '')}</textarea>
       </div>
+      ${Auth.canEditSongs() ? `<div class="form-field" id="ft-wikichart-field">
+        <label class="form-label">Linked WikiChart</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="ft-wc-label" style="flex:1;font-size:13px;color:var(--muted);">${entry.wikiChartId ? esc(_getWikiChartTitle(entry.wikiChartId)) : 'None'}</span>
+          <button class="btn-secondary" id="ft-link-wc" type="button" style="font-size:12px;padding:4px 10px;">${entry.wikiChartId ? 'Change' : 'Link'}</button>
+          ${entry.wikiChartId ? '<button class="btn-secondary" id="ft-unlink-wc" type="button" style="font-size:12px;padding:4px 10px;">Unlink</button>' : ''}
+        </div>
+      </div>` : ''}
       <div class="modal-actions">
         <button class="btn-secondary" id="ft-cancel">Cancel</button>
         <button class="btn-primary" id="ft-save">Save</button>
@@ -2926,6 +2999,8 @@ function _showFreetextEditModal(entry, onSave) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  let _linkedWikiChartId = entry.wikiChartId || null;
 
   const titleInput = overlay.querySelector('#ft-title');
   titleInput.focus();
@@ -2936,6 +3011,45 @@ function _showFreetextEditModal(entry, onSave) {
     if (triggerEl && triggerEl.isConnected) triggerEl.focus();
   }
 
+  // WikiChart link/unlink (admin only)
+  const linkBtn = overlay.querySelector('#ft-link-wc');
+  if (linkBtn) {
+    linkBtn.addEventListener('click', () => {
+      _showWikiChartPicker((wcId) => {
+        _linkedWikiChartId = wcId;
+        const label = overlay.querySelector('#ft-wc-label');
+        if (label) label.textContent = _getWikiChartTitle(wcId);
+        linkBtn.textContent = 'Change';
+        // Add unlink button if not present
+        if (!overlay.querySelector('#ft-unlink-wc')) {
+          const unlinkBtn = document.createElement('button');
+          unlinkBtn.className = 'btn-secondary';
+          unlinkBtn.id = 'ft-unlink-wc';
+          unlinkBtn.type = 'button';
+          unlinkBtn.style.cssText = 'font-size:12px;padding:4px 10px;';
+          unlinkBtn.textContent = 'Unlink';
+          unlinkBtn.addEventListener('click', () => {
+            _linkedWikiChartId = null;
+            if (label) label.textContent = 'None';
+            linkBtn.textContent = 'Link';
+            unlinkBtn.remove();
+          });
+          linkBtn.parentNode.appendChild(unlinkBtn);
+        }
+      });
+    });
+  }
+  const unlinkBtn = overlay.querySelector('#ft-unlink-wc');
+  if (unlinkBtn) {
+    unlinkBtn.addEventListener('click', () => {
+      _linkedWikiChartId = null;
+      const label = overlay.querySelector('#ft-wc-label');
+      if (label) label.textContent = 'None';
+      if (linkBtn) linkBtn.textContent = 'Link';
+      unlinkBtn.remove();
+    });
+  }
+
   overlay.querySelector('#ft-save').addEventListener('click', () => {
     const title = titleInput.value.trim();
     if (!title) { showToast('Title is required.'); titleInput.focus(); return; }
@@ -2944,6 +3058,7 @@ function _showFreetextEditModal(entry, onSave) {
     const bpmVal = parseInt(overlay.querySelector('#ft-bpm').value, 10);
     entry.bpm = (bpmVal > 0 && bpmVal <= 400) ? bpmVal : '';
     entry.notes = overlay.querySelector('#ft-notes').value.trim();
+    entry.wikiChartId = _linkedWikiChartId || undefined;
     _closeModal();
     if (onSave) onSave();
   });

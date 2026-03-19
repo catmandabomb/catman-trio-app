@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.12';
+const CACHE_NAME = 'catmantrio-v20.13';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -25,6 +25,7 @@ const SHELL_ASSETS = [
   '/js/setlists.js',
   '/js/migrate.js',
   '/js/songs.js',
+  '/js/wikicharts.js',
   '/app.js',
   '/drive.js',
   '/github.js',
@@ -159,6 +160,26 @@ self.addEventListener('message', (e) => {
     }).then(practice => {
       if (e.source) e.source.postMessage({ type: 'CACHED_PRACTICE', practice });
     }).catch(err => console.warn('SW: get cached practice error', err));
+  }
+
+  if (e.data && e.data.type === 'CACHE_WIKICHARTS') {
+    const resp = new Response(JSON.stringify(e.data.wikiCharts), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    caches.open(SONGS_CACHE).then(cache => {
+      cache.put('wikicharts-data', resp);
+    }).catch(err => console.warn('SW: cache wikiCharts error', err));
+  }
+
+  if (e.data && e.data.type === 'GET_CACHED_WIKICHARTS') {
+    caches.open(SONGS_CACHE).then(cache =>
+      cache.match('wikicharts-data')
+    ).then(resp => {
+      if (resp) return resp.json();
+      return null;
+    }).then(wikiCharts => {
+      if (e.source) e.source.postMessage({ type: 'CACHED_WIKICHARTS', wikiCharts });
+    }).catch(err => console.warn('SW: get cached wikiCharts error', err));
   }
 
   // ─── PDF Cache handlers ─────────────────────────────────

@@ -11,7 +11,7 @@ let _available = false;
 async function open() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) { reject(new Error('IndexedDB not supported')); return; }
-    const req = indexedDB.open('catmantrio-db', 3);
+    const req = indexedDB.open('catmantrio-db', 4);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
@@ -22,6 +22,8 @@ async function open() {
       if (!db.objectStoreNames.contains('pendingWrites')) db.createObjectStore('pendingWrites', { keyPath: 'type' });
       // v3: audio file cache for offline playback
       if (!db.objectStoreNames.contains('audioCache')) db.createObjectStore('audioCache', { keyPath: 'fileId' });
+      // v4: WikiCharts store
+      if (!db.objectStoreNames.contains('wikiCharts')) db.createObjectStore('wikiCharts', { keyPath: 'id' });
     };
     req.onsuccess = (e) => { _db = e.target.result; _available = true;
         _db.onversionchange = () => { _db.close(); _available = false; };
@@ -68,6 +70,8 @@ async function loadSetlists() { return _loadAll('setlists'); }
 async function saveSetlists(setlists) { return _saveAll('setlists', setlists); }
 async function loadPractice() { return _loadAll('practice'); }
 async function savePractice(practice) { return _saveAll('practice', practice); }
+async function loadWikiCharts() { return _loadAll('wikiCharts'); }
+async function saveWikiCharts(wikiCharts) { return _saveAll('wikiCharts', wikiCharts); }
 
 async function getMeta(key) {
   if (!_db) return null;
@@ -259,7 +263,7 @@ async function getAudioCacheSize() {
 
 async function clearAll() {
   if (!_db) return;
-  const stores = ['songs', 'setlists', 'practice', 'meta', 'pendingWrites', 'audioCache'];
+  const stores = ['songs', 'setlists', 'practice', 'wikiCharts', 'meta', 'pendingWrites', 'audioCache'];
   return new Promise((resolve, reject) => {
     try {
       const tx = _db.transaction(stores, 'readwrite');
@@ -282,7 +286,7 @@ async function getStorageInfo() {
       } catch (_) { resolve(0); }
     });
   };
-  return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice') };
+  return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice'), wikiCharts: await count('wikiCharts') };
 }
 
-export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize };
+export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadWikiCharts, saveWikiCharts, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize };

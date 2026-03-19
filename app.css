@@ -5948,3 +5948,325 @@ body:not(.authed) #search-input {
 body:not(.authed) #search-bar .search-refresh-btn {
   pointer-events: none;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   WikiCharts
+   ═══════════════════════════════════════════════════════════ */
+
+/* Section color variables */
+:root {
+  --wc-intro: #3498db;
+  --wc-verse: #2ecc71;
+  --wc-prechorus: #9b59b6;
+  --wc-chorus: #e67e22;
+  --wc-bridge: #e74c3c;
+  --wc-solo: #f1c40f;
+  --wc-outro: #1abc9c;
+  --wc-interlude: #95a5a6;
+  --wc-tag: #d4b478;
+  --wc-turnaround: #e91e63;
+  --wc-break: #ff5722;
+  --wc-vamp: #8bc34a;
+  --wc-coda: #607d8b;
+}
+
+/* ─── List View ──────────────────────────────────── */
+.wc-search-bar { margin-bottom: 12px; }
+.wc-tag-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.wc-tag-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--card-bg);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.wc-tag-chip.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.wc-list { display: flex; flex-direction: column; gap: 2px; }
+.wc-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--card-bg);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.wc-list-row:hover { background: var(--card-hover); transform: translateY(-1px); }
+.wc-list-info { flex: 1; min-width: 0; }
+.wc-list-title { display: block; font-weight: 600; font-size: 15px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-list-meta { display: block; font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.wc-list-tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(212,180,120,0.12); color: var(--accent); margin-top: 3px; }
+.wc-list-sections { font-size: 12px; color: var(--text-3); flex-shrink: 0; margin-left: 8px; }
+
+/* ─── Detail View ────────────────────────────────── */
+.wc-detail { padding-bottom: 40px; }
+.wc-header { margin-bottom: 16px; }
+.wc-title { font-size: 22px; font-weight: 700; color: var(--text-1); margin: 0 0 4px; }
+.wc-meta { font-size: 13px; color: var(--text-3); margin-bottom: 4px; }
+.wc-key { font-weight: 600; color: var(--accent); }
+.wc-capo { font-weight: 500; color: var(--text-2); }
+.wc-structure-tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(212,180,120,0.12); color: var(--accent); }
+
+/* ─── Controls Bar ───────────────────────────────── */
+.wc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+.wc-ctrl-btn {
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.wc-ctrl-btn.active { background: var(--accent); color: var(--bg); }
+.wc-ctrl-label { font-size: 11px; color: var(--text-3); margin-right: 4px; }
+.wc-transpose { display: flex; align-items: center; gap: 4px; }
+.wc-transpose-label { font-size: 13px; color: var(--text-2); min-width: 48px; text-align: center; }
+.wc-capo-ctrl { display: flex; align-items: center; gap: 4px; }
+.wc-font-ctrl { display: flex; align-items: center; gap: 4px; }
+.wc-select {
+  background: var(--bg);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+.wc-slider { width: 60px; accent-color: var(--accent); }
+
+/* ─── Sections Grid ──────────────────────────────── */
+.wc-sections { display: flex; flex-direction: column; gap: 12px; }
+.wc-section {
+  border-left: 4px solid var(--wc-verse);
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border-radius: 0 10px 10px 0;
+}
+.wc-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.wc-section-type { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+.wc-section-repeat { font-size: 12px; color: var(--text-3); font-weight: 600; }
+
+.wc-bars {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.wc-bar {
+  padding: 8px 4px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.wc-bar:hover { background: rgba(212,180,120,0.08); }
+.wc-bar.has-cue { border-color: var(--accent); }
+.wc-chord {
+  font-size: var(--wc-font-size, 18px);
+  font-weight: 700;
+  color: var(--text-1);
+  font-family: 'Oxanium', monospace;
+  letter-spacing: 0.5px;
+}
+.wc-cue {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #e74c3c;
+  color: #fff;
+  margin-top: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.wc-notes {
+  margin-top: 16px;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.wc-danger-zone { margin-top: 24px; text-align: center; }
+
+/* ─── Edit Form ──────────────────────────────────── */
+.wc-edit-form { padding-bottom: 40px; }
+.wc-edit-row { display: flex; gap: 8px; }
+.wc-field-sm { flex: 1; min-width: 70px; }
+.wc-field-md { flex: 1; min-width: 100px; }
+.wc-mode-toggle { display: flex; gap: 6px; margin: 12px 0; }
+.wc-paste-area { font-family: 'Oxanium', monospace; font-size: 14px; }
+
+.wc-sections-edit { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+.wc-section-edit {
+  border-left: 4px solid var(--wc-verse);
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border-radius: 0 10px 10px 0;
+}
+.wc-section-edit-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.wc-section-type-select { width: 120px; }
+.wc-section-label-input { flex: 1; min-width: 80px; }
+.wc-section-repeat-ctrl { display: flex; align-items: center; gap: 4px; }
+
+.wc-bars-edit {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.wc-bar-edit { }
+.wc-chord-input {
+  width: 100%;
+  text-align: center;
+  font-family: 'Oxanium', monospace;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 2px;
+}
+.wc-bar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.wc-cues-edit { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.wc-cue-edit { display: flex; align-items: center; gap: 4px; }
+
+.wc-add-section-bar { display: flex; gap: 8px; margin-bottom: 12px; }
+
+.wc-diatonic-hint {
+  margin: 12px 0;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  border-radius: 8px;
+}
+.wc-diatonic-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.wc-diatonic-chip {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'Oxanium', monospace;
+  background: rgba(212,180,120,0.12);
+  color: var(--accent);
+}
+
+.wc-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* ─── Chord Diagram Modal ────────────────────────── */
+.wc-chord-modal { max-width: 220px; text-align: center; }
+.wc-chord-modal h3 { font-size: 20px; margin-bottom: 8px; font-family: 'Oxanium', monospace; }
+.wc-chord-diagram { margin-bottom: 12px; }
+.wc-chord-svg { width: 120px; height: 150px; display: block; margin: 0 auto; }
+
+/* ─── Version History Modal ──────────────────────── */
+.wc-history-modal { max-width: 400px; }
+.wc-version-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; max-height: 300px; overflow-y: auto; }
+.wc-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  border-radius: 8px;
+}
+.wc-version-info { flex: 1; }
+.wc-version-date { display: block; font-size: 13px; font-weight: 500; color: var(--text-1); }
+.wc-version-meta { font-size: 11px; color: var(--text-3); }
+
+/* ─── Progression Library Modal ──────────────────── */
+.wc-progression-modal { max-width: 450px; }
+.wc-progression-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-height: 350px; overflow-y: auto; }
+.wc-progression-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.wc-progression-row:hover { background: var(--card-hover); }
+.wc-progression-info { flex: 1; }
+.wc-progression-name { font-weight: 600; font-size: 14px; color: var(--text-1); }
+.wc-progression-genre { font-size: 11px; color: var(--text-3); display: block; }
+.wc-progression-chords { font-size: 12px; color: var(--accent); font-family: 'Oxanium', monospace; flex-shrink: 0; margin-left: 8px; }
+
+/* ─── Embeddable Chord Grid (setlist detail + live mode) ── */
+.wc-grid-embed { padding: 12px; }
+.wc-grid-header { margin-bottom: 10px; }
+.wc-grid-title { font-size: 18px; font-weight: 700; color: var(--text-1); display: block; }
+.wc-grid-meta { font-size: 12px; color: var(--text-3); }
+.wc-grid-section {
+  border-left: 3px solid var(--wc-verse);
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+.wc-grid-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 4px; }
+.wc-grid-bars {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+.wc-grid-bar {
+  text-align: center;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--wc-font-size, 16px);
+  font-weight: 700;
+  font-family: 'Oxanium', monospace;
+  color: var(--text-1);
+}
+.wc-grid-annotations { margin-top: 8px; }
+.wc-grid-annotation {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 4px 6px;
+  background: rgba(212,180,120,0.08);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+/* Live Mode: WikiChart grid takes full height */
+.live-mode-active .wc-grid-embed {
+  font-size: calc(var(--wc-font-size, 18px) * 1.2);
+  padding: 16px;
+}
+.live-mode-active .wc-grid-bar { padding: 10px 4px; }
+.live-mode-active .wc-grid-title { font-size: 24px; }

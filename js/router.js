@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.12';
-import * as Player from '../player.js?v=20.12';
-import * as Metronome from '../metronome.js?v=20.12';
+import * as Store from './store.js?v=20.13';
+import * as Player from '../player.js?v=20.13';
+import * as Metronome from '../metronome.js?v=20.13';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.12');
+  if (!_App) _App = import('../app.js?v=20.13');
   return _App;
 }
 
@@ -65,6 +65,8 @@ function viewToHash(viewName, params) {
     case 'dashboard': return '#dashboard';
     case 'account': return '#account';
     case 'settings': return '#settings';
+    case 'wikicharts': return '#wikicharts';
+    case 'wikichart-detail': return params?.wikiChartId ? `#wikichart/${params.wikiChartId}` : '#wikicharts';
     default: return '#';
   }
 }
@@ -96,6 +98,8 @@ function resolveHash(hash) {
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
+    case 'wikicharts': return { view: 'wikicharts' };
+    case 'wikichart': return { view: 'wikichart-detail', wikiChartId: parts[1] };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
     default: return { view: 'list' };
@@ -156,7 +160,7 @@ function showView(name) {
       // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
-      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions').forEach(el => el.remove());
+      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions, #wikicharts-topbar-actions, #wikichart-detail-topbar-actions').forEach(el => el.remove());
       // Tuning fork wrap: only remove when NOT entering practice-detail (it injects its own)
       if (name !== 'practice-detail') document.getElementById('tuning-fork-wrap')?.remove();
       _viewEls.forEach(v => v.classList.remove('active'));
@@ -191,6 +195,8 @@ function showView(name) {
       document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
     } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
       document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
+    } else if (name === 'wikicharts' || name === 'wikichart-detail') {
+      document.getElementById('btn-wikicharts')?.setAttribute('aria-current', 'page');
     }
     // Topbar refresh always hidden (PTR on main list handles refresh; desktop has search-refresh-btn)
     document.getElementById('btn-topbar-refresh')?.classList.add('hidden');
@@ -229,6 +235,7 @@ function setTopbar(title, showBack, isHtml, isHome) {
   document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
   document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
   document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
+  document.getElementById('btn-wikicharts')?.classList.toggle('hidden', showBack);
 }
 
 /**

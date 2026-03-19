@@ -81,10 +81,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.12" as="style">
+  <link rel="preload" href="app.css?v=20.13" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.12">
-  <link rel="stylesheet" href="app.css?v=20.12" />
+  <link rel="modulepreload" href="app.js?v=20.13">
+  <link rel="stylesheet" href="app.css?v=20.13" />
 
   <script src="lib/pdf.min.js"></script>
   <script src="lib/Sortable.min.js"></script>
@@ -112,6 +112,9 @@
       </button>
       <div id="topbar-title"><span class="title-catman"><span style="color:rgb(215,175,90)">C</span><span style="color:rgb(220,184,105)">a</span><span style="color:rgb(225,193,120)">t</span><span style="color:rgb(230,202,135)">m</span><span style="color:rgb(235,211,150)">a</span><span style="color:rgb(240,220,165)">n</span></span><span class="title-trio"><span style="color:rgb(220,184,105)">T</span><span style="color:rgb(225,193,120)">r</span><span style="color:rgb(230,202,135)">i</span><span style="color:rgb(235,211,150)">o</span><span id="admin-version-badge" class="admin-version-badge hidden"></span></span></div>
       <div class="topbar-right">
+        <button id="btn-wikicharts" class="btn-ghost topbar-nav-btn" title="WikiCharts" aria-label="WikiCharts">
+          <i data-lucide="music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Charts
+        </button>
         <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists" aria-label="Practice lists">
           <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
         </button>
@@ -281,6 +284,16 @@
       <div id="settings-content" style="padding:20px 16px"></div>
     </div>
 
+    <!-- WIKICHARTS LIST VIEW -->
+    <div id="view-wikicharts" class="view">
+      <div id="wikicharts-list" style="padding:16px"></div>
+    </div>
+
+    <!-- WIKICHART DETAIL VIEW -->
+    <div id="view-wikichart-detail" class="view">
+      <div id="wikichart-detail-content" style="padding:20px 16px"></div>
+    </div>
+
   </main>
 
   <!-- LOGIN MODAL -->
@@ -431,6 +444,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.12"></script>
+  <script type="module" src="app.js?v=20.13"></script>
 </body>
 </html>

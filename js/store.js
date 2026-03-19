@@ -62,13 +62,14 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.12',
+  APP_VERSION:        'v20.13',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────
   songs:              [],
   setlists:           [],
   practice:           [],
+  wikiCharts:         [],
 
   // ─── View / Navigation ───────────────────────────────────
   view:               'list',
@@ -102,12 +103,16 @@ const _state = {
   editPracticeListIsNew: false,
   practiceList:       null,
 
+  // ─── WikiChart state ────────────────────────────────────
+  activeWikiChart:    null,
+
   // ─── Sync / Save state ───────────────────────────────────
   syncing:            false,
   lastDriveSnapshot:  null,
   savingSongs:        false,
   savingSetlists:     false,
   savingPractice:     false,
+  savingWikiCharts:   false,
   autoConfigAttempted: false,
   manualSyncHistory:  [],
 

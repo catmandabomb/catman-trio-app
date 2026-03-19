@@ -2,22 +2,23 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.12';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.12';
-import * as Modal from './js/modal.js?v=20.12';
-import * as Router from './js/router.js?v=20.12';
-import * as Sync from './js/sync.js?v=20.12';
-import * as Drive from './drive.js?v=20.12';
-import * as GitHub from './github.js?v=20.12';
-import * as Admin from './admin.js?v=20.12';
-import * as Auth from './auth.js?v=20.12';
-import * as Player from './player.js?v=20.12';
-import * as Songs from './js/songs.js?v=20.12';
-import * as Setlists from './js/setlists.js?v=20.12';
-import * as Practice from './js/practice.js?v=20.12';
-import * as Dashboard from './js/dashboard.js?v=20.12';
-import * as Migrate from './js/migrate.js?v=20.12';
-import * as IDB from './idb.js?v=20.12';
+import * as Store from './js/store.js?v=20.13';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.13';
+import * as Modal from './js/modal.js?v=20.13';
+import * as Router from './js/router.js?v=20.13';
+import * as Sync from './js/sync.js?v=20.13';
+import * as Drive from './drive.js?v=20.13';
+import * as GitHub from './github.js?v=20.13';
+import * as Admin from './admin.js?v=20.13';
+import * as Auth from './auth.js?v=20.13';
+import * as Player from './player.js?v=20.13';
+import * as Songs from './js/songs.js?v=20.13';
+import * as Setlists from './js/setlists.js?v=20.13';
+import * as Practice from './js/practice.js?v=20.13';
+import * as Dashboard from './js/dashboard.js?v=20.13';
+import * as Migrate from './js/migrate.js?v=20.13';
+import * as WikiCharts from './js/wikicharts.js?v=20.13';
+import * as IDB from './idb.js?v=20.13';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -74,6 +75,7 @@ let _cachedPdfSet = new Set();
     const accountBtn = document.getElementById('btn-account');
     const setlistsBtn = document.getElementById('btn-setlists');
     const practiceBtn = document.getElementById('btn-practice');
+    const wikichartsBtn = document.getElementById('btn-wikicharts');
     const loggedIn = Auth.isLoggedIn();
 
     // Toggle body classes for CSS-driven auth gating
@@ -88,8 +90,10 @@ let _cachedPdfSet = new Set();
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
+      wikichartsBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('disabled-nav');
       practiceBtn?.classList.remove('disabled-nav');
+      wikichartsBtn?.classList.remove('disabled-nav');
     } else {
       if (btn) { btn.innerHTML = '<i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
       addBtn?.classList.add('hidden');
@@ -97,8 +101,10 @@ let _cachedPdfSet = new Set();
       // Keep buttons visible but styled as disabled for unauth users
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
+      wikichartsBtn?.classList.remove('hidden');
       setlistsBtn?.classList.add('disabled-nav');
       practiceBtn?.classList.add('disabled-nav');
+      wikichartsBtn?.classList.add('disabled-nav');
     }
 
     // Show/hide the unauth message on the main page
@@ -1429,6 +1435,10 @@ let _cachedPdfSet = new Set();
   function _migratePracticeData() { Practice.migratePracticeData(); _practice = Store.get('practice'); }
   async function savePractice(toastMsg) { return Practice.savePractice(toastMsg); }
 
+  // ─── WIKICHARTS (delegated to WikiCharts module) ──────────
+  function renderWikiCharts() { WikiCharts.renderWikiChartsList(); }
+  async function loadWikiChartsInstant() { await Sync.loadWikiChartsInstant(); }
+
   // ─── Init ──────────────────────────────────────────────────
 
   // ─── PWA Install Gate ──────────────────────────────────────
@@ -2202,6 +2212,17 @@ let _cachedPdfSet = new Set();
       renderPractice();
     });
 
+    // WikiCharts button (auth-gated + email verification)
+    document.getElementById('btn-wikicharts').addEventListener('click', () => {
+      if (!Auth.isLoggedIn()) {
+        showToast('Log in to view WikiCharts');
+        return;
+      }
+      if (!_checkEmailVerified('WikiCharts')) return;
+      if (Store.get('selectionMode')) _exitSelectionMode();
+      renderWikiCharts();
+    });
+
     // (Admin Dashboard button removed — "Admin" button now goes directly to dashboard)
 
     // Master volume slider (hidden on mobile — iOS audio.volume is read-only, Android has system volume)
@@ -2237,7 +2258,7 @@ let _cachedPdfSet = new Set();
     }
 
     // Load all data sources in parallel for faster cold start
-    await Promise.all([loadSongsInstant(), loadSetlistsInstant(), loadPracticeInstant()]);
+    await Promise.all([loadSongsInstant(), loadSetlistsInstant(), loadPracticeInstant(), loadWikiChartsInstant()]);
     _migratePracticeData();
 
     // Feature 9: Welcome overlay for brand-new users
