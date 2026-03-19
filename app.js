@@ -2,23 +2,23 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.15';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.15';
-import * as Modal from './js/modal.js?v=20.15';
-import * as Router from './js/router.js?v=20.15';
-import * as Sync from './js/sync.js?v=20.15';
-import * as Drive from './drive.js?v=20.15';
-import * as GitHub from './github.js?v=20.15';
-import * as Admin from './admin.js?v=20.15';
-import * as Auth from './auth.js?v=20.15';
-import * as Player from './player.js?v=20.15';
-import * as Songs from './js/songs.js?v=20.15';
-import * as Setlists from './js/setlists.js?v=20.15';
-import * as Practice from './js/practice.js?v=20.15';
-import * as Dashboard from './js/dashboard.js?v=20.15';
-import * as Migrate from './js/migrate.js?v=20.15';
-import * as WikiCharts from './js/wikicharts.js?v=20.15';
-import * as IDB from './idb.js?v=20.15';
+import * as Store from './js/store.js?v=20.16';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.16';
+import * as Modal from './js/modal.js?v=20.16';
+import * as Router from './js/router.js?v=20.16';
+import * as Sync from './js/sync.js?v=20.16';
+import * as Drive from './drive.js?v=20.16';
+import * as GitHub from './github.js?v=20.16';
+import * as Admin from './admin.js?v=20.16';
+import * as Auth from './auth.js?v=20.16';
+import * as Player from './player.js?v=20.16';
+import * as Songs from './js/songs.js?v=20.16';
+import * as Setlists from './js/setlists.js?v=20.16';
+import * as Practice from './js/practice.js?v=20.16';
+import * as Dashboard from './js/dashboard.js?v=20.16';
+import * as Migrate from './js/migrate.js?v=20.16';
+import * as WikiCharts from './js/wikicharts.js?v=20.16';
+import * as IDB from './idb.js?v=20.16';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -481,7 +481,7 @@ let _cachedPdfSet = new Set();
         </div>
 
         <div class="acct-section">
-          <button class="acct-section-toggle" id="acct-toggle-email"><i data-lucide="mail" style="width:16px;height:16px;"></i> Change Email <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <button class="acct-section-toggle" id="acct-toggle-email" aria-expanded="false"><i data-lucide="mail" style="width:16px;height:16px;"></i> Change Email <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
           <div class="acct-section-body" id="acct-email-body" style="display:none;">
             <div class="acct-field">
               <label for="acct-new-email">New Email</label>
@@ -500,7 +500,7 @@ let _cachedPdfSet = new Set();
         </div>
 
         <div class="acct-section">
-          <button class="acct-section-toggle" id="acct-toggle-pw"><i data-lucide="lock" style="width:16px;height:16px;"></i> Change Password <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <button class="acct-section-toggle" id="acct-toggle-pw" aria-expanded="false"><i data-lucide="lock" style="width:16px;height:16px;"></i> Change Password <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
           <div class="acct-section-body" id="acct-pw-body" style="display:none;">
             <div class="acct-field">
               <label for="acct-current-pw">Current Password</label>
@@ -519,7 +519,7 @@ let _cachedPdfSet = new Set();
         </div>
 
         <div class="acct-section">
-          <button class="acct-section-toggle" id="acct-toggle-username"><i data-lucide="at-sign" style="width:16px;height:16px;"></i> Change Username <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
+          <button class="acct-section-toggle" id="acct-toggle-username" aria-expanded="false"><i data-lucide="at-sign" style="width:16px;height:16px;"></i> Change Username <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
           <div class="acct-section-body" id="acct-username-body" style="display:none;">
             <div class="acct-field">
               <label for="acct-new-username">New Username</label>
@@ -554,6 +554,7 @@ let _cachedPdfSet = new Set();
       const open = body.style.display !== 'none';
       body.style.display = open ? 'none' : 'block';
       btn.classList.toggle('open', !open);
+      btn.setAttribute('aria-expanded', String(!open));
     });
     container.querySelector('#acct-toggle-pw')?.addEventListener('click', () => {
       const body = container.querySelector('#acct-pw-body');
@@ -561,6 +562,7 @@ let _cachedPdfSet = new Set();
       const open = body.style.display !== 'none';
       body.style.display = open ? 'none' : 'block';
       btn.classList.toggle('open', !open);
+      btn.setAttribute('aria-expanded', String(!open));
     });
 
     // Resend verification handler
@@ -652,6 +654,7 @@ let _cachedPdfSet = new Set();
       const open = body.style.display !== 'none';
       body.style.display = open ? 'none' : 'block';
       btn.classList.toggle('open', !open);
+      btn.setAttribute('aria-expanded', String(!open));
     });
     container.querySelector('#acct-change-username')?.addEventListener('click', async () => {
       const newUsername = document.getElementById('acct-new-username').value.trim();

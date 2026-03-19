@@ -15,8 +15,8 @@
  * File format on GitHub: { "iv": "<base64>", "data": "<base64>" }
  */
 
-import * as IDB from './idb.js?v=20.15';
-import * as Auth from './auth.js?v=20.15';
+import * as IDB from './idb.js?v=20.16';
+import * as Auth from './auth.js?v=20.16';
 
 // ─── Worker Proxy ─────────────────────────────────────────
 //

@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.15';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.15';
-import * as Modal from './modal.js?v=20.15';
-import * as Router from './router.js?v=20.15';
-import * as Sync from './sync.js?v=20.15';
-import * as Drive from '../drive.js?v=20.15';
-import * as GitHub from '../github.js?v=20.15';
-import * as Admin from '../admin.js?v=20.15';
-import * as Auth from '../auth.js?v=20.15';
-import * as Player from '../player.js?v=20.15';
-import * as Metronome from '../metronome.js?v=20.15';
-import * as PDFViewer from '../pdf-viewer.js?v=20.15';
-import * as App from '../app.js?v=20.15';
+import * as Store from './store.js?v=20.16';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.16';
+import * as Modal from './modal.js?v=20.16';
+import * as Router from './router.js?v=20.16';
+import * as Sync from './sync.js?v=20.16';
+import * as Drive from '../drive.js?v=20.16';
+import * as GitHub from '../github.js?v=20.16';
+import * as Admin from '../admin.js?v=20.16';
+import * as Auth from '../auth.js?v=20.16';
+import * as Player from '../player.js?v=20.16';
+import * as Metronome from '../metronome.js?v=20.16';
+import * as PDFViewer from '../pdf-viewer.js?v=20.16';
+import * as App from '../app.js?v=20.16';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -940,7 +940,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
     const a = song.assets || {};
     html += `
       <div class="practice-accordion-item" data-practice-idx="${i}">
-        <div class="practice-accordion-header" data-toggle-idx="${i}">
+        <div class="practice-accordion-header" data-toggle-idx="${i}" role="button" aria-expanded="false">
           <span class="setlist-song-num" style="font-size:12px;min-width:24px;height:24px;line-height:24px;">${i + 1}</span>
           <div style="flex:1;min-width:0">
             <span class="setlist-song-title">${esc(song.title)}</span>
@@ -1036,7 +1036,9 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
       if (entry && accState.openSet.has(entry.songId)) {
         const body = item.querySelector('.practice-accordion-body');
         const chevron = item.querySelector('.accordion-chevron');
+        const header = item.querySelector('.practice-accordion-header');
         if (body) body.classList.remove('hidden');
+        if (header) header.setAttribute('aria-expanded', 'true');
         if (chevron) chevron.style.transform = 'rotate(180deg)';
       }
     });
@@ -1051,6 +1053,8 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
         const body = targetItem.querySelector('.practice-accordion-body');
         if (body) {
           body.classList.remove('hidden');
+          const targetHeader = targetItem.querySelector('.practice-accordion-header');
+          if (targetHeader) targetHeader.setAttribute('aria-expanded', 'true');
           const chevron = targetItem.querySelector('.accordion-chevron');
           if (chevron) chevron.style.transform = 'rotate(180deg)';
           accState.openSet.add(scrollToSongId);
@@ -1122,6 +1126,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
       const chevron = header.querySelector('.accordion-chevron');
       const isOpen = !body.classList.contains('hidden');
       body.classList.toggle('hidden');
+      header.setAttribute('aria-expanded', String(!isOpen));
       if (chevron) {
         chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
       }

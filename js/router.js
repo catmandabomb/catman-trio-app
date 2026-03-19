@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.15';
-import * as Player from '../player.js?v=20.15';
-import * as Metronome from '../metronome.js?v=20.15';
+import * as Store from './store.js?v=20.16';
+import * as Player from '../player.js?v=20.16';
+import * as Metronome from '../metronome.js?v=20.16';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.15');
+  if (!_App) _App = import('../app.js?v=20.16');
   return _App;
 }
 
@@ -143,14 +143,18 @@ function showView(name) {
     if (!alreadyActive) {
       if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
       if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
-      if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) {
+      // Clean up practice mode (tuning fork, metronome) when leaving any practice view
+      if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && (currentView !== name && !name.startsWith('practice'))) {
+        _callHook('cleanupPractice');
+        document.body.classList.remove('practice-mode-active');
+      } else if (currentView === 'practice-detail' && name !== 'practice-detail') {
+        // Leaving practice-detail for another practice sub-view (e.g. practice list)
         _callHook('cleanupPractice');
         document.body.classList.remove('practice-mode-active');
       }
-      // Also clean up practice mode (tuning fork, metronome) when leaving practice-detail for another practice view
-      if (currentView === 'practice-detail' && name !== 'practice-detail') {
-        _callHook('cleanupPractice');
-        document.body.classList.remove('practice-mode-active');
+      // Clean up WikiCharts auto-scroll when leaving wikichart views
+      if ((currentView === 'wikicharts' || currentView === 'wikichart-detail') && !name.startsWith('wikichart')) {
+        _callHook('cleanupWikiCharts');
       }
       // Clean up live mode classes inside transition to avoid layout jitter
       if (name !== 'setlist-live') {
