@@ -220,15 +220,25 @@ function showView(name) {
  * @param {boolean} [isHtml] - If true, title is set as innerHTML
  * @param {boolean} [isHome] - If true, only update version badge
  */
+// Cache the original home HTML once at startup so setTopbar can restore it
+let _homeHtml = null;
 function setTopbar(title, showBack, isHtml, isHome) {
   const el = document.getElementById('topbar-title');
   if (el) {
-    if (!(isHome && el.classList.contains('title-home'))) {
-      if (isHtml) el.innerHTML = title; else el.textContent = title;
-    } else {
+    if (!_homeHtml && el.classList.contains('title-home')) _homeHtml = el.innerHTML;
+    if (isHome && el.classList.contains('title-home')) {
+      // Already showing home — just update version badge
       const badge = el.querySelector('#admin-version-badge');
       const ver = Store.get('APP_VERSION');
       if (badge && badge.textContent !== ver) badge.textContent = ver;
+    } else if (isHome && _homeHtml) {
+      // Returning home from a sub-view — restore original HTML
+      el.innerHTML = _homeHtml;
+      const badge = el.querySelector('#admin-version-badge');
+      const ver = Store.get('APP_VERSION');
+      if (badge && badge.textContent !== ver) badge.textContent = ver;
+    } else {
+      if (isHtml) el.innerHTML = title; else el.textContent = title;
     }
     el.classList.toggle('title-home', !!isHome);
   }
