@@ -129,42 +129,73 @@ let _cachedPdfSet = new Set();
     }
   }
 
-  async function _getBlobUrl(driveId) {
-    if (_blobCache[driveId]) {
+  async function _getBlobUrl(fileId) {
+    if (_blobCache[fileId]) {
       // Move to end (most recently used)
-      const idx = _blobCacheOrder.indexOf(driveId);
+      const idx = _blobCacheOrder.indexOf(fileId);
       if (idx > -1) _blobCacheOrder.splice(idx, 1);
-      _blobCacheOrder.push(driveId);
-      return _blobCache[driveId];
+      _blobCacheOrder.push(fileId);
+      return _blobCache[fileId];
     }
 
     // Try PDF cache from service worker first
-    const cachedBlob = await _getCachedPdfBlob(driveId);
+    const cachedBlob = await _getCachedPdfBlob(fileId);
     if (cachedBlob) {
       const url = URL.createObjectURL(cachedBlob);
-      _blobCache[driveId] = url;
-      _blobCacheOrder.push(driveId);
+      _blobCache[fileId] = url;
+      _blobCacheOrder.push(fileId);
       _evictBlobCache();
       return url;
     }
 
-    // Fetch from Drive with 1 retry after 2s delay
+    // Determine R2 file ID: either directly an R2 ID, or look up from a Drive ID
     let url;
-    try {
-      url = await Drive.fetchFileAsBlob(driveId);
-    } catch (firstErr) {
-      console.warn('Drive fetch failed, retrying in 2s:', driveId, firstErr);
-      await new Promise(r => setTimeout(r, 2000));
-      url = await Drive.fetchFileAsBlob(driveId);
+    const r2Id = _findR2FileId(fileId) || (_isR2FileId(fileId) ? fileId : null);
+    if (Sync.useCloudflare() && r2Id) {
+      const token = Auth.getToken ? Auth.getToken() : null;
+      const resp = await fetch(GitHub.workerUrl + '/files/' + r2Id, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) throw new Error('R2 fetch failed: ' + resp.status);
+      const blob = await resp.blob();
+      url = URL.createObjectURL(blob);
+    } else {
+      try {
+        url = await Drive.fetchFileAsBlob(fileId);
+      } catch (firstErr) {
+        console.warn('Drive fetch failed, retrying in 2s:', fileId, firstErr);
+        await new Promise(r => setTimeout(r, 2000));
+        url = await Drive.fetchFileAsBlob(fileId);
+      }
     }
-    _blobCache[driveId] = url;
-    _blobCacheOrder.push(driveId);
+    _blobCache[fileId] = url;
+    _blobCacheOrder.push(fileId);
     _evictBlobCache();
 
     // Cache the PDF blob in the service worker (fire and forget)
-    _cachePdfBlob(driveId, url);
+    _cachePdfBlob(fileId, url);
 
     return url;
+  }
+
+  // Check if an ID looks like an R2 file ID (16-char hex from app-data.js _generateId)
+  function _isR2FileId(id) {
+    return typeof id === 'string' && /^[0-9a-f]{16}$/.test(id);
+  }
+
+  // Look up R2 file ID for a given Drive ID across all songs
+  function _findR2FileId(driveId) {
+    const songs = Store.get('songs') || [];
+    for (const song of songs) {
+      if (!song.assets) continue;
+      for (const c of (song.assets.charts || [])) {
+        if (c.driveId === driveId && c.r2FileId) return c.r2FileId;
+      }
+      for (const a of (song.assets.audio || [])) {
+        if (a.driveId === driveId && a.r2FileId) return a.r2FileId;
+      }
+    }
+    return null;
   }
 
   /**
@@ -251,7 +282,7 @@ let _cachedPdfSet = new Set();
 
     try {
       if (!driveId) throw new Error('No file ID');
-      if (_isIOS()) {
+      if (_isIOS() && !Sync.useCloudflare()) {
         // Use direct Drive URL on iOS — blob URLs don't work reliably
         const url = Drive.getDirectUrl(driveId);
         if (!url) throw new Error('No download URL');

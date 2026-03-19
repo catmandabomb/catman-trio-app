@@ -732,8 +732,8 @@ function renderDetail(song, skipNavPush) {
   });
 
   // Pre-fetch all chart PDFs eagerly
-  const chartDriveIds = (song.assets?.charts || []).map(c => c.driveId).filter(Boolean);
-  chartDriveIds.forEach(id => {
+  const chartFileIds = (song.assets?.charts || []).map(c => c.r2FileId || c.driveId).filter(Boolean);
+  chartFileIds.forEach(id => {
     App.getBlobUrl(id).catch(() => {});
   });
 
@@ -808,7 +808,7 @@ function renderDetail(song, skipNavPush) {
         </div>
       </div>`;
     try {
-      const url = _isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
+      const url = (_isIOS() && !Sync.useCloudflare()) ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
       if (!url) throw new Error('No audio URL');
       el.innerHTML = '';
       const ref = Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', songId: driveId });
@@ -913,13 +913,14 @@ function _buildDetailHTML(song) {
       <div class="detail-section-label">Charts</div>
       <div class="file-list">
         ${charts.map(c => {
-          const orderNum = _getChartOrderNum(song, c.driveId);
+          const fid = c.r2FileId || c.driveId;
+          const orderNum = _getChartOrderNum(song, c.driveId || c.r2FileId);
           const _loggedIn = Auth.isLoggedIn();
           const canStar = Admin.isEditMode() || _loggedIn;
           return `
           <div class="file-item-row">
-            <button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
-              <span class="chart-order-star${orderNum ? ' active' : ''}${canStar ? '' : ' readonly'}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode">
+            <button class="file-item" data-open-chart="${esc(fid)}" data-name="${esc(c.name)}">
+              <span class="chart-order-star${orderNum ? ' active' : ''}${canStar ? '' : ' readonly'}" data-star-chart="${esc(fid)}" aria-label="Set chart order" title="Chart order for live mode">
                 <i data-lucide="star" style="width:16px;height:16px;${orderNum ? 'fill:var(--accent);' : ''}"></i>
                 ${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}
               </span>
@@ -927,12 +928,12 @@ function _buildDetailHTML(song) {
                 <i data-lucide="file-text"></i>
               </div>
               <span class="file-item-name">${esc(c.name)}</span>
-              <span class="pdf-cached-badge${_isPdfCached(c.driveId) ? ' cached' : ''}" data-cache-id="${esc(c.driveId)}" title="${_isPdfCached(c.driveId) ? 'Available offline' : 'Not cached'}">
-                <i data-lucide="${_isPdfCached(c.driveId) ? 'cloud-check' : 'cloud'}" style="width:14px;height:14px;"></i>
+              <span class="pdf-cached-badge${_isPdfCached(fid) ? ' cached' : ''}" data-cache-id="${esc(fid)}" title="${_isPdfCached(fid) ? 'Available offline' : 'Not cached'}">
+                <i data-lucide="${_isPdfCached(fid) ? 'cloud-check' : 'cloud'}" style="width:14px;height:14px;"></i>
               </span>
               <i data-lucide="chevron-right" class="file-item-arrow"></i>
             </button>
-            <button class="dl-btn" data-dl-id="${esc(c.driveId)}" data-dl-name="${esc(c.name)}" aria-label="Download">
+            <button class="dl-btn" data-dl-id="${esc(fid)}" data-dl-name="${esc(c.name)}" aria-label="Download">
               <i data-lucide="download" class="dl-icon"></i>
               <span class="dl-spinner hidden"></span>
             </button>
@@ -946,14 +947,17 @@ function _buildDetailHTML(song) {
     html += `<div class="detail-section" id="detail-audio">
       <div class="detail-section-label">Demo Recordings</div>
       <div style="display:flex;flex-direction:column;gap:10px;">
-        ${audio.map(a => `
+        ${audio.map(a => {
+          const fid = a.r2FileId || a.driveId;
+          return `
           <div class="audio-row">
-            <div class="audio-row-player" data-audio-container="${esc(a.driveId)}" data-name="${esc(a.name)}" data-song-title="${esc(song.title || '')}"></div>
-            <button class="dl-btn" data-dl-id="${esc(a.driveId)}" data-dl-name="${esc(a.name)}" aria-label="Download">
+            <div class="audio-row-player" data-audio-container="${esc(fid)}" data-name="${esc(a.name)}" data-song-title="${esc(song.title || '')}"></div>
+            <button class="dl-btn" data-dl-id="${esc(fid)}" data-dl-name="${esc(a.name)}" aria-label="Download">
               <i data-lucide="download" class="dl-icon"></i>
               <span class="dl-spinner hidden"></span>
             </button>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
   }
@@ -1102,8 +1106,9 @@ function _buildEditHTML(song, isNew) {
       <div class="edit-section-title">Charts (PDF)</div>
       <div class="asset-edit-list" id="ef-chart-list">
         ${(assets.charts||[]).map(c => {
-          const orderNum = _getChartOrderNum(song, c.driveId);
-          return `<div class="asset-edit-row" data-drive-id="${esc(c.driveId)}"><button class="chart-order-star${orderNum ? ' active' : ''}" data-star-chart="${esc(c.driveId)}" aria-label="Set chart order" title="Chart order for live mode"><i data-lucide="star" style="width:14px;height:14px;${orderNum ? 'fill:var(--accent);' : ''}"></i>${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}</button><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`;
+          const fid = c.r2FileId || c.driveId;
+          const orderNum = _getChartOrderNum(song, c.driveId || c.r2FileId);
+          return `<div class="asset-edit-row" data-drive-id="${esc(fid)}"><button class="chart-order-star${orderNum ? ' active' : ''}" data-star-chart="${esc(fid)}" aria-label="Set chart order" title="Chart order for live mode"><i data-lucide="star" style="width:14px;height:14px;${orderNum ? 'fill:var(--accent);' : ''}"></i>${orderNum ? `<span class="chart-order-num">${orderNum}</span>` : ''}</button><span class="asset-edit-name">${esc(c.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`;
         }).join('')}
       </div>
       <button class="btn-ghost" id="ef-add-chart">+ Add Chart PDF</button>
@@ -1113,7 +1118,7 @@ function _buildEditHTML(song, isNew) {
     <div class="edit-section">
       <div class="edit-section-title">Demo Recordings</div>
       <div class="asset-edit-list" id="ef-audio-list">
-        ${(assets.audio||[]).map(a=>`<div class="asset-edit-row" data-drive-id="${esc(a.driveId)}"><span class="asset-edit-name">${esc(a.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`).join('')}
+        ${(assets.audio||[]).map(a=>`<div class="asset-edit-row" data-drive-id="${esc(a.r2FileId || a.driveId)}"><span class="asset-edit-name">${esc(a.name)}</span><button class="asset-edit-remove asset-delete-btn" aria-label="Remove"><i data-lucide="x" style="width:12px;height:12px;"></i></button></div>`).join('')}
       </div>
       <button class="btn-ghost" id="ef-add-audio">+ Add Audio File</button>
       <input type="file" id="ef-audio-file" accept="audio/*" style="display:none" multiple />
@@ -1283,12 +1288,24 @@ function _wireEditForm() {
       if (!btn) return;
       const row = btn.closest('.asset-edit-row');
       const name = row.querySelector('.asset-edit-name')?.textContent || 'this file';
-      Admin.showConfirm('Remove Attachment', `Remove "${name}" from this song?`, () => {
+      Admin.showConfirm('Remove Attachment', `Remove "${name}" from this song?`, async () => {
         const removedId = row.dataset.driveId;
-        assets[assetKey] = assets[assetKey].filter(a => a.driveId !== removedId);
+        assets[assetKey] = assets[assetKey].filter(a => (a.driveId || a.r2FileId) !== removedId);
         if (type === 'chart' && song.chartOrder) {
-          song.chartOrder = song.chartOrder.filter(o => o.driveId !== removedId);
+          song.chartOrder = song.chartOrder.filter(o => o.driveId !== removedId && o.r2FileId !== removedId);
           song.chartOrder.sort((a, b) => a.order - b.order).forEach((o, i) => o.order = i + 1);
+        }
+        // Delete from R2 if it's an R2 file
+        if (Sync.useCloudflare()) {
+          try {
+            const token = Auth.getToken ? Auth.getToken() : null;
+            if (token) {
+              await fetch(GitHub.workerUrl + '/files/' + encodeURIComponent(removedId), {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` },
+              });
+            }
+          } catch (_) { /* best-effort cleanup */ }
         }
         row.remove();
       });
@@ -1298,7 +1315,7 @@ function _wireEditForm() {
   // Uploads
   function wireUpload(btnId, inputId, assetKey, listId) {
     document.getElementById(btnId).addEventListener('click', () => {
-      if (!Drive.isWriteConfigured()) {
+      if (!Sync.useCloudflare() && !Drive.isWriteConfigured()) {
         Admin.showDriveModal(() => {});
         showToast('Drive write access needed for file uploads.');
         return;
@@ -1309,13 +1326,37 @@ function _wireEditForm() {
       const files = Array.from(e.target.files);
       if (!files.length) return;
       showToast('Uploading\u2026');
+      const fileType = assetKey === 'audio' ? 'audio' : 'chart';
       for (const file of files) {
         try {
-          const result = await Drive.uploadFile(file);
-          const asset  = { driveId: result.id, name: result.name };
+          let asset;
+          if (Sync.useCloudflare()) {
+            // Upload to R2 via Worker
+            const token = Auth.getToken ? Auth.getToken() : null;
+            if (!token) throw new Error('Not authenticated');
+            const resp = await fetch(GitHub.workerUrl + '/files/upload', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': file.type || 'application/octet-stream',
+                'X-Filename': file.name,
+                'X-Song-Id': song.id,
+                'X-File-Type': fileType,
+              },
+              body: file,
+            });
+            if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+            const result = await resp.json();
+            asset = { r2FileId: result.fileId, name: file.name };
+          } else {
+            // Legacy: upload to Google Drive
+            const result = await Drive.uploadFile(file);
+            asset = { driveId: result.id, name: result.name };
+          }
           assets[assetKey].push(asset);
+          const assetId = asset.r2FileId || asset.driveId;
           const tmp = document.createElement('div');
-          tmp.innerHTML = `<div class="asset-edit-row" data-drive-id="${esc(asset.driveId)}"><span class="asset-edit-name">${esc(asset.name)}</span><button class="asset-edit-remove">\u00d7</button></div>`;
+          tmp.innerHTML = `<div class="asset-edit-row" data-drive-id="${esc(assetId)}"><span class="asset-edit-name">${esc(asset.name)}</span><button class="asset-edit-remove">\u00d7</button></div>`;
           document.getElementById(listId).appendChild(tmp.firstElementChild);
         } catch { showToast(`Upload failed: ${file.name}`); }
       }

@@ -3,10 +3,9 @@
  *
  * Architecture:
  *   - Packet metadata stored in D1 (shared_packets table)
- *   - Individual files remain on Google Drive (no duplication)
- *   - Only the zip bundle is stored in R2 (built at share time)
- *   - Downloads proxied through Worker (Drive → recipient) for PIN gating
- *   - Migration-ready: when files move to R2, swap proxy source from Drive → R2
+ *   - Individual files served from R2 (migrated) or Google Drive (legacy)
+ *   - Zip bundle stored in R2 (built at share time)
+ *   - Downloads proxied through Worker for PIN gating
  *
  * Routes (wired in index.js):
  *   POST   /gig/share              — Create/replace shared packet (auth required)
@@ -100,7 +99,26 @@ async function _checkPinSession(request, env, token) {
   return true;
 }
 
-// ─── Drive File Proxy ────────────────────────────────────
+// ─── File Fetch (R2 first, Drive fallback) ───────────────
+
+async function _fetchFile(env, entry) {
+  // Prefer R2 if file has been migrated
+  if (entry.r2FileId) {
+    const file = await env.DB.prepare('SELECT r2_key, mime_type FROM files WHERE id = ?').bind(entry.r2FileId).first();
+    if (file) {
+      const obj = await env.PACKETS.get(file.r2_key);
+      if (obj) return new Response(obj.body, { headers: { 'Content-Type': file.mime_type || entry.contentType } });
+    }
+    // R2 entry missing — fall through to Drive if driveFileId exists
+  }
+
+  // Legacy: fetch from Google Drive
+  if (entry.driveFileId) {
+    return _fetchFromDrive(env, entry.driveFileId);
+  }
+
+  throw new Error('No file source available');
+}
 
 async function _fetchFromDrive(env, driveFileId) {
   const apiKey = env.DRIVE_API_KEY;
@@ -246,11 +264,12 @@ export async function handleShare(request, env, currentUser) {
   const token = generateToken();
   const pin = generatePin();
 
-  // Build manifest (pointers to Drive — no file duplication)
+  // Build manifest (pointers to R2 and/or Drive)
   const manifest = (files || []).map((f, i) => ({
     idx: i,
     filename: f.filename || `file-${i}`,
-    driveFileId: f.driveFileId,
+    driveFileId: f.driveFileId || null,
+    r2FileId: f.r2FileId || null,
     type: f.type || 'pdf',       // 'pdf' | 'audio'
     songTitle: f.songTitle || '',
     contentType: f.contentType || 'application/octet-stream',
@@ -266,13 +285,13 @@ export async function handleShare(request, env, currentUser) {
     try {
       const zipEntries = [];
       for (const entry of manifest) {
-        if (!entry.driveFileId) continue;
+        if (!entry.driveFileId && !entry.r2FileId) continue;
         try {
-          const resp = await _fetchFromDrive(env, entry.driveFileId);
+          const resp = await _fetchFile(env, entry);
           const data = new Uint8Array(await resp.arrayBuffer());
           zipEntries.push({ name: entry.filename, data });
         } catch (e) {
-          console.error(`Failed to fetch ${entry.filename} from Drive:`, e);
+          console.error(`Failed to fetch ${entry.filename}:`, e);
           // Skip failed files — don't block the whole share
         }
       }
@@ -425,10 +444,9 @@ export async function handleFileDownload(request, env, token, fileIdx) {
 
   const entry = manifest[idx];
 
-  // Future: when files are in R2, swap this to env.PACKETS.get(entry.r2Key)
   try {
-    const driveResp = await _fetchFromDrive(env, entry.driveFileId);
-    return new Response(driveResp.body, {
+    const fileResp = await _fetchFile(env, entry);
+    return new Response(fileResp.body, {
       headers: {
         'Content-Type': entry.contentType || 'application/octet-stream',
         'Content-Disposition': `attachment; filename="${_safeFilename(entry.filename)}"`,

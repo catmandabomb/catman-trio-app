@@ -935,7 +935,7 @@ async function _doSharePacket(setlist, allSongs, songs) {
     };
   });
 
-  // Build file manifest (charts + audio with Drive IDs)
+  // Build file manifest (R2 preferred, Drive fallback)
   const files = [];
   songs.forEach((entry) => {
     if (entry.freetext) return;
@@ -944,20 +944,22 @@ async function _doSharePacket(setlist, allSongs, songs) {
     const songTitle = song.title || 'Untitled';
 
     (song.assets.charts || []).forEach(c => {
-      if (!c.driveId) return;
+      if (!c.driveId && !c.r2FileId) return;
       files.push({
         filename: c.name || `${songTitle}.pdf`,
-        driveFileId: c.driveId,
+        driveFileId: c.driveId || null,
+        r2FileId: c.r2FileId || null,
         type: 'pdf',
         songTitle,
         contentType: c.mimeType || 'application/pdf',
       });
     });
     (song.assets.audio || []).forEach(a => {
-      if (!a.driveId) return;
+      if (!a.driveId && !a.r2FileId) return;
       files.push({
         filename: a.name || `${songTitle}.mp3`,
-        driveFileId: a.driveId,
+        driveFileId: a.driveId || null,
+        r2FileId: a.r2FileId || null,
         type: 'audio',
         songTitle,
         contentType: a.mimeType || 'audio/mpeg',
@@ -1294,7 +1296,7 @@ function _renderLiveMode(setlist) {
       const orderedCharts = _getOrderedCharts(song);
       if (orderedCharts.length) {
         orderedCharts.forEach(chart => {
-          _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.driveId, chartName: chart.name });
+          _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.r2FileId || chart.driveId, chartName: chart.name });
         });
       } else {
         _pages.push({ type: 'metadata', songIdx: si, song });
@@ -2257,7 +2259,7 @@ function _renderLiveMode(setlist) {
     const dist = Math.abs(si - _currentSongIdx);
     const orderedCharts = _getOrderedCharts(_songEntries[si]);
     orderedCharts.forEach(chart => {
-      const entry = { si, driveId: chart.driveId };
+      const entry = { si, driveId: chart.r2FileId || chart.driveId };
       if (dist === 0) _p0.push(entry);
       else if (dist <= 3) _p1.push(entry);
       else _p2.push(entry);

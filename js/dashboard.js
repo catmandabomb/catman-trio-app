@@ -313,6 +313,21 @@ function renderDashboard() {
     </div>
   `;
 
+  // Storage Migration (owner only)
+  if (Auth.getRole() === 'owner') {
+    const cfActive = Sync.useCloudflare();
+    html += `
+      <div class="dash-section">
+        <div class="dash-section-title">
+          <i data-lucide="database" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Storage
+          <span class="dash-section-badge ${cfActive ? 'ok' : ''}">${cfActive ? 'Cloudflare' : 'GitHub + Drive'}</span>
+        </div>
+        <div id="dash-migration" class="dash-alert info">
+          <div class="dash-alert-detail" style="color:var(--text-3)">Loading migration state...</div>
+        </div>
+      </div>`;
+  }
+
   // Shared Setlist Packets (admin/owner only)
   if (['owner', 'admin'].includes(Auth.getRole())) {
     html += `
@@ -957,6 +972,9 @@ function renderDashboard() {
   // Async Shared Packets loader
   _loadSharedPackets();
 
+  // Async Migration UI loader
+  _loadMigrationUI();
+
 }
 
 async function _loadSharedPackets() {
@@ -1039,6 +1057,300 @@ async function _loadSharedPackets() {
     });
   } catch (e) {
     el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Could not load shared packets.</div>';
+  }
+}
+
+// ─── Storage Migration ──────────────────────────────────
+
+async function _loadMigrationUI() {
+  const el = document.getElementById('dash-migration');
+  if (!el) return;
+
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token) { el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Login required.</div>'; return; }
+
+  const cfActive = Sync.useCloudflare();
+
+  try {
+    const resp = await fetch(GitHub.workerUrl + '/migration/state', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const data = await resp.json();
+    const state = data.state || {};
+    const metadataDone = state.metadata_migrated === 'true';
+    const filesDone = state.files_migrated === 'true';
+
+    let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
+
+    // Status rows
+    html += `<div class="status-row"><span>Metadata (songs, setlists, practice)</span><span style="color:var(${metadataDone ? '--green' : '--text-3'})">${metadataDone ? 'Migrated to D1' : 'On GitHub'}</span></div>`;
+    html += `<div class="status-row"><span>Files (PDFs, audio)</span><span style="color:var(${filesDone ? '--green' : '--text-3'})">${filesDone ? 'Migrated to R2' : 'On Google Drive'}</span></div>`;
+    html += `<div class="status-row"><span>Active backend</span><span style="color:var(${cfActive ? '--green' : '--accent'})">${cfActive ? 'Cloudflare D1/R2' : 'GitHub + Drive (legacy)'}</span></div>`;
+
+    // Action buttons
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">';
+
+    if (!metadataDone) {
+      html += `<button id="dash-migrate-metadata" class="btn-primary" style="font-size:11px;padding:6px 14px;">Migrate Metadata to D1</button>`;
+    }
+    if (!filesDone) {
+      html += `<button id="dash-migrate-files" class="btn-primary" style="font-size:11px;padding:6px 14px;">Migrate Files to R2</button>`;
+    }
+    if (metadataDone && !cfActive) {
+      html += `<button id="dash-switch-cloudflare" class="btn-primary" style="font-size:11px;padding:6px 14px;">Switch to Cloudflare</button>`;
+    }
+    if (cfActive) {
+      html += `<button id="dash-switch-legacy" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Switch Back to GitHub+Drive</button>`;
+    }
+
+    html += '</div></div>';
+    el.innerHTML = html;
+
+    // Wire migrate metadata button
+    document.getElementById('dash-migrate-metadata')?.addEventListener('click', () => {
+      Modal.confirm('Migrate Metadata', 'This will copy all songs, setlists, and practice data from GitHub to Cloudflare D1. The original data on GitHub will NOT be deleted.', async () => {
+        await _runMetadataMigration(token);
+      }, { okLabel: 'Migrate', danger: false });
+    });
+
+    // Wire migrate files button
+    document.getElementById('dash-migrate-files')?.addEventListener('click', () => {
+      Modal.confirm('Migrate Files', 'This will copy all PDF charts and audio files from Google Drive to Cloudflare R2. The original files on Drive will NOT be deleted. This may take a few minutes.', async () => {
+        await _runFileMigration(token);
+      }, { okLabel: 'Migrate', danger: false });
+    });
+
+    // Wire switch to cloudflare
+    document.getElementById('dash-switch-cloudflare')?.addEventListener('click', () => {
+      Modal.confirm('Switch to Cloudflare', 'The app will read/write data from Cloudflare D1/R2 instead of GitHub/Drive. You can switch back at any time.', () => {
+        localStorage.setItem('ct_use_cloudflare', '1');
+        showToast('Switched to Cloudflare storage');
+        renderDashboard();
+      }, { okLabel: 'Switch', danger: false });
+    });
+
+    // Wire switch back to legacy
+    document.getElementById('dash-switch-legacy')?.addEventListener('click', () => {
+      Modal.confirm('Switch Back', 'The app will read/write from GitHub + Google Drive again (legacy mode).', () => {
+        localStorage.removeItem('ct_use_cloudflare');
+        showToast('Switched back to GitHub + Drive');
+        renderDashboard();
+      }, { okLabel: 'Switch Back', danger: false });
+    });
+
+  } catch (e) {
+    el.innerHTML = '<div class="dash-alert-detail" style="color:var(--text-3)">Could not load migration state.</div>';
+  }
+}
+
+async function _runMetadataMigration(token) {
+  showToast('Migrating metadata...', 0);
+
+  try {
+    // Step 1: Load current data from GitHub (already in Store from last sync)
+    const songs = Store.get('songs') || [];
+    const setlists = Store.get('setlists') || [];
+    const practice = Store.get('practice') || [];
+
+    if (songs.length === 0 && setlists.length === 0 && practice.length === 0) {
+      showToast('No data to migrate — sync from GitHub first', 4000);
+      return;
+    }
+
+    // Step 2: Push to D1 via Worker
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const base = GitHub.workerUrl;
+
+    const [songsRes, setlistsRes, practiceRes] = await Promise.all([
+      fetch(base + '/data/songs', { method: 'POST', headers, body: JSON.stringify({ songs }) }),
+      fetch(base + '/data/setlists', { method: 'POST', headers, body: JSON.stringify({ setlists }) }),
+      fetch(base + '/data/practice', { method: 'POST', headers, body: JSON.stringify({ practice }) }),
+    ]);
+
+    const songsOk = (await songsRes.json()).ok;
+    const setlistsOk = (await setlistsRes.json()).ok;
+    const practiceOk = (await practiceRes.json()).ok;
+
+    if (!songsOk || !setlistsOk || !practiceOk) {
+      showToast('Migration partially failed — check dashboard', 5000);
+      return;
+    }
+
+    // Step 3: Verify by loading back from D1
+    const verify = await fetch(base + '/data/songs', { headers: { 'Authorization': `Bearer ${token}` } });
+    const verifyData = await verify.json();
+    const d1Count = (verifyData.songs || []).length;
+
+    if (d1Count < songs.length) {
+      showToast(`Verification failed: D1 has ${d1Count} songs, expected ${songs.length}`, 5000);
+      return;
+    }
+
+    // Step 4: Mark migration complete
+    await fetch(base + '/migration/state', {
+      method: 'POST', headers,
+      body: JSON.stringify({ key: 'metadata_migrated', value: 'true' }),
+    });
+    await fetch(base + '/migration/state', {
+      method: 'POST', headers,
+      body: JSON.stringify({ key: 'metadata_migrated_at', value: new Date().toISOString() }),
+    });
+    await fetch(base + '/migration/state', {
+      method: 'POST', headers,
+      body: JSON.stringify({ key: 'metadata_counts', value: JSON.stringify({ songs: songs.length, setlists: setlists.length, practice: practice.length }) }),
+    });
+
+    showToast(`Metadata migrated! ${songs.length} songs, ${setlists.length} setlists, ${practice.length} practice lists`, 5000);
+    _loadMigrationUI(); // Refresh
+  } catch (e) {
+    showToast('Migration failed: ' + (e.message || 'Unknown error'), 5000);
+  }
+}
+
+async function _runFileMigration(token) {
+  showToast('Migrating files to R2... this may take a few minutes', 0);
+
+  try {
+    const songs = Store.get('songs') || [];
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const base = GitHub.workerUrl;
+
+    // Collect all file references from songs
+    const filesToMigrate = [];
+    for (const song of songs) {
+      if (!song.assets) continue;
+      for (const chart of (song.assets.charts || [])) {
+        if (chart.driveId) {
+          filesToMigrate.push({
+            driveId: chart.driveId,
+            filename: chart.name || `${song.title || 'chart'}.pdf`,
+            songId: song.id,
+            fileType: 'chart',
+            mimeType: chart.mimeType || 'application/pdf',
+          });
+        }
+      }
+      for (const audio of (song.assets.audio || [])) {
+        if (audio.driveId) {
+          filesToMigrate.push({
+            driveId: audio.driveId,
+            filename: audio.name || `${song.title || 'audio'}.mp3`,
+            songId: song.id,
+            fileType: 'audio',
+            mimeType: audio.mimeType || 'audio/mpeg',
+          });
+        }
+      }
+    }
+
+    if (filesToMigrate.length === 0) {
+      showToast('No files to migrate', 3000);
+      // Still mark as done
+      await fetch(base + '/migration/state', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'files_migrated', value: 'true' }),
+      });
+      _loadMigrationUI();
+      return;
+    }
+
+    // Migrate files one by one (sequential to avoid overwhelming the Worker)
+    let migrated = 0;
+    let failed = 0;
+    const fileIdMap = {}; // driveId → new R2 fileId
+
+    for (const f of filesToMigrate) {
+      try {
+        // Fetch from Drive via our existing proxy
+        const driveUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(f.driveId)}?alt=media&key=${Drive.getConfig().apiKey}`;
+        const driveResp = await fetch(driveUrl);
+        if (!driveResp.ok) { failed++; continue; }
+
+        const blob = await driveResp.blob();
+
+        // Upload to R2 via Worker
+        const uploadResp = await fetch(base + '/files/upload', {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Type': f.mimeType,
+            'X-Filename': f.filename,
+            'X-Song-Id': f.songId,
+            'X-File-Type': f.fileType,
+          },
+          body: blob,
+        });
+
+        const result = await uploadResp.json();
+        if (result.ok) {
+          fileIdMap[f.driveId] = result.fileId;
+          migrated++;
+        } else {
+          failed++;
+        }
+      } catch (e) {
+        console.warn(`Failed to migrate file ${f.filename}:`, e);
+        failed++;
+      }
+
+      // Progress toast every 5 files
+      if ((migrated + failed) % 5 === 0) {
+        showToast(`Migrating files... ${migrated + failed}/${filesToMigrate.length}`, 0);
+      }
+    }
+
+    // Update song assets to reference R2 file IDs instead of Drive IDs
+    if (Object.keys(fileIdMap).length > 0) {
+      const updatedSongs = songs.map(song => {
+        if (!song.assets) return song;
+        const updated = { ...song, assets: { ...song.assets } };
+        updated.assets.charts = (song.assets.charts || []).map(c => {
+          if (c.driveId && fileIdMap[c.driveId]) {
+            return { ...c, r2FileId: fileIdMap[c.driveId] };
+          }
+          return c;
+        });
+        updated.assets.audio = (song.assets.audio || []).map(a => {
+          if (a.driveId && fileIdMap[a.driveId]) {
+            return { ...a, r2FileId: fileIdMap[a.driveId] };
+          }
+          return a;
+        });
+        return updated;
+      });
+
+      // Save updated songs (with r2FileId references) back to both D1 and local
+      Store.set('songs', updatedSongs);
+      Sync.saveLocal(updatedSongs);
+      await fetch(base + '/data/songs', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songs: updatedSongs }),
+      });
+    }
+
+    // Mark migration complete
+    await fetch(base + '/migration/state', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'files_migrated', value: 'true' }),
+    });
+    await fetch(base + '/migration/state', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'files_migrated_at', value: new Date().toISOString() }),
+    });
+    await fetch(base + '/migration/state', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'files_counts', value: JSON.stringify({ total: filesToMigrate.length, migrated, failed, mapped: Object.keys(fileIdMap).length }) }),
+    });
+
+    showToast(`Files migrated: ${migrated} OK, ${failed} failed out of ${filesToMigrate.length}`, 5000);
+    _loadMigrationUI();
+  } catch (e) {
+    showToast('File migration failed: ' + (e.message || 'Unknown error'), 5000);
   }
 }
 

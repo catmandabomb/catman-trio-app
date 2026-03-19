@@ -769,7 +769,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
           ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
             <div class="detail-section-label">Charts</div>
             <div class="file-list">${(a.charts || []).map(c => `
-              <div class="file-item-row"><button class="file-item" data-open-chart="${esc(c.driveId)}" data-name="${esc(c.name)}">
+              <div class="file-item-row"><button class="file-item" data-open-chart="${esc(c.r2FileId || c.driveId)}" data-name="${esc(c.name)}">
                 <div class="file-item-icon pdf"><i data-lucide="file-text"></i></div>
                 <span class="file-item-name">${esc(c.name)}</span>
                 <i data-lucide="chevron-right" class="file-item-arrow"></i>
@@ -779,7 +779,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
           ${(a.audio || []).length ? `<div class="detail-section" style="margin-bottom:12px">
             <div class="detail-section-label">Audio</div>
             <div style="display:flex;flex-direction:column;gap:10px;">
-              ${(a.audio || []).map(au => `<div data-audio-container="${esc(au.driveId)}" data-name="${esc(au.name)}" data-song-title="${esc(song.title || '')}"></div>`).join('')}
+              ${(a.audio || []).map(au => `<div data-audio-container="${esc(au.r2FileId || au.driveId)}" data-name="${esc(au.name)}" data-song-title="${esc(song.title || '')}"></div>`).join('')}
             </div>
           </div>` : ''}
           ${(a.links || []).length ? `<div class="detail-section" style="margin-bottom:12px">
@@ -884,7 +884,8 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
     const song = songs.find(s => s.id === entry.songId);
     if (!song) return;
     (song.assets?.charts || []).forEach(c => {
-      if (c.driveId) App.getBlobUrl(c.driveId).catch(() => {});
+      const fid = c.r2FileId || c.driveId;
+      if (fid) App.getBlobUrl(fid).catch(() => {});
     });
   });
 
@@ -900,7 +901,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
         <div class="audio-controls"><div class="skeleton-circle"></div><div class="audio-progress-wrap"><div class="skeleton-bar"></div></div></div>
       </div>`;
       try {
-        const url = isIOS() ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
+        const url = (isIOS() && !Sync.useCloudflare()) ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
         if (!url) throw new Error('No audio URL');
         el.innerHTML = '';
         Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true, songId: driveId });

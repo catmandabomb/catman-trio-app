@@ -14,6 +14,14 @@
  *   GET     /auth/key     — Encryption key seed (session or admin hash auth)
  *   PUT     /users/me/password — Change own password (session auth)
  *   GET/POST/PUT/DELETE /users/* — User management (owner only)
+ *   GET/POST /data/songs       — D1 songs CRUD (auth, write=admin/owner)
+ *   GET/POST /data/setlists    — D1 setlists CRUD (auth, write=admin/owner)
+ *   GET/POST /data/practice    — D1 practice CRUD (auth, write=any)
+ *   POST    /files/upload      — R2 file upload (admin/owner)
+ *   GET     /files/:id         — R2 file download (auth)
+ *   DELETE  /files/:id         — R2 file delete (admin/owner)
+ *   GET     /files?songId=     — List files (auth)
+ *   GET/POST /migration/state  — Migration tracking (owner only)
  *   *       /github/*     — GitHub API proxy (session or admin hash auth)
  *   POST    /email/send   — Send email via Resend (admin/owner only)
  *   POST    /gig/share              — Create/replace shared packet (auth, admin/owner)
@@ -31,6 +39,7 @@ import { checkRateLimit } from './rate-limit.js';
 import { proxyToGitHub } from './github-proxy.js';
 import { handleGetKey } from './crypto.js';
 import * as GigPackets from './gig-packets.js';
+import * as AppData from './app-data.js';
 import {
   verifyPassword, createSession, validateSession, deleteSession, rotateSession,
   cleanExpiredSessions, listUserSessions, deleteSessionByPrefix,
@@ -1039,6 +1048,82 @@ export default {
           return respond(json({ ok: true }));
         }
       }
+    }
+
+    // ─── /data/* — D1-backed app data (replaces GitHub) ─────
+
+    // GET /data/songs — list all songs
+    if (path === '/data/songs' && method === 'GET') {
+      return respond(await AppData.listSongs(env));
+    }
+    // POST /data/songs — save songs (upsert + deletions)
+    if (path === '/data/songs' && method === 'POST') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      return respond(await AppData.saveSongs(request, env));
+    }
+
+    // GET /data/setlists — list all setlists
+    if (path === '/data/setlists' && method === 'GET') {
+      return respond(await AppData.listSetlists(env));
+    }
+    // POST /data/setlists — save setlists
+    if (path === '/data/setlists' && method === 'POST') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      return respond(await AppData.saveSetlists(request, env));
+    }
+
+    // GET /data/practice — list practice lists
+    if (path === '/data/practice' && method === 'GET') {
+      return respond(await AppData.listPractice(env));
+    }
+    // POST /data/practice — save practice lists
+    if (path === '/data/practice' && method === 'POST') {
+      // Members can save practice (they own their lists)
+      return respond(await AppData.savePractice(request, env));
+    }
+
+    // ─── /files/* — R2-backed file storage (replaces Drive) ─────
+
+    // POST /files/upload — upload a file to R2
+    if (path === '/files/upload' && method === 'POST') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      return respond(await AppData.uploadFile(request, env, currentUser));
+    }
+    // GET /files/:id — download a file from R2
+    const fileDownloadMatch = path.match(/^\/files\/([a-f0-9]{16})$/);
+    if (fileDownloadMatch && method === 'GET') {
+      return respond(await AppData.downloadFile(env, fileDownloadMatch[1]));
+    }
+    // DELETE /files/:id — delete a file from R2
+    if (fileDownloadMatch && method === 'DELETE') {
+      if (!['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'Admin access required' }, 403));
+      }
+      return respond(await AppData.deleteFile(env, fileDownloadMatch[1]));
+    }
+    // GET /files?songId=xxx — list files for a song
+    if (path === '/files' && method === 'GET') {
+      const songId = new URL(request.url).searchParams.get('songId') || '';
+      return respond(await AppData.listFiles(env, songId));
+    }
+
+    // ─── /migration/* — migration state (owner only) ─────
+
+    // GET /migration/state
+    if (path === '/migration/state' && method === 'GET') {
+      if (currentUser.role !== 'owner') return respond(json({ error: 'Owner only' }, 403));
+      return respond(await AppData.getMigrationState(env));
+    }
+    // POST /migration/state
+    if (path === '/migration/state' && method === 'POST') {
+      if (currentUser.role !== 'owner') return respond(json({ error: 'Owner only' }, 403));
+      return respond(await AppData.setMigrationState(request, env));
     }
 
     // ─── /github/* — GitHub API proxy ────────────────

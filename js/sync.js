@@ -15,6 +15,54 @@ import * as IDB from '../idb.js';
 import * as Auth from '../auth.js';
 import * as Admin from '../admin.js';
 
+// ─── Storage backend toggle ─────────────────────────────────
+// When 'ct_use_cloudflare' is '1', sync goes through D1/R2 Worker endpoints.
+// Otherwise falls back to GitHub/Drive (legacy).
+
+function useCloudflare() {
+  return localStorage.getItem('ct_use_cloudflare') === '1';
+}
+
+async function _workerFetch(path, options = {}) {
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token) throw new Error('Not authenticated');
+  const resp = await fetch(GitHub.workerUrl + path, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || `Request failed: ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function _loadFromD1() {
+  const [songsRes, setlistsRes, practiceRes] = await Promise.all([
+    _workerFetch('/data/songs'),
+    _workerFetch('/data/setlists'),
+    _workerFetch('/data/practice'),
+  ]);
+  return {
+    songs: songsRes.songs || [],
+    setlists: setlistsRes.setlists || [],
+    practice: practiceRes.practice || [],
+  };
+}
+
+async function _saveToD1(type, data, deletions) {
+  const body = { [type]: data };
+  if (deletions && deletions.length > 0) body.deletions = deletions;
+  return _workerFetch(`/data/${type}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 // ─── Schema migration ──────────────────────────────────────
 
 function migrateSchema(data, type) {
@@ -314,10 +362,11 @@ async function tryAutoConfigureGitHub() {
 // ─── Main sync orchestrator ────────────────────────────────
 
 async function syncAll(force) {
-  const _useGitHub = GitHub.isConfigured();
+  const _useCF = useCloudflare();
+  const _useGitHub = !_useCF && GitHub.isConfigured();
   const _mobile = isMobile();
-  if (!_useGitHub && _mobile) { _syncDone(); return; }
-  if (!_useGitHub && !Drive.isConfigured()) { _syncDone(); return; }
+  if (!_useCF && !_useGitHub && _mobile) { _syncDone(); return; }
+  if (!_useCF && !_useGitHub && !Drive.isConfigured()) { _syncDone(); return; }
   if (Store.get('syncing')) return;
   if (_useGitHub && GitHub.getWriteQueueStatus().hasPending && !force) { _syncDone(); return; }
   if (!force && Store.get('lastDriveSnapshot') && !_shouldSync()) { _syncDone(); return; }
@@ -343,9 +392,11 @@ async function syncAll(force) {
   if (indicator && !ptrActive) indicator.classList.remove('hidden');
 
   try {
-    const remoteData = _useGitHub
-      ? await GitHub.loadAllData()
-      : await Drive.loadAllData();
+    const remoteData = useCloudflare()
+      ? await _loadFromD1()
+      : _useGitHub
+        ? await GitHub.loadAllData()
+        : await Drive.loadAllData();
     Store.set('lastDriveSnapshot', remoteData);
     const { songs, setlists, practice } = remoteData;
     let dataChanged = false;
@@ -439,7 +490,7 @@ function _rerenderAfterSync() {
 }
 
 async function doSyncRefresh(afterCallback) {
-  showToast(GitHub.isConfigured() ? 'Syncing from GitHub…' : 'Syncing from Drive…');
+  showToast(useCloudflare() ? 'Syncing…' : GitHub.isConfigured() ? 'Syncing from GitHub…' : 'Syncing from Drive…');
   await syncAll(true);
   showToast('Sync complete.');
   if (afterCallback) afterCallback();
@@ -450,6 +501,11 @@ async function doSyncRefresh(afterCallback) {
 async function saveSongs(toastMsg) {
   const songs = Store.get('songs');
   _saveLocal(songs);
+  if (useCloudflare()) {
+    _saveToD1('songs', songs).then(() => _markSynced()).catch(e => console.warn('D1 save songs failed', e));
+    showToast(toastMsg || 'Saved.');
+    return;
+  }
   if (GitHub.isConfigured()) {
     GitHub.saveSongs(songs).then(() => _markSynced()).catch(() => {});
     showToast(toastMsg || 'Saved. Syncing to GitHub…');
@@ -476,6 +532,11 @@ async function saveSongs(toastMsg) {
 async function saveSetlists(toastMsg) {
   const setlists = Store.get('setlists');
   _saveSetlistsLocal(setlists);
+  if (useCloudflare()) {
+    _saveToD1('setlists', setlists).then(() => _markSynced()).catch(e => console.warn('D1 save setlists failed', e));
+    showToast(toastMsg || 'Saved.');
+    return;
+  }
   if (GitHub.isConfigured()) {
     GitHub.saveSetlists(setlists).then(() => _markSynced()).catch(() => {});
     showToast(toastMsg || 'Saved. Syncing to GitHub…');
@@ -502,6 +563,11 @@ async function saveSetlists(toastMsg) {
 async function savePractice(toastMsg) {
   const practice = Store.get('practice');
   _savePracticeLocal(practice);
+  if (useCloudflare()) {
+    _saveToD1('practice', practice).then(() => _markSynced()).catch(e => console.warn('D1 save practice failed', e));
+    showToast(toastMsg || 'Saved.');
+    return;
+  }
   if (GitHub.isConfigured()) {
     GitHub.savePractice(practice).then(() => _markSynced()).catch(() => {});
     showToast(toastMsg || 'Saved. Syncing to GitHub…');
@@ -527,5 +593,5 @@ async function savePractice(toastMsg) {
 
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, useCloudflare };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal };
