@@ -5,20 +5,20 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.16';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.16';
-import * as Modal from './modal.js?v=20.16';
-import * as Router from './router.js?v=20.16';
-import * as Admin from '../admin.js?v=20.16';
-import * as Auth from '../auth.js?v=20.16';
-import * as Sync from './sync.js?v=20.16';
-import * as WikiCharts from './wikicharts.js?v=20.16';
-import * as Drive from '../drive.js?v=20.16';
-import * as GitHub from '../github.js?v=20.16';
-import * as Player from '../player.js?v=20.16';
-import * as PDFViewer from '../pdf-viewer.js?v=20.16';
-import * as App from '../app.js?v=20.16';
-import * as Songs from './songs.js?v=20.16';
+import * as Store from './store.js?v=20.17';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.17';
+import * as Modal from './modal.js?v=20.17';
+import * as Router from './router.js?v=20.17';
+import * as Admin from '../admin.js?v=20.17';
+import * as Auth from '../auth.js?v=20.17';
+import * as Sync from './sync.js?v=20.17';
+import * as WikiCharts from './wikicharts.js?v=20.17';
+import * as Drive from '../drive.js?v=20.17';
+import * as GitHub from '../github.js?v=20.17';
+import * as Player from '../player.js?v=20.17';
+import * as PDFViewer from '../pdf-viewer.js?v=20.17';
+import * as App from '../app.js?v=20.17';
+import * as Songs from './songs.js?v=20.17';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];

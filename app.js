@@ -2,23 +2,23 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.16';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.16';
-import * as Modal from './js/modal.js?v=20.16';
-import * as Router from './js/router.js?v=20.16';
-import * as Sync from './js/sync.js?v=20.16';
-import * as Drive from './drive.js?v=20.16';
-import * as GitHub from './github.js?v=20.16';
-import * as Admin from './admin.js?v=20.16';
-import * as Auth from './auth.js?v=20.16';
-import * as Player from './player.js?v=20.16';
-import * as Songs from './js/songs.js?v=20.16';
-import * as Setlists from './js/setlists.js?v=20.16';
-import * as Practice from './js/practice.js?v=20.16';
-import * as Dashboard from './js/dashboard.js?v=20.16';
-import * as Migrate from './js/migrate.js?v=20.16';
-import * as WikiCharts from './js/wikicharts.js?v=20.16';
-import * as IDB from './idb.js?v=20.16';
+import * as Store from './js/store.js?v=20.17';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.17';
+import * as Modal from './js/modal.js?v=20.17';
+import * as Router from './js/router.js?v=20.17';
+import * as Sync from './js/sync.js?v=20.17';
+import * as Drive from './drive.js?v=20.17';
+import * as GitHub from './github.js?v=20.17';
+import * as Admin from './admin.js?v=20.17';
+import * as Auth from './auth.js?v=20.17';
+import * as Player from './player.js?v=20.17';
+import * as Songs from './js/songs.js?v=20.17';
+import * as Setlists from './js/setlists.js?v=20.17';
+import * as Practice from './js/practice.js?v=20.17';
+import * as Dashboard from './js/dashboard.js?v=20.17';
+import * as Migrate from './js/migrate.js?v=20.17';
+import * as WikiCharts from './js/wikicharts.js?v=20.17';
+import * as IDB from './idb.js?v=20.17';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -86,7 +86,7 @@ let _cachedPdfSet = new Set();
 
     if (loggedIn) {
       if (btn) { btn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
-      addBtn?.classList.toggle('hidden', !Auth.canEditSongs());
+      addBtn?.classList.toggle('hidden', !Auth.canEditSongs() || !Admin.isAdminModeActive());
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
@@ -440,19 +440,44 @@ let _cachedPdfSet = new Set();
     Router.showView('account');
     Router.setTopbar('My Account', true);
 
-    // Add logout button to topbar right (mirrors back button on left)
+    // Add mode toggle (admin only) + logout button to topbar right
     const topbarRight = document.querySelector('.topbar-right');
     if (topbarRight) {
-      // Remove any previous account-logout-topbar button
       topbarRight.querySelector('#acct-logout-topbar')?.remove();
+      const wrap = document.createElement('span');
+      wrap.id = 'acct-logout-topbar';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+      // Admin mode toggle — only for admin users
+      if (Auth.canEditSongs()) {
+        const adminModeOn = Admin.isAdminModeActive();
+        const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
+        const switchIcon = adminModeOn ? 'user' : 'shield';
+        const modeBtn = document.createElement('button');
+        modeBtn.className = 'btn-ghost topbar-nav-btn';
+        modeBtn.id = 'acct-toggle-mode';
+        modeBtn.title = `Switch to ${switchText}`;
+        modeBtn.setAttribute('aria-label', `Switch to ${switchText}`);
+        modeBtn.innerHTML = `<i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}`;
+        modeBtn.addEventListener('click', () => {
+          if (Admin.isAdminModeActive()) {
+            Admin.exitEditMode();
+            showToast('Switched to User Mode');
+          } else {
+            Admin.enterEditMode();
+            showToast('Switched to Admin Mode');
+          }
+          _updateAuthUI();
+          renderAccount(); // re-render to update button text
+        });
+        wrap.appendChild(modeBtn);
+      }
+
       const logoutBtn = document.createElement('button');
-      logoutBtn.id = 'acct-logout-topbar';
       logoutBtn.className = 'btn-ghost topbar-nav-btn';
       logoutBtn.title = 'Log Out';
       logoutBtn.setAttribute('aria-label', 'Log Out');
       logoutBtn.innerHTML = 'Log Out <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-left:4px;"></i>';
-      topbarRight.appendChild(logoutBtn);
-      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [logoutBtn] });
       logoutBtn.addEventListener('click', async () => {
         Sync.stopSyncPolling();
         await Auth.logout();
@@ -461,6 +486,10 @@ let _cachedPdfSet = new Set();
         renderList();
         showToast('Logged out');
       });
+      wrap.appendChild(logoutBtn);
+
+      topbarRight.appendChild(wrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
     }
 
     const user = Auth.getUser();

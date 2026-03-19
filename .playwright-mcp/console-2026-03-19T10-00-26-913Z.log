@@ -1,0 +1,30 @@
+[     279ms] AbortError: Skipped ViewTransition due to another transition starting
+    at showView (https://trio.catmanbeats.com/js/router.js?v=20.06:168:20)
+    at _showView (https://trio.catmanbeats.com/js/setlists.js?v=20.06:70:10)
+    at renderSetlistDetail (https://trio.catmanbeats.com/js/setlists.js?v=20.06:463:12)
+    at  (https://trio.catmanbeats.com/js/setlists.js?v=20.06:3315:31)
+    at safeRender/< (https://trio.catmanbeats.com/js/utils.js?v=20.06:261:14)
+    at navigateToRoute (https://trio.catmanbeats.com/js/router.js?v=20.06:96:7)
+    at _navigateToRoute (https://trio.catmanbeats.com/app.js?v=20.06:44:43)
+    at init/< (https://trio.catmanbeats.com/app.js?v=20.06:1144:27)
+    at EventListener.handleEvent*init (https://trio.catmanbeats.com/app.js?v=20.06:1127:12)
+    at async* (https://trio.catmanbeats.com/app.js?v=20.06:1918:3)
+    at EventListener.handleEvent* (https://trio.catmanbeats.com/app.js?v=20.06:1891:10)
+[   44561ms] [WARNING] [JavaScript Warning: "downloadable font: Glyph bbox was incorrect (glyph ids 16 17 18 21 23 36 37 38 39 40 41 42 43 44 47 48 49 50 51 53 54 55 56 59 60 62 64 68 69 70 71 72 73 75 76 77 78 79 80 81 82 83 85 86 87 88 91 92 93) (font-family: "g_d0_f2" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44696ms] [WARNING] [JavaScript Warning: "downloadable font: Glyph bbox was incorrect (glyph ids 6 11 12 16 18 21 23 36 37 38 39 40 41 42 43 48 51 54 55 68 70 71 72 73 74 76 77 80 81 82 83 85 86 87 88 90) (font-family: "g_d1_f2" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44866ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d2_f1" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44871ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d2_f2" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44877ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d2_f3" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44879ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d2_f4" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44883ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (italic) to match fsSelection (font-family: "g_d2_f6" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44887ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d2_f7" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44903ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d3_f1" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44916ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (italic) to match fsSelection (font-family: "g_d3_f2" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44917ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d3_f3" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44952ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d3_f4" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   44956ms] [WARNING] [JavaScript Warning: "downloadable font: OS/2: Adjusting head.macStyle (regular) to match fsSelection (font-family: "g_d3_f5" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   45189ms] [WARNING] [JavaScript Warning: "downloadable font: Glyph bbox was incorrect (glyph ids 11 12 16 18 21 23 36 37 38 39 40 41 42 43 48 51 54 55 58 68 69 71 72 73 74 75 76 77 79 80 81 82 83 85 86 87 88 91) (font-family: "g_d4_f2" style:normal weight:400 stretch:100 src index:0) source: (invalid URI)"] @ :0
+[   61978ms] [ERROR] Live mode chart render error Error @ https://trio.catmanbeats.com/js/setlists.js?v=20.06:1834
+[   77761ms] [ERROR] Live mode chart render error Error @ https://trio.catmanbeats.com/js/setlists.js?v=20.06:1834
+[   85662ms] [ERROR] Live mode chart render error Error @ https://trio.catmanbeats.com/js/setlists.js?v=20.06:1834
+[  538785ms] [ERROR] Live mode chart render error Error @ debugger eval code line 301 > eval:0

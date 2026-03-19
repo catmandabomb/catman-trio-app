@@ -1,0 +1,11 @@
+[     561ms] [WARNING] [JavaScript Warning: "Loading failed for the <script> with source “https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516”." {file: "https://trio.catmanbeats.com/" line: 413}] @ https://trio.catmanbeats.com/:413
+[     561ms] [ERROR] [JavaScript Error: "Content-Security-Policy: The page’s settings blocked a script (script-src-elem) at https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516 from being executed because it violates the following directive: “script-src 'self' https://accounts.google.com https://apis.google.com”" {file: "https://trio.catmanbeats.com/" line: 0}] @ https://trio.catmanbeats.com/:0
+[  119225ms] AbortError: Skipped ViewTransition due to another transition starting
+    at showView (https://trio.catmanbeats.com/js/router.js?v=20.09:176:20)
+    at _showView (https://trio.catmanbeats.com/js/setlists.js?v=20.07:74:10)
+    at renderSetlists (https://trio.catmanbeats.com/js/setlists.js?v=20.07:302:12)
+    at renderSetlists (https://trio.catmanbeats.com/app.js?v=20.09:395:52)
+    at init/< (https://trio.catmanbeats.com/app.js?v=20.09:1568:7)
+    at EventListener.handleEvent*init (https://trio.catmanbeats.com/app.js?v=20.09:1561:45)
+    at async* (https://trio.catmanbeats.com/app.js?v=20.09:1918:3)
+    at EventListener.handleEvent* (https://trio.catmanbeats.com/app.js?v=20.09:1891:10)

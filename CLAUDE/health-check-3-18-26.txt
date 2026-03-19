@@ -1,0 +1,145 @@
+CATMAN TRIO v19.98 — HEALTH CHECK REPORT
+=========================================
+Date: March 18, 2026
+Branch: main (up to date with origin)
+
+=========================================
+1. VERSION CONSISTENCY
+=========================================
+Status: PASS
+
+All 4 version locations match v19.98:
+  - js/store.js:13        APP_VERSION: 'v19.98'
+  - service-worker.js:9   CACHE_NAME = 'catmantrio-v19.98'
+  - index.html:72         app.css?v=19.98 (preload)
+  - index.html:75         app.css?v=19.98 (stylesheet)
+  - index.html:74         app.js?v=19.98 (modulepreload)
+  - index.html:426        app.js?v=19.98 (script module)
+
+=========================================
+2. ES MODULES CONVERSION
+=========================================
+Status: PASS
+
+All 19 IIFE modules successfully converted to ES modules:
+  - Entry point: app.js (type="module") imports all 18 other modules
+  - 3 UMD libs remain as regular <script> tags: lucide, pdf.js, Sortable
+  - Circular dependency admin.js <-> app.js resolved with lazy dynamic import
+  - No window.ModuleName globals (only window.onerror in app.js — legitimate)
+  - No stale typeof guards for app modules (all remaining guards are for
+    UMD globals: lucide, Sortable, Worker, navigator, pdfjsLib, etc.)
+
+Import graph verified — all imports resolve to valid exports.
+
+=========================================
+3. PLAYWRIGHT TESTS
+=========================================
+Status: PASS (5/5)
+
+  [firefox] app loads and renders main UI ................ 7.5s
+  [firefox] search input accepts text .................... 12.1s
+  [firefox] hash navigation updates the active view ...... 13.3s
+  [firefox] service worker registers successfully ........ 10.5s
+  [firefox] app loads from cache when offline ............ 11.8s
+
+Total: 23.7s, all passing.
+
+=========================================
+4. GIT STATUS
+=========================================
+Last commit: e1a4b2a Fix Classic 4 PDF rendering, practice login bug, UI polish
+
+Uncommitted changes (1 file):
+  - js/setlists.js: PDF wait-for-load polling fix
+    (when pdfDoc is null, polls every 200ms up to 12s instead of
+    silently resolving — deepest Classic 4 root cause fix)
+
+Untracked (tooling/test, not app code):
+  - CLAUDE/           (dev notes)
+  - lib/              (local UMD copies)
+  - package.json      (Playwright dev dependency)
+  - package-lock.json
+  - playwright.config.js
+  - tests/
+  - test-results/
+  - workers/crypto-worker.js
+
+=========================================
+5. RECENT COMMITS (this session)
+=========================================
+e1a4b2a Fix Classic 4 PDF rendering, practice login bug, UI polish
+  - pdf-viewer.js: containerWidth <= 0 retry (5x rAF + setTimeout)
+  - setlists.js: carousel starts visible (no opacity:0 trick)
+  - setlists.js: _afterSnap awaits render before position reset
+  - setlists.js: "Duplicate" renamed to "Copy"
+  - app.css: mobile title -2pt, .btn-email-setlist styles, detail-actions gap
+  - router.js: removed refresh buttons from setlists/practice views
+  - dashboard.js: sessions moved here, fixed timeAgo NaN bug
+  - cloudflare-worker: /auth/me returns 'id' not 'userId' (practice login fix)
+
+f85bfee Fix login PBKDF2 crash, move sessions to dashboard, enable title click
+  - users.js: PBKDF2 iterations 600k -> 100k (CF Workers limit)
+  - app.js: removed !isMobile gate on title click
+  - app.js: auth guard on pull-to-refresh
+
+=========================================
+6. CLASSIC 4 FIX STATUS
+=========================================
+Status: 4 FIXES APPLIED, AWAITING iOS TESTING
+
+Fix 1 — pdf-viewer.js: retry on containerWidth <= 0
+  Up to 5 retries using rAF + setTimeout(50ms).
+  Prevents silent abort when container hasn't been laid out yet.
+
+Fix 2 — setlists.js: carousel starts with opacity:1
+  iOS was skipping canvas compositing when opacity was 0.
+
+Fix 3 — setlists.js: _afterSnap awaits render
+  Previously reset carousel position (translateX) before PDF render finished,
+  causing a flash-then-black effect. Now awaits the render promise.
+
+Fix 4 — setlists.js: wait-for-load polling (UNCOMMITTED)
+  When _renderPageIntoSlide is called but pdfDoc is still null (PDF still
+  downloading), instead of returning Promise.resolve() immediately, it now
+  polls every 200ms for up to 12s. When the PDF loads, it re-invokes
+  _renderPageIntoSlide to actually render the page.
+  This was the deepest root cause — carousel rendered "loading" state
+  permanently because the render call happened before the PDF existed.
+
+All 4 fixes are complementary:
+  Fix 1 = container ready, Fix 2 = canvas visible
+  Fix 3 = timing correct, Fix 4 = PDF available
+
+=========================================
+7. CLOUDFLARE WORKER
+=========================================
+Status: DEPLOYED
+
+  - PBKDF2 iterations fixed (100k)
+  - /auth/me returns correct field names
+  - CORS configured for trio.catmanbeats.com
+  - Deployed via npx wrangler deploy
+
+=========================================
+8. CODEBASE METRICS
+=========================================
+Files:  20 JS modules + 1 CSS + 1 HTML + 1 service worker
+Lines:  16,206 JS + 5,288 CSS + 428 HTML = ~21,922 total
+Modules: 19 ES modules + 1 entry point (app.js)
+
+=========================================
+9. OUTSTANDING ITEMS (NOT in v19.98)
+=========================================
+  a) Username max length: 50 -> 25 (server + client)
+  b) Per-username rate limiting: block after 5 fails (return 429)
+  c) Audit logging: error_log done, audit_log not yet built
+  d) Classic 4 iOS testing: fixes applied, user must verify on device
+  e) cat2test account: may need password rehash (was hashed at 600k)
+  f) EMAIL_FROM_PERSONAL: wrangler secret put (user action)
+
+=========================================
+10. READY TO COMMIT
+=========================================
+One uncommitted fix remains: js/setlists.js PDF wait-for-load polling.
+Recommend committing this with the existing batch before pushing.
+Version stays at v19.98 per user instruction.

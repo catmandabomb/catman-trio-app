@@ -1,0 +1,51 @@
+Email FROM Addresses — Current Config & Options
+================================================
+
+CURRENT SETUP:
+- All emails use a single env var: EMAIL_FROM
+- Set via: wrangler secret put EMAIL_FROM
+- Fallback (if not set): "Catman Trio <onboarding@resend.dev>"
+- There's also EMAIL_FROM_PERSONAL but it's not currently used in code.
+
+CAN YOU USE TWO DIFFERENT FROM ADDRESSES?
+Yes! Here's how:
+
+Option A — Already partially wired (easiest):
+  You have two secrets already set in Cloudflare:
+    - EMAIL_FROM        (general/system emails)
+    - EMAIL_FROM_PERSONAL (currently unused in code)
+
+  We could route them like this:
+    EMAIL_FROM          → system emails (login alerts, password reset, registration)
+    EMAIL_FROM_PERSONAL → personal emails (setlist sharing, any user-facing correspondence)
+
+  Example values:
+    EMAIL_FROM          = "Catman Trio <noreply@catmanbeats.com>"
+    EMAIL_FROM_PERSONAL = "Cat <cat@catmanbeats.com>"
+
+  Code change needed: Just swap `env.EMAIL_FROM` to `env.EMAIL_FROM_PERSONAL`
+  in the setlist email handler (/email/send route). ~1 line change.
+
+Option B — More granular (if you want):
+  Add more env vars for specific categories:
+    EMAIL_FROM_SYSTEM   = "Catman Trio <noreply@catmanbeats.com>"  (login, password reset)
+    EMAIL_FROM_SETLIST  = "Cat <cat@catmanbeats.com>"  (setlist emails)
+    EMAIL_FROM_ALERT    = "Catman Trio Security <security@catmanbeats.com>"  (security alerts)
+
+  This is overkill for now but possible.
+
+RESEND REQUIREMENT:
+  All FROM addresses must use a domain verified in your Resend account.
+  If catmanbeats.com is verified, any address @catmanbeats.com works:
+    cat@catmanbeats.com, noreply@catmanbeats.com, security@catmanbeats.com, etc.
+
+  You do NOT need to create actual mailboxes — Resend sends from any
+  address on your verified domain.
+
+RECOMMENDATION:
+  Go with Option A. Set:
+    EMAIL_FROM          = "Catman Trio <noreply@catmanbeats.com>"
+    EMAIL_FROM_PERSONAL = "Cat <cat@catmanbeats.com>"
+
+  Then I'll update the setlist email route to use EMAIL_FROM_PERSONAL.
+  Tell me if you want me to make this change.

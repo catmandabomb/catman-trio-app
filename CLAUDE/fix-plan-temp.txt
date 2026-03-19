@@ -1,0 +1,39 @@
+FIXES TO APPLY (all in v19.98, no version bump)
+
+TASK 21: Classic 4 + chart loading
+- pdf-viewer.js:319 — silent fail on containerWidth <= 0, add retry with rAF
+- setlists.js:1926-1964 — carousel opacity timing, create with opacity:1 from start
+- setlists.js:1686-1767 — _afterSnap resets position before PDF render completes, await the render
+- setlists.js:2256-2305 — _onDragMove doesn't call _updateSlots/_updateProgress after swipe
+
+TASK 22: Mobile title font -2pt except CATMAN TRIO
+- app.css: add mobile media query for #topbar-title { font-size: 17px } (currently 19px)
+- Exclude .title-home class (CATMAN TRIO uses that)
+
+TASK 23: Remove refresh buttons
+- router.js:160 — remove setlists/practice/practice-detail from showRefresh
+- Keep btn-refresh (search-refresh-btn) on main song list, desktop only (already has pointer:coarse hide)
+- Remove btn-topbar-refresh from setlists/practice views
+
+TASK 24: Mobile back button positioning
+- app.css: reduce #btn-back margin/padding on mobile, reduce gap between back and title
+
+TASK 25: Setlist detail buttons
+- setlists.js:414 — rename "Duplicate" to "Copy" in topbar
+- setlists.js:424 — fix email button class to match others
+- app.css: reduce .detail-actions gap slightly
+
+TASK 26: Practice "New List" login error
+- practice.js:336 — _userId() returns null. Auth.isLoggedIn() passes at line 265.
+  Need to check: is _userId() actually returning null for admin user?
+  The user.id is "61bed45e45edc673" so it should work.
+  POSSIBLE: session restore hasn't completed by the time practice page renders?
+  Or the _api call for refreshSession is async and the user object isn't populated yet?
+
+TASK EXTRA: Sessions "NaNd ago" bug
+- dashboard.js sessions code: timeAgo(s.lastUsed) — s.lastUsed is ISO string, timeAgo expects ms
+- Fix: timeAgo(new Date(s.lastUsed).getTime())
+- Also: sessions only on dashboard (admin only) — already moved there
+
+TASK EXTRA: Sessions should only show for admin users
+- Already in dashboard which is admin-gated

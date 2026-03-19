@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Catman Trio" />
+  <meta name="theme-color" content="#0e0e10" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://catman-api.catmandabomb.workers.dev https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob:; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
+  <title>Catman Trio</title>
+
+  <!-- Splash screen: inline CSS + animations — renders BEFORE any external stylesheet.
+       Logo fades in (0.6s), holds (0.8s), fades out (0.4s). Total: 1.8s max.
+       Hard 2.0s safety kill via inline script — zero dependency on app.js load time. -->
+  <style>
+    #splash-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      background: #0e0e10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: splash-dismiss 0.4s ease-in 1.4s forwards;
+    }
+    @keyframes splash-dismiss {
+      to { opacity: 0; pointer-events: none; }
+    }
+    /* app.js early dismiss — skip the CSS animation timeline */
+    #splash-screen.fade-out {
+      animation: none;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease-out;
+    }
+    .splash-logo {
+      text-align: center;
+      line-height: 1.05;
+      user-select: none;
+      -webkit-user-select: none;
+      opacity: 0;
+      transform: scale(0.92);
+      animation: splash-fade-in 0.6s ease-out 0.05s forwards;
+    }
+    @keyframes splash-fade-in {
+      to { opacity: 1; transform: scale(1); }
+    }
+    .splash-catman {
+      display: block;
+      font-family: 'Audiowide', sans-serif;
+      font-weight: 400;
+      font-size: clamp(42px, 12vw, 72px);
+      letter-spacing: 2px;
+    }
+    .splash-trio {
+      display: block;
+      font-family: 'Audiowide', sans-serif;
+      font-weight: 400;
+      font-size: clamp(42px, 12vw, 72px);
+      letter-spacing: 6px;
+    }
+    .splash-catman span:nth-child(1) { color: rgb(215,175,90); }
+    .splash-catman span:nth-child(2) { color: rgb(220,184,105); }
+    .splash-catman span:nth-child(3) { color: rgb(225,193,120); }
+    .splash-catman span:nth-child(4) { color: rgb(230,202,135); }
+    .splash-catman span:nth-child(5) { color: rgb(235,211,150); }
+    .splash-catman span:nth-child(6) { color: rgb(240,220,165); }
+    .splash-trio span:nth-child(1) { color: rgb(220,184,105); }
+    .splash-trio span:nth-child(2) { color: rgb(225,193,120); }
+    .splash-trio span:nth-child(3) { color: rgb(230,202,135); }
+    .splash-trio span:nth-child(4) { color: rgb(235,211,150); }
+  </style>
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="img/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
+
+  <link rel="preload" href="app.css?v=20.10" as="style">
+  <link rel="preload" href="lucide.min.js" as="script">
+  <link rel="modulepreload" href="app.js?v=20.10">
+  <link rel="stylesheet" href="app.css?v=20.10" />
+
+  <script src="lib/pdf.min.js"></script>
+  <script src="lib/Sortable.min.js"></script>
+</head>
+<body style="background:#0e0e10">
+  <!-- Animated splash — fades in, holds, fades out. Hard 2s kill inline. -->
+  <div id="splash-screen">
+    <div class="splash-logo">
+      <span class="splash-catman"><span>C</span><span>a</span><span>t</span><span>m</span><span>a</span><span>n</span></span>
+      <span class="splash-trio"><span>T</span><span>r</span><span>i</span><span>o</span></span>
+    </div>
+  </div>
+  <script>
+    // Hard 2.0s safety kill — starts at HTML parse time, not when app.js loads.
+    // CSS animation auto-fades at 1.8s; this catches any edge case.
+    setTimeout(function(){var s=document.getElementById('splash-screen');if(s)s.remove()},2000);
+  </script>
+
+  <a href="#app" class="skip-link">Skip to content</a>
+
+  <header id="topbar" aria-label="Main navigation">
+    <div class="topbar-row-top">
+      <button id="btn-back" class="icon-btn hidden" aria-label="Back" title="Go back">
+        <i data-lucide="chevron-left"></i>
+      </button>
+      <div id="topbar-title"><span class="title-catman"><span style="color:rgb(215,175,90)">C</span><span style="color:rgb(220,184,105)">a</span><span style="color:rgb(225,193,120)">t</span><span style="color:rgb(230,202,135)">m</span><span style="color:rgb(235,211,150)">a</span><span style="color:rgb(240,220,165)">n</span></span><span class="title-trio"><span style="color:rgb(220,184,105)">T</span><span style="color:rgb(225,193,120)">r</span><span style="color:rgb(230,202,135)">i</span><span style="color:rgb(235,211,150)">o</span><span id="admin-version-badge" class="admin-version-badge hidden"></span></span></div>
+      <div class="topbar-right">
+        <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists" aria-label="Practice lists">
+          <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
+        </button>
+        <button id="btn-setlists" class="btn-ghost topbar-nav-btn" title="Setlists" aria-label="Setlists">
+          <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
+        </button>
+        <button id="btn-topbar-refresh" class="icon-btn topbar-refresh-btn hidden" title="Sync" aria-label="Refresh">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </div>
+    </div>
+    <div class="topbar-row-bottom">
+      <div id="topbar-actions"><span id="qi-badge" class="qi-badge hidden"></span></div>
+      <div id="master-volume" class="master-volume">
+        <i id="volume-icon" data-lucide="volume-2" style="width:14px;height:14px;opacity:0.6;flex-shrink:0;"></i>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1" class="volume-slider" title="Master volume" aria-label="Master volume" />
+      </div>
+    </div>
+  </header>
+
+  <main id="app">
+
+    <!-- LIST VIEW -->
+    <div id="view-list" class="view active">
+      <div class="list-subheader" id="admin-bar">
+        <span class="subheader-text">Rep. Repo. <span style="font-size:0.85em;vertical-align:-1px">&#x1F918;</span></span>
+        <span id="admin-buttons" class="admin-buttons">
+          <button id="btn-install-app" class="btn-ghost topbar-nav-btn btn-install-app hidden" title="Install app" aria-label="Install app">
+            <i data-lucide="download" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Install
+          </button>
+          <button id="btn-auth-toggle" class="btn-ghost topbar-nav-btn" title="Log In" aria-label="Log In"><i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In</button>
+          <button id="btn-account" class="icon-btn hidden" aria-label="Account" title="Account">
+            <i data-lucide="circle-user"></i>
+          </button>
+          <button id="btn-add-song" class="icon-btn hidden" aria-label="Add song" title="Add song">
+            <i data-lucide="plus"></i>
+          </button>
+        </span>
+      </div>
+      <div id="search-bar">
+        <div class="search-input-wrap">
+          <i data-lucide="search" class="search-icon"></i>
+          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" maxlength="100" />
+          <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear all filters" title="Clear all filters">
+            <i data-lucide="x" style="width:14px;height:14px;"></i>
+          </button>
+        </div>
+        <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </div>
+      <div id="tag-filter-bar"></div>
+      <div id="key-filter-bar" class="key-filter-bar"></div>
+      <div id="unauth-message" class="unauth-gate hidden">
+        <div class="unauth-gate-icon"><i data-lucide="lock" style="width:32px;height:32px;opacity:0.4;"></i></div>
+        <p class="unauth-gate-title">Log in to access the song list</p>
+        <p class="unauth-gate-sub">Sign in to browse songs, setlists, and practice lists.</p>
+      </div>
+      <div id="song-list-scroll">
+        <div id="ptr-indicator" class="ptr-indicator">
+          <div class="ptr-spinner"></div>
+          <span class="ptr-text">Pull down to refresh</span>
+        </div>
+        <div id="sync-indicator" class="sync-indicator hidden" aria-live="polite">
+          <i data-lucide="refresh-cw" class="sync-spinner"></i>
+          <span>Syncing songs…</span>
+        </div>
+        <div id="song-list"></div>
+        <div id="list-empty" class="empty-state hidden" aria-live="polite">
+          <p id="empty-title">Loading songs…</p>
+          <p id="empty-sub" class="muted">Fetching from the cloud</p>
+        </div>
+        <div id="list-no-results" class="empty-state hidden" aria-live="polite">
+          <p>No results.</p>
+          <p class="muted">Try a different search or filter.</p>
+        </div>
+        <div id="list-footer" class="list-footer hidden">
+          <div class="footer-divider"></div>
+          <div class="footer-columns">
+            <div class="footer-col">
+              <div class="footer-col-title">Navigate</div>
+              <a href="#" class="footer-link" role="button" data-footer-nav="list">Songs</a>
+              <a href="#" class="footer-link" role="button" data-footer-nav="setlists">Setlists</a>
+              <a href="#" class="footer-link" role="button" data-footer-nav="practice">Practice</a>
+              <a href="#" class="footer-link" role="button" data-footer-nav="dashboard">Dashboard</a>
+            </div>
+            <div class="footer-col">
+              <div class="footer-col-title">Listen</div>
+              <a href="https://open.spotify.com/artist/4mTKbcV4hkNeKrvbPuP6ZR" class="footer-link" target="_blank" rel="noopener">Spotify</a>
+              <a href="https://music.apple.com/us/artist/catman/200380326" class="footer-link" target="_blank" rel="noopener">Apple Music</a>
+              <a href="https://www.youtube.com/channel/UCFYUyYUw3OvjwuscmlPb8vg" class="footer-link" target="_blank" rel="noopener">YouTube</a>
+              <a href="https://catmanbeats.bandcamp.com/" class="footer-link" target="_blank" rel="noopener">Bandcamp</a>
+              <a href="https://soundcloud.com/catmanbeats" class="footer-link" target="_blank" rel="noopener">SoundCloud</a>
+            </div>
+            <div class="footer-col">
+              <div class="footer-col-title">Connect</div>
+              <a href="https://instagram.com/catmanbeats" class="footer-link" target="_blank" rel="noopener">Instagram</a>
+              <a href="https://facebook.com/catmanbeats" class="footer-link" target="_blank" rel="noopener">Facebook</a>
+              <a href="https://tiktok.com/@catmanbeats" class="footer-link" target="_blank" rel="noopener">TikTok</a>
+              <a href="https://x.com/catmanbeats" class="footer-link" target="_blank" rel="noopener">X</a>
+              <a href="mailto:catmanbeats@gmail.com" class="footer-link">Email</a>
+            </div>
+          </div>
+          <div class="footer-bottom">
+            <span class="footer-text">&copy; 2026, CAT</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAIL VIEW -->
+    <div id="view-detail" class="view">
+      <div id="detail-content"></div>
+    </div>
+
+    <!-- EDIT SONG VIEW -->
+    <div id="view-edit" class="view">
+      <div id="edit-content"></div>
+    </div>
+
+    <!-- SETLISTS LIST VIEW -->
+    <div id="view-setlists" class="view">
+      <div id="setlists-list" style="padding:16px"></div>
+    </div>
+
+    <!-- SETLIST DETAIL VIEW -->
+    <div id="view-setlist-detail" class="view">
+      <div id="setlist-detail-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- SETLIST LIVE VIEW -->
+    <div id="view-setlist-live" class="view">
+      <div id="setlist-live-content"></div>
+    </div>
+
+    <!-- SETLIST EDIT VIEW -->
+    <div id="view-setlist-edit" class="view">
+      <div id="setlist-edit-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- ADMIN DASHBOARD VIEW -->
+    <div id="view-dashboard" class="view">
+      <div id="dashboard-content" style="padding:16px"></div>
+    </div>
+
+    <!-- PRACTICE LISTS VIEW -->
+    <div id="view-practice" class="view">
+      <div id="practice-list" style="padding:16px"></div>
+    </div>
+
+    <!-- PRACTICE MODE VIEW (practice mode uses this container) -->
+    <div id="view-practice-detail" class="view">
+      <div id="practice-detail-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- PRACTICE LIST EDIT VIEW -->
+    <div id="view-practice-edit" class="view">
+      <div id="practice-edit-content" style="padding:20px 16px"></div>
+    </div>
+
+    <div id="view-account" class="view">
+      <div id="account-content" style="padding:20px 16px"></div>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div id="view-settings" class="view">
+      <div id="settings-content" style="padding:20px 16px"></div>
+    </div>
+
+  </main>
+
+  <!-- LOGIN MODAL -->
+  <div id="modal-login" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-login-title">
+    <div class="modal">
+      <h2 id="modal-login-title">Sign In</h2>
+      <p class="muted" id="login-subtext">Sign in to access edit mode and sync.</p>
+      <div class="github-field">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" placeholder="Username" autocomplete="username" maxlength="25" />
+      </div>
+      <div class="github-field">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" maxlength="128" />
+      </div>
+      <div class="github-field hidden" id="login-confirm-pw-row">
+        <label for="login-confirm-password">Confirm Password</label>
+        <input type="password" id="login-confirm-password" placeholder="Confirm password" autocomplete="new-password" maxlength="128" />
+      </div>
+      <div class="github-field hidden" id="login-email-row">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" placeholder="Email address" autocomplete="email" maxlength="100" />
+      </div>
+      <div class="github-field hidden" id="login-confirm-email-row">
+        <label for="login-confirm-email">Confirm Email</label>
+        <input type="email" id="login-confirm-email" placeholder="Confirm email address" autocomplete="email" maxlength="100" />
+      </div>
+      <!-- Honeypot for bot detection (hidden from real users) -->
+      <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">
+        <input type="text" id="login-hp" tabindex="-1" autocomplete="off" />
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <div id="login-forgot" class="hidden" style="text-align:center;margin:-4px 0 8px;">
+        <a href="#" id="btn-login-forgot" class="text-link" style="font-size:13px;color:var(--text-3);">Forgot password?</a>
+      </div>
+      <div id="login-toggle-mode" class="hidden" style="text-align:center;margin:-4px 0 8px;">
+        <a href="#" id="btn-login-toggle" class="text-link" style="font-size:13px;color:var(--text-3);">
+          Don't have an account? <b>Sign Up</b>
+        </a>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-login-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-login-confirm" class="btn-primary" title="Sign in">Sign In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF VIEWER MODAL -->
+  <div id="modal-pdf" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pdf-filename">
+    <div class="modal modal-pdf">
+      <div class="pdf-toolbar">
+        <span id="pdf-filename" class="pdf-title"></span>
+        <div class="pdf-zoom-controls">
+          <button id="pdf-zoom-out" class="icon-btn pdf-zoom-btn" aria-label="Zoom out" title="Zoom out">
+            <i data-lucide="minus"></i>
+          </button>
+          <span id="pdf-zoom-level" class="pdf-zoom-label">100%</span>
+          <button id="pdf-zoom-in" class="icon-btn pdf-zoom-btn" aria-label="Zoom in" title="Zoom in">
+            <i data-lucide="plus"></i>
+          </button>
+          <button id="pdf-zoom-reset" class="icon-btn pdf-zoom-btn" aria-label="Reset zoom" title="Reset zoom">
+            <i data-lucide="maximize-2"></i>
+          </button>
+        </div>
+        <div class="pdf-nav">
+          <button id="pdf-prev" class="icon-btn" aria-label="Prev page" title="Previous page">
+            <i data-lucide="chevron-left"></i>
+          </button>
+          <span id="pdf-page-info" role="status" aria-live="polite">1 / 1</span>
+          <button id="pdf-next" class="icon-btn" aria-label="Next page" title="Next page">
+            <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+        <button id="pdf-close" class="icon-btn" aria-label="Close PDF" title="Close PDF">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div id="pdf-canvas-container">
+        <canvas id="pdf-canvas"></canvas>
+        <canvas id="pdf-canvas-right" class="hidden"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM MODAL -->
+  <div id="modal-confirm" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="modal">
+      <h2 id="confirm-title">Confirm</h2>
+      <p id="confirm-message" class="muted"></p>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-confirm-ok" class="btn-danger" title="Confirm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRIVE SETUP MODAL -->
+  <div id="modal-drive" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-drive-title">
+    <div class="modal">
+      <h2 id="modal-drive-title">Google Drive Setup</h2>
+      <p class="muted">Paste your credentials to connect Drive. Stored locally on this device only.</p>
+      <div class="drive-field">
+        <label for="drive-api-key">API Key</label>
+        <input type="text" id="drive-api-key" placeholder="AIza…" autocomplete="off" />
+      </div>
+      <div class="drive-field">
+        <label for="drive-client-id">OAuth Client ID</label>
+        <input type="text" id="drive-client-id" placeholder="….apps.googleusercontent.com" autocomplete="off" />
+      </div>
+      <div class="drive-field">
+        <label for="drive-folder-id">Songs Folder ID <span class="muted">(from Drive URL)</span></label>
+        <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" />
+      </div>
+      <div class="modal-actions">
+        <button id="btn-drive-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-drive-save" class="btn-primary" title="Save credentials">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GITHUB SETUP MODAL -->
+  <div id="modal-github" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-github-title">
+    <div class="modal">
+      <h2 id="modal-github-title">GitHub Setup</h2>
+      <p class="muted">Connect to GitHub for encrypted data sync. Stored locally on this device only.</p>
+      <div class="github-field">
+        <label for="github-pat">Personal Access Token</label>
+        <input type="password" id="github-pat" placeholder="ghp_…" autocomplete="off" />
+      </div>
+      <div class="github-field">
+        <label for="github-owner">Repository Owner</label>
+        <input type="text" id="github-owner" placeholder="username or org" autocomplete="off" />
+      </div>
+      <div class="github-field">
+        <label for="github-repo">Repository Name</label>
+        <input type="text" id="github-repo" placeholder="my-repo" autocomplete="off" />
+      </div>
+      <div id="github-test-result" class="github-test-result hidden"></div>
+      <div class="modal-actions">
+        <button id="btn-github-cancel" class="btn-secondary" title="Cancel">Cancel</button>
+        <button id="btn-github-test" class="btn-secondary" title="Test connection">Test</button>
+        <button id="btn-github-save" class="btn-primary" title="Save and connect">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="hidden" role="status" aria-live="polite"></div>
+
+  <script src="lucide.min.js"></script>
+  <script type="module" src="app.js?v=20.10"></script>
+</body>
+</html>

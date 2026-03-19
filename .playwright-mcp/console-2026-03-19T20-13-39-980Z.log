@@ -1,0 +1,5 @@
+[     595ms] [WARNING] [JavaScript Warning: "downloadable font: maxp: Bad maxZones: 0 (font-family: "Chakra Petch" style:normal weight:600 stretch:100 src index:0) source: https://fonts.gstatic.com/s/chakrapetch/v13/cIflMapbsEk7TDLdtEz1BwkeQI51R5_F.woff2"] @ :28
+[     815ms] [WARNING] IDB init failed, using localStorage fallback Error @ http://127.0.0.1:8765/app.js?v=20.13:1064
+[     827ms] [WARNING] Drive sync failed, using local cache Error @ http://127.0.0.1:8765/js/sync.js:431
+[    1382ms] [WARNING] Drive sync failed, using local cache Error @ http://127.0.0.1:8765/js/sync.js?v=20.13:571
+[    3226ms] [WARNING] Drive sync failed, using local cache Error @ http://127.0.0.1:8765/js/sync.js?v=20.13:571
