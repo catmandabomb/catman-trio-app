@@ -5,14 +5,14 @@
  * Router calls them by key, avoiding circular deps.
  */
 
-import * as Store from './store.js?v=20.06';
-import * as Player from '../player.js?v=20.06';
-import * as Metronome from '../metronome.js?v=20.06';
+import * as Store from './store.js?v=20.07';
+import * as Player from '../player.js?v=20.07';
+import * as Metronome from '../metronome.js?v=20.07';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.06');
+  if (!_App) _App = import('../app.js?v=20.07');
   return _App;
 }
 
@@ -118,7 +118,15 @@ function showView(name) {
     if (!alreadyActive) {
       if (currentView === 'list' && name !== 'list') _callHook('cleanupSelection');
       if (currentView === 'setlist-live' && name !== 'setlist-live') _callHook('cleanupLiveMode');
-      if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) _callHook('cleanupPractice');
+      if ((currentView === 'practice-detail' || currentView === 'practice-edit' || currentView === 'practice') && !name.startsWith('practice')) {
+        _callHook('cleanupPractice');
+        document.body.classList.remove('practice-mode-active');
+      }
+      // Clean up live mode classes inside transition to avoid layout jitter
+      if (name !== 'setlist-live') {
+        document.body.classList.remove('live-mode-active');
+        document.documentElement.classList.remove('live-mode-active');
+      }
       // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
@@ -203,9 +211,9 @@ function navigateBack() {
     Store.get('exitLiveModeRef')();
     return;
   }
-  document.body.classList.remove('live-mode-active');
-  document.documentElement.classList.remove('live-mode-active');
-  document.body.classList.remove('practice-mode-active');
+  // Note: live-mode-active and practice-mode-active classes are removed inside
+  // showView's swap() callback (via cleanup hooks) so they're part of the view
+  // transition and don't cause visible layout shifts before the crossfade.
   const navStack = Store.get('navStack');
   if (navStack.length > 0) {
     const prev = navStack.pop();

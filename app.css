@@ -62,10 +62,21 @@
 ::view-transition-new(root) {
   animation: vt-fade-in 0.28s ease-in;
 }
+/* Topbar participates in transitions separately so fixed-position element
+   doesn't render on top of the crossfade overlay, eliminating button jitter. */
+#topbar { view-transition-name: topbar; }
+::view-transition-old(topbar) {
+  animation: vt-fade-out 0.2s ease-out;
+}
+::view-transition-new(topbar) {
+  animation: vt-fade-in 0.2s ease-in 0.08s;
+}
 
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
-  ::view-transition-new(root) {
+  ::view-transition-new(root),
+  ::view-transition-old(topbar),
+  ::view-transition-new(topbar) {
     animation: none;
   }
 }
@@ -3956,7 +3967,10 @@ html.live-mode-active { overflow: hidden; }
 .lm-carousel {
   flex: 1;
   display: flex;
-  overflow: hidden;
+  /* CLASSIC 4 FIX: Do NOT use overflow:hidden here — it clips slides in the
+     carousel's local coordinate space BEFORE transform is applied, making all
+     slides except slot 0 invisible. The parent #setlist-live-content already
+     has overflow:hidden which clips the VISUAL (post-transform) output correctly. */
   position: relative;
   will-change: transform;
   touch-action: none;
