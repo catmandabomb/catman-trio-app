@@ -6,14 +6,14 @@
  * State lives in Store; re-renders via Router.
  */
 
-import * as Store from './store.js';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js';
-import * as GitHub from '../github.js';
-import * as Drive from '../drive.js';
-import * as Router from './router.js';
-import * as IDB from '../idb.js';
-import * as Auth from '../auth.js';
-import * as Admin from '../admin.js';
+import * as Store from './store.js?v=20.04';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.04';
+import * as GitHub from '../github.js?v=20.04';
+import * as Drive from '../drive.js?v=20.04';
+import * as Router from './router.js?v=20.04';
+import * as IDB from '../idb.js?v=20.04';
+import * as Auth from '../auth.js?v=20.04';
+import * as Admin from '../admin.js?v=20.04';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't

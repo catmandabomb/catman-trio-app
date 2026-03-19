@@ -5,22 +5,22 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js';
-import * as Modal from './modal.js';
-import * as Router from './router.js';
-import * as Admin from '../admin.js';
-import * as Auth from '../auth.js';
-import * as Sync from './sync.js';
-import * as Drive from '../drive.js';
-import * as GitHub from '../github.js';
-import * as Player from '../player.js';
-import * as PDFViewer from '../pdf-viewer.js';
-import * as Metronome from '../metronome.js';
-import * as App from '../app.js';
-import * as Setlists from './setlists.js';
-import * as Practice from './practice.js';
-import * as Dashboard from './dashboard.js';
+import * as Store from './store.js?v=20.04';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.04';
+import * as Modal from './modal.js?v=20.04';
+import * as Router from './router.js?v=20.04';
+import * as Admin from '../admin.js?v=20.04';
+import * as Auth from '../auth.js?v=20.04';
+import * as Sync from './sync.js?v=20.04';
+import * as Drive from '../drive.js?v=20.04';
+import * as GitHub from '../github.js?v=20.04';
+import * as Player from '../player.js?v=20.04';
+import * as PDFViewer from '../pdf-viewer.js?v=20.04';
+import * as Metronome from '../metronome.js?v=20.04';
+import * as App from '../app.js?v=20.04';
+import * as Setlists from './setlists.js?v=20.04';
+import * as Practice from './practice.js?v=20.04';
+import * as Dashboard from './dashboard.js?v=20.04';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {

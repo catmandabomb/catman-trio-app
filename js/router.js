@@ -5,14 +5,14 @@
  * Router calls them by key, avoiding circular deps.
  */
 
-import * as Store from './store.js';
-import * as Player from '../player.js';
-import * as Metronome from '../metronome.js';
+import * as Store from './store.js?v=20.04';
+import * as Player from '../player.js?v=20.04';
+import * as Metronome from '../metronome.js?v=20.04';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js');
+  if (!_App) _App = import('../app.js?v=20.04');
   return _App;
 }
 
