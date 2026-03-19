@@ -5,19 +5,19 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.08';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.08';
-import * as Modal from './modal.js?v=20.08';
-import * as Router from './router.js?v=20.08';
-import * as Admin from '../admin.js?v=20.08';
-import * as Auth from '../auth.js?v=20.08';
-import * as Sync from './sync.js?v=20.08';
-import * as Drive from '../drive.js?v=20.08';
-import * as GitHub from '../github.js?v=20.08';
-import * as Player from '../player.js?v=20.08';
-import * as PDFViewer from '../pdf-viewer.js?v=20.08';
-import * as App from '../app.js?v=20.08';
-import * as Songs from './songs.js?v=20.08';
+import * as Store from './store.js?v=20.09';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.09';
+import * as Modal from './modal.js?v=20.09';
+import * as Router from './router.js?v=20.09';
+import * as Admin from '../admin.js?v=20.09';
+import * as Auth from '../auth.js?v=20.09';
+import * as Sync from './sync.js?v=20.09';
+import * as Drive from '../drive.js?v=20.09';
+import * as GitHub from '../github.js?v=20.09';
+import * as Player from '../player.js?v=20.09';
+import * as PDFViewer from '../pdf-viewer.js?v=20.09';
+import * as App from '../app.js?v=20.09';
+import * as Songs from './songs.js?v=20.09';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -105,19 +105,18 @@ function _doSyncRefresh(afterCallback) {
 }
 
 function _injectTopbarActions(id, innerHtml, onReady) {
-  // Double rAF: startViewTransition runs swap() async — single rAF can fire before it.
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    const topbarRight = document.querySelector('.topbar-right');
-    if (!topbarRight) return;
-    topbarRight.querySelector(`#${id}`)?.remove();
-    const wrap = document.createElement('div');
-    wrap.id = id;
-    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
-    wrap.innerHTML = innerHtml;
-    topbarRight.appendChild(wrap);
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-    if (onReady) onReady(wrap);
-  }));
+  // Inject synchronously so buttons are part of the View Transition "new" state.
+  // Old double-rAF caused buttons to appear AFTER the crossfade, creating jitter.
+  const topbarRight = document.querySelector('.topbar-right');
+  if (!topbarRight) return;
+  topbarRight.querySelector(`#${id}`)?.remove();
+  const wrap = document.createElement('div');
+  wrap.id = id;
+  wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+  wrap.innerHTML = innerHtml;
+  topbarRight.appendChild(wrap);
+  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+  if (onReady) onReady(wrap);
 }
 
 // ─── SETLIST SONG PICKER (from song detail / batch) ───────────

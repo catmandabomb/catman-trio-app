@@ -5,22 +5,22 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.08';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.08';
-import * as Modal from './modal.js?v=20.08';
-import * as Router from './router.js?v=20.08';
-import * as Admin from '../admin.js?v=20.08';
-import * as Auth from '../auth.js?v=20.08';
-import * as Sync from './sync.js?v=20.08';
-import * as Drive from '../drive.js?v=20.08';
-import * as GitHub from '../github.js?v=20.08';
-import * as Player from '../player.js?v=20.08';
-import * as PDFViewer from '../pdf-viewer.js?v=20.08';
-import * as Metronome from '../metronome.js?v=20.08';
-import * as App from '../app.js?v=20.08';
-import * as Setlists from './setlists.js?v=20.08';
-import * as Practice from './practice.js?v=20.08';
-import * as Dashboard from './dashboard.js?v=20.08';
+import * as Store from './store.js?v=20.09';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.09';
+import * as Modal from './modal.js?v=20.09';
+import * as Router from './router.js?v=20.09';
+import * as Admin from '../admin.js?v=20.09';
+import * as Auth from '../auth.js?v=20.09';
+import * as Sync from './sync.js?v=20.09';
+import * as Drive from '../drive.js?v=20.09';
+import * as GitHub from '../github.js?v=20.09';
+import * as Player from '../player.js?v=20.09';
+import * as PDFViewer from '../pdf-viewer.js?v=20.09';
+import * as Metronome from '../metronome.js?v=20.09';
+import * as App from '../app.js?v=20.09';
+import * as Setlists from './setlists.js?v=20.09';
+import * as Practice from './practice.js?v=20.09';
+import * as Dashboard from './dashboard.js?v=20.09';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -673,11 +673,10 @@ function renderDetail(song, skipNavPush) {
   Router.setTopbar(song.title || 'Song', true);
 
   // Add to Setlist (admin) or Add to Practice List (non-admin) in topbar
-  // Double rAF: startViewTransition runs swap() async — single rAF can fire before it.
+  // Inject synchronously so buttons are part of the View Transition "new" state.
   if (Auth.isLoggedIn()) {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const topbarRight = document.querySelector('.topbar-right');
-      if (!topbarRight) return;
+    const topbarRight = document.querySelector('.topbar-right');
+    if (topbarRight) {
       topbarRight.querySelector('#song-detail-topbar-actions')?.remove();
       const wrap = document.createElement('div');
       wrap.id = 'song-detail-topbar-actions';
@@ -689,7 +688,6 @@ function renderDetail(song, skipNavPush) {
       }
       topbarRight.appendChild(wrap);
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-      // Wire listeners inside rAF where buttons exist
       wrap.querySelector('.btn-add-to-setlist')?.addEventListener('click', () => {
         _showSetlistPicker(song);
       });
@@ -700,7 +698,7 @@ function renderDetail(song, skipNavPush) {
           showToast('Practice module not loaded');
         }
       });
-    }));
+    }
   }
 
   const container = document.getElementById('detail-content');

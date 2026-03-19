@@ -5,15 +5,15 @@
  * Generates 4-digit hex IDs for new songs (e.g. "3f9a").
  */
 
-import * as Modal from './js/modal.js?v=20.08';
-import * as Drive from './drive.js?v=20.08';
-import * as GitHub from './github.js?v=20.08';
-import * as Utils from './js/utils.js?v=20.08';
-import * as Auth from './auth.js?v=20.08';
+import * as Modal from './js/modal.js?v=20.09';
+import * as Drive from './drive.js?v=20.09';
+import * as GitHub from './github.js?v=20.09';
+import * as Utils from './js/utils.js?v=20.09';
+import * as Auth from './auth.js?v=20.09';
 // Lazy import to break circular dependency (admin ↔ app)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('./app.js?v=20.08');
+  if (!_App) _App = import('./app.js?v=20.09');
   return _App;
 }
 

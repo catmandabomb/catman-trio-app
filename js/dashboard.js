@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.08';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.08';
-import * as Modal from './modal.js?v=20.08';
-import * as Router from './router.js?v=20.08';
-import * as Admin from '../admin.js?v=20.08';
-import * as Auth from '../auth.js?v=20.08';
-import * as GitHub from '../github.js?v=20.08';
-import * as Drive from '../drive.js?v=20.08';
-import * as Sync from './sync.js?v=20.08';
-import * as App from '../app.js?v=20.08';
-import * as IDB from '../idb.js?v=20.08';
+import * as Store from './store.js?v=20.09';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.09';
+import * as Modal from './modal.js?v=20.09';
+import * as Router from './router.js?v=20.09';
+import * as Admin from '../admin.js?v=20.09';
+import * as Auth from '../auth.js?v=20.09';
+import * as GitHub from '../github.js?v=20.09';
+import * as Drive from '../drive.js?v=20.09';
+import * as Sync from './sync.js?v=20.09';
+import * as App from '../app.js?v=20.09';
+import * as IDB from '../idb.js?v=20.09';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -35,44 +35,43 @@ function renderDashboard() {
   Router.setTopbar('Dashboard', true);
 
   // Add Switch Mode + Log Out buttons to topbar right
-  // startViewTransition runs swap() in a microtask — single rAF can fire before it.
-  // Double rAF guarantees we inject after the transition swap completes.
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+  // Inject synchronously so buttons are part of the View Transition "new" state.
+  {
     const topbarRight = document.querySelector('.topbar-right');
-    if (!topbarRight) return;
-    topbarRight.querySelector('#dash-topbar-actions')?.remove();
-    const adminModeOn = Admin.isAdminModeActive();
-    const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
-    const switchIcon = adminModeOn ? 'user' : 'shield';
-    const wrap = document.createElement('div');
-    wrap.id = 'dash-topbar-actions';
-    wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
-    wrap.innerHTML = `
-      <button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>
-      <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
-    `;
-    topbarRight.appendChild(wrap);
-    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-    // Wire buttons inside rAF where they exist
-    wrap.querySelector('#dash-toggle-mode')?.addEventListener('click', () => {
-      if (Admin.isAdminModeActive()) {
-        Admin.exitEditMode();
-        showToast('Switched to User Mode');
-      } else {
-        Admin.enterEditMode();
-        showToast('Switched to Admin Mode');
-      }
-      App.updateAuthUI();
-      renderDashboard();
-    });
-    wrap.querySelector('#dash-logout')?.addEventListener('click', async () => {
-      await Auth.logout();
-      Admin.resetAdminMode(false);
-      App.updateAuthUI();
-      App.renderList();
-      showToast('Logged out');
-    });
-  }));
+    if (topbarRight) {
+      topbarRight.querySelector('#dash-topbar-actions')?.remove();
+      const adminModeOn = Admin.isAdminModeActive();
+      const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
+      const switchIcon = adminModeOn ? 'user' : 'shield';
+      const wrap = document.createElement('div');
+      wrap.id = 'dash-topbar-actions';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      wrap.innerHTML = `
+        <button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>
+        <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
+      `;
+      topbarRight.appendChild(wrap);
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
+      wrap.querySelector('#dash-toggle-mode')?.addEventListener('click', () => {
+        if (Admin.isAdminModeActive()) {
+          Admin.exitEditMode();
+          showToast('Switched to User Mode');
+        } else {
+          Admin.enterEditMode();
+          showToast('Switched to Admin Mode');
+        }
+        App.updateAuthUI();
+        renderDashboard();
+      });
+      wrap.querySelector('#dash-logout')?.addEventListener('click', async () => {
+        await Auth.logout();
+        Admin.resetAdminMode(false);
+        App.updateAuthUI();
+        App.renderList();
+        showToast('Logged out');
+      });
+    }
+  }
 
   const container = document.getElementById('dashboard-content');
   const songs     = Store.get('songs');
