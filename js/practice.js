@@ -1180,6 +1180,7 @@ function _exitPracticeMode() {
 Router.registerHook('cleanupPractice', () => {
   if (_bpmHoldTimer) { clearInterval(_bpmHoldTimer); _bpmHoldTimer = null; }
   if (Metronome.isPlaying()) Metronome.stop();
+  _cleanupTuningFork();
 });
 
 // ─── Public API ───────────────────────────────────────────
