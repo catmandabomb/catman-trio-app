@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.14';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.14';
-import * as Modal from './modal.js?v=20.14';
-import * as Router from './router.js?v=20.14';
-import * as Sync from './sync.js?v=20.14';
-import * as Drive from '../drive.js?v=20.14';
-import * as GitHub from '../github.js?v=20.14';
-import * as Admin from '../admin.js?v=20.14';
-import * as Auth from '../auth.js?v=20.14';
-import * as Player from '../player.js?v=20.14';
-import * as Metronome from '../metronome.js?v=20.14';
-import * as PDFViewer from '../pdf-viewer.js?v=20.14';
-import * as App from '../app.js?v=20.14';
+import * as Store from './store.js?v=20.15';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.15';
+import * as Modal from './modal.js?v=20.15';
+import * as Router from './router.js?v=20.15';
+import * as Sync from './sync.js?v=20.15';
+import * as Drive from '../drive.js?v=20.15';
+import * as GitHub from '../github.js?v=20.15';
+import * as Admin from '../admin.js?v=20.15';
+import * as Auth from '../auth.js?v=20.15';
+import * as Player from '../player.js?v=20.15';
+import * as Metronome from '../metronome.js?v=20.15';
+import * as PDFViewer from '../pdf-viewer.js?v=20.15';
+import * as App from '../app.js?v=20.15';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -109,11 +109,14 @@ function _updatePitchBtnLabel() {
   const pitchBtn = document.getElementById('btn-tuning-fork-pitch');
   if (!pitchBtn) return;
   const isDefault = _tfPitchIdx === 0;
+  // Show short note label (e.g. "E4") only when non-default; chevron always visible
   const labelSpan = pitchBtn.querySelector('.tf-pitch-label');
   if (labelSpan) {
-    labelSpan.textContent = isDefault ? '' : _TF_PITCHES[_tfPitchIdx].freq + '';
+    const shortLabel = isDefault ? '' : _TF_PITCHES[_tfPitchIdx].label.split(' ')[0];
+    labelSpan.textContent = shortLabel;
     labelSpan.style.display = isDefault ? 'none' : '';
   }
+  pitchBtn.title = `Pitch: ${_TF_PITCHES[_tfPitchIdx].label}`;
 }
 
 function _togglePitchDropdown(e) {
@@ -180,7 +183,8 @@ function _injectTuningForkBtn() {
   pitchBtn.title = 'Select pitch';
   pitchBtn.setAttribute('aria-label', 'Select tuning fork pitch');
   const isDefault = _tfPitchIdx === 0;
-  pitchBtn.innerHTML = `<span class="tf-pitch-label" style="${isDefault ? 'display:none' : ''}">${isDefault ? '' : _TF_PITCHES[_tfPitchIdx].freq}</span><i data-lucide="chevron-down" style="width:12px;height:12px;"></i>`;
+  const shortLabel = isDefault ? '' : _TF_PITCHES[_tfPitchIdx].label.split(' ')[0];
+  pitchBtn.innerHTML = `<span class="tf-pitch-label" style="${isDefault ? 'display:none' : ''}">${shortLabel}</span><i data-lucide="chevron-down" style="width:12px;height:12px;"></i>`;
   pitchBtn.addEventListener('click', _togglePitchDropdown);
 
   const dd = document.createElement('div');

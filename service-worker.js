@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.14';
+const CACHE_NAME = 'catmantrio-v20.15';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -443,9 +443,14 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Shell assets: stale-while-revalidate — serve from cache instantly,
-  // fire background fetch to update cache for next visit.
-  // ignoreSearch so ?v= params match pre-cached files.
+  // Shell assets: stale-while-revalidate with version-aware cache busting.
+  // If the request has a ?v= param that doesn't match SW version, go network-first
+  // so version bumps always deliver fresh files on the first load.
+  const SW_VERSION = CACHE_NAME.replace('catmantrio-v', '');
+  const reqUrl = new URL(e.request.url);
+  const reqVersion = reqUrl.searchParams.get('v');
+  const versionMismatch = reqVersion && reqVersion !== SW_VERSION;
+
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(cached => {
       const fetchPromise = fetch(e.request).then(resp => {
@@ -459,7 +464,15 @@ self.addEventListener('fetch', (e) => {
         return resp;
       }).catch(() => null);
 
-      // Return cached immediately if available, otherwise wait for network
+      // Version mismatch: prefer network (fresh files), fall back to cache
+      if (versionMismatch) {
+        return fetchPromise.then(resp => {
+          if (resp) return resp;
+          return cached || new Response('Offline', { status: 503 });
+        });
+      }
+
+      // Normal: return cached immediately if available, otherwise wait for network
       return cached || fetchPromise.then(resp => {
         if (resp) return resp;
         if (e.request.destination === 'document') return caches.match('/index.html');
