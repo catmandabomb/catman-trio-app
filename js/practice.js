@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.04';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS } from './utils.js?v=20.04';
-import * as Modal from './modal.js?v=20.04';
-import * as Router from './router.js?v=20.04';
-import * as Sync from './sync.js?v=20.04';
-import * as Drive from '../drive.js?v=20.04';
-import * as GitHub from '../github.js?v=20.04';
-import * as Admin from '../admin.js?v=20.04';
-import * as Auth from '../auth.js?v=20.04';
-import * as Player from '../player.js?v=20.04';
-import * as Metronome from '../metronome.js?v=20.04';
-import * as PDFViewer from '../pdf-viewer.js?v=20.04';
-import * as App from '../app.js?v=20.04';
+import * as Store from './store.js?v=20.05';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS } from './utils.js?v=20.05';
+import * as Modal from './modal.js?v=20.05';
+import * as Router from './router.js?v=20.05';
+import * as Sync from './sync.js?v=20.05';
+import * as Drive from '../drive.js?v=20.05';
+import * as GitHub from '../github.js?v=20.05';
+import * as Admin from '../admin.js?v=20.05';
+import * as Auth from '../auth.js?v=20.05';
+import * as Player from '../player.js?v=20.05';
+import * as Metronome from '../metronome.js?v=20.05';
+import * as PDFViewer from '../pdf-viewer.js?v=20.05';
+import * as App from '../app.js?v=20.05';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -390,7 +390,7 @@ function renderPractice(skipNavReset) {
   // Archived section
   if (archivedLists.length > 0) {
     html += `<button class="btn-ghost practice-archive-toggle" id="btn-show-archived" style="width:100%;margin-top:16px;">
-      Show Archived (${archivedLists.length})
+      <i data-lucide="archive" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Show Archived (${archivedLists.length})
     </button>`;
     html += `<div id="archived-practice-lists" class="hidden" style="margin-top:8px;">`;
     archivedLists.forEach(pl => {
@@ -481,10 +481,10 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
   // Topbar actions
   let plTopbarHtml = '';
   if (Admin.isEditMode()) {
-    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-edit-practice-list">Edit</button>`;
+    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-edit-practice-list"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button>`;
   }
   if (Admin.isEditMode() || _userId() === practiceList.createdBy) {
-    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" style="color:#e87c6a;">Delete</button>`;
+    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" style="color:#e87c6a;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Delete</button>`;
   }
   _injectTopbarActions('practice-list-detail-topbar-actions', plTopbarHtml);
 

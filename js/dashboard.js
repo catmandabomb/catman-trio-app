@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.04';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.04';
-import * as Modal from './modal.js?v=20.04';
-import * as Router from './router.js?v=20.04';
-import * as Admin from '../admin.js?v=20.04';
-import * as Auth from '../auth.js?v=20.04';
-import * as GitHub from '../github.js?v=20.04';
-import * as Drive from '../drive.js?v=20.04';
-import * as Sync from './sync.js?v=20.04';
-import * as App from '../app.js?v=20.04';
-import * as IDB from '../idb.js?v=20.04';
+import * as Store from './store.js?v=20.05';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.05';
+import * as Modal from './modal.js?v=20.05';
+import * as Router from './router.js?v=20.05';
+import * as Admin from '../admin.js?v=20.05';
+import * as Auth from '../auth.js?v=20.05';
+import * as GitHub from '../github.js?v=20.05';
+import * as Drive from '../drive.js?v=20.05';
+import * as Sync from './sync.js?v=20.05';
+import * as App from '../app.js?v=20.05';
+import * as IDB from '../idb.js?v=20.05';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -35,10 +35,12 @@ function renderDashboard() {
   Router.setTopbar('Dashboard', true);
 
   // Add Switch Mode + Log Out buttons to topbar right
-  const topbarRight = document.querySelector('.topbar-right');
-  if (topbarRight) {
+  // Deferred: showView uses startViewTransition which removes topbar actions async.
+  // requestAnimationFrame ensures we inject after the transition swap completes.
+  requestAnimationFrame(() => {
+    const topbarRight = document.querySelector('.topbar-right');
+    if (!topbarRight) return;
     topbarRight.querySelector('#dash-topbar-actions')?.remove();
-    const isOwnerOrAdmin = Auth.isLoggedIn() && Auth.canEditSongs();
     const adminModeOn = Admin.isAdminModeActive();
     const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
     const switchIcon = adminModeOn ? 'user' : 'shield';
@@ -46,12 +48,12 @@ function renderDashboard() {
     wrap.id = 'dash-topbar-actions';
     wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
     wrap.innerHTML = `
-      ${isOwnerOrAdmin ? `<button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>` : ''}
-      <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out">Log Out <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-left:4px;"></i></button>
+      <button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>
+      <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
     `;
     topbarRight.appendChild(wrap);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
-  }
+  });
 
   const container = document.getElementById('dashboard-content');
   const songs     = Store.get('songs');
@@ -365,10 +367,10 @@ function renderDashboard() {
             <div class="dash-rate-bar"><div class="dash-rate-fill ${fillClass}" style="width:${Math.min(rl.pct, 100)}%"></div></div>
           </div>
           <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="dash-github-push" class="btn-primary" style="font-size:11px;padding:6px 14px;">Push Now</button>
-            <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:6px 14px;">GitHub Setup</button>
-            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Run Diagnostics</button>
-            ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:6px 14px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
+            <button id="dash-github-push" class="btn-primary" style="font-size:11px;padding:4px 6px;">Push Now</button>
+            <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:4px 6px;">GitHub Setup</button>
+            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Run Diagnostics</button>
+            ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:4px 6px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
           </div>
         </div>`;
   } else {
@@ -377,8 +379,8 @@ function renderDashboard() {
           <div class="dash-alert-title">${_codeTag(2501)} GitHub not configured</div>
           <div class="dash-alert-detail">Connect GitHub for encrypted metadata sync across all devices (including mobile).</div>
           <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="dash-github-setup" class="btn-primary" style="font-size:11px;padding:6px 14px;">Configure GitHub</button>
-            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Run Diagnostics</button>
+            <button id="dash-github-setup" class="btn-primary" style="font-size:11px;padding:4px 6px;">Configure GitHub</button>
+            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Run Diagnostics</button>
           </div>
         </div>`;
   }
@@ -401,15 +403,6 @@ function renderDashboard() {
     html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
       <button class="btn-ghost" id="dash-open-user-mgmt" style="font-size:15px;">
         <i data-lucide="users" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>User Management
-      </button>
-    </div>`;
-  }
-
-  // Reset User Password — link to subpage (owner only)
-  if (Auth.canManageUsers()) {
-    html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
-      <button class="btn-ghost" id="dash-open-reset-pw" style="font-size:15px;">
-        <i data-lucide="key-round" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>Reset a User's Password
       </button>
     </div>`;
   }
@@ -626,11 +619,6 @@ function renderDashboard() {
   // Wire User Management button
   document.getElementById('dash-open-user-mgmt')?.addEventListener('click', () => {
     renderUserManagement();
-  });
-
-  // Wire Reset User Password button
-  document.getElementById('dash-open-reset-pw')?.addEventListener('click', () => {
-    renderResetUserPassword();
   });
 
   // Wire GitHub dashboard buttons
@@ -1089,16 +1077,16 @@ async function _loadMigrationUI() {
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">';
 
     if (!metadataDone) {
-      html += `<button id="dash-migrate-metadata" class="btn-primary" style="font-size:11px;padding:6px 14px;">Migrate Metadata to D1</button>`;
+      html += `<button id="dash-migrate-metadata" class="btn-primary" style="font-size:11px;padding:4px 6px;">Migrate Metadata to D1</button>`;
     }
     if (!filesDone) {
-      html += `<button id="dash-migrate-files" class="btn-primary" style="font-size:11px;padding:6px 14px;">Migrate Files to R2</button>`;
+      html += `<button id="dash-migrate-files" class="btn-primary" style="font-size:11px;padding:4px 6px;">Migrate Files to R2</button>`;
     }
     if (metadataDone && !cfActive) {
-      html += `<button id="dash-switch-cloudflare" class="btn-primary" style="font-size:11px;padding:6px 14px;">Switch to Cloudflare</button>`;
+      html += `<button id="dash-switch-cloudflare" class="btn-primary" style="font-size:11px;padding:4px 6px;">Switch to Cloudflare</button>`;
     }
     if (cfActive) {
-      html += `<button id="dash-switch-legacy" class="btn-secondary" style="font-size:11px;padding:6px 14px;">Switch Back to GitHub+Drive</button>`;
+      html += `<button id="dash-switch-legacy" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Switch Back to GitHub+Drive</button>`;
     }
 
     html += '</div></div>';
@@ -1358,6 +1346,7 @@ function renderTagManager() {
   Router.pushNav(() => renderDashboard());
   Router.showView('dashboard');
   Router.setTopbar('Tag Manager', true);
+  document.querySelector('#dash-topbar-actions')?.remove();
 
   const container = document.getElementById('dashboard-content');
   const songs = Store.get('songs');
@@ -1484,6 +1473,7 @@ async function renderUserManagement() {
   Router.pushNav(() => renderDashboard());
   Router.showView('dashboard');
   Router.setTopbar('User Management', true);
+  document.querySelector('#dash-topbar-actions')?.remove();
 
   const container = document.getElementById('dashboard-content');
   container.innerHTML = `<div class="dash-users-loading" style="text-align:center;padding:40px 20px;color:var(--text-3);">Loading users\u2026</div>`;
@@ -1494,7 +1484,7 @@ async function renderUserManagement() {
     const roleIcons = { owner: 'crown', admin: 'shield', member: 'user', guest: 'eye' };
 
     let html = `<div style="text-align:center;margin-bottom:16px;">
-      <button class="btn-primary" id="um-add-user" style="font-size:12px;padding:8px 18px;">
+      <button class="btn-ghost" id="um-add-user" style="font-size:12px;">
         <i data-lucide="user-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Add User
       </button>
     </div>`;
@@ -1527,6 +1517,9 @@ async function renderUserManagement() {
               ${u.role !== 'owner' ? `
                 <button class="tag-mgr-btn um-edit-user" data-user-id="${esc(u.id)}" title="Edit user">
                   <i data-lucide="pencil" style="width:12px;height:12px;"></i>
+                </button>
+                <button class="tag-mgr-btn um-reset-pw" data-user-id="${esc(u.id)}" data-username="${esc(u.username)}" title="Reset password">
+                  <i data-lucide="key-round" style="width:12px;height:12px;"></i>
                 </button>
                 <button class="tag-mgr-btn um-delete-user" data-user-id="${esc(u.id)}" data-username="${esc(u.username)}" title="Delete user">
                   <i data-lucide="trash-2" style="width:12px;height:12px;"></i>
@@ -1563,6 +1556,15 @@ async function renderUserManagement() {
             showToast('Delete failed: ' + (e.message || 'unknown error'));
           }
         });
+      });
+    });
+
+    // Wire Reset Password buttons
+    container.querySelectorAll('.um-reset-pw').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const username = btn.dataset.username;
+        const userId = btn.dataset.userId;
+        _showResetPasswordModal(userId, username);
       });
     });
 
@@ -1813,10 +1815,10 @@ function _renderDriveSection(container, songs, setlists, practice, _codeTag) {
 
       el.style.borderLeftColor = allMatch ? 'var(--accent-dim)' : '#e87c6a';
       const pushBtn = !allMatch
-        ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:6px 14px;">Push All to Drive</button>`
+        ? `<button id="dash-push-drive" class="btn-primary" style="margin-top:8px;font-size:11px;padding:4px 6px;">Push All to Drive</button>`
         : '';
       const fixShareBtn = Drive.isWriteConfigured()
-        ? `<button id="dash-fix-sharing" class="btn-secondary" style="margin-top:6px;font-size:11px;padding:6px 14px;">Fix Sharing (make files public)</button>`
+        ? `<button id="dash-fix-sharing" class="btn-secondary" style="margin-top:6px;font-size:11px;padding:4px 6px;">Fix Sharing (make files public)</button>`
         : '';
       el.innerHTML =
         `<div class="dash-alert-title">${allMatch ? `${_codeTag(4402)} In Sync` : `${_codeTag(2403)} Out of Sync`}</div>` +
@@ -1882,71 +1884,51 @@ function _renderDriveSection(container, songs, setlists, practice, _codeTag) {
   })();
 }
 
-// ─── Reset User Password (subpage, owner only) ──────────
+// ─── Reset User Password (modal, called from User Management) ──────────
 
-async function renderResetUserPassword() {
-  if (!Auth.canManageUsers()) { showToast('Access denied'); return; }
-  Router.pushNav(() => renderDashboard());
-  Router.showView('dashboard');
-  Router.setTopbar("Reset a User's Password", true);
-
-  const container = document.getElementById('dashboard-content');
-  container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-3);">Loading users\u2026</div>`;
-
-  try {
-    const users = await Auth.listAllUsers();
-    const nonOwner = users.filter(u => u.role !== 'owner');
-    if (nonOwner.length === 0) {
-      container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--text-3);">No non-admin users to reset.</div>`;
-      return;
-    }
-    container.innerHTML = `
-      <div style="max-width:400px;margin:0 auto;padding:20px;">
-        <div class="acct-field" style="margin-bottom:16px;">
-          <label for="reset-pw-user">Select User</label>
-          <select id="reset-pw-user" class="form-input" style="width:100%;padding:10px;background:var(--bg-3);color:var(--text);border:1px solid var(--border);border-radius:8px;">
-            <option value="">Choose a user\u2026</option>
-            ${nonOwner.map(u => `<option value="${esc(u.id)}">${esc(u.username)}${u.displayName ? ' (' + esc(u.displayName) + ')' : ''}</option>`).join('')}
-          </select>
-        </div>
-        <div class="acct-field" style="margin-bottom:16px;">
-          <label for="reset-pw-new">New Password</label>
-          <input type="password" id="reset-pw-new" class="form-input" placeholder="Min 8 chars, mixed case + number + special" autocomplete="new-password" />
-        </div>
-        <div class="acct-field" style="margin-bottom:16px;">
-          <label for="reset-pw-confirm">Confirm New Password</label>
-          <input type="password" id="reset-pw-confirm" class="form-input" placeholder="Re-enter password" autocomplete="new-password" />
-        </div>
-        <button class="btn-primary" id="reset-pw-submit" style="width:100%;">Reset Password</button>
-        <p style="margin-top:12px;font-size:12px;color:var(--text-3);text-align:center;">This will log the user out of all devices. They will need to log in with the new password.</p>
+function _showResetPasswordModal(userId, username) {
+  const handle = Modal.create({
+    id: 'modal-reset-pw',
+    content: `
+      <h3 style="margin:0 0 16px;">Reset Password: ${esc(username)}</h3>
+      <div class="acct-field" style="margin-bottom:16px;">
+        <label for="reset-pw-new">New Password</label>
+        <input type="password" id="reset-pw-new" class="form-input" placeholder="Min 8 chars, mixed case + number + special" autocomplete="new-password" />
       </div>
-    `;
+      <div class="acct-field" style="margin-bottom:16px;">
+        <label for="reset-pw-confirm">Confirm New Password</label>
+        <input type="password" id="reset-pw-confirm" class="form-input" placeholder="Re-enter password" autocomplete="new-password" />
+      </div>
+      <p style="font-size:12px;color:var(--text-3);margin-bottom:16px;">This will log the user out of all devices.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn-secondary" id="reset-pw-cancel" style="padding:8px 16px;">Cancel</button>
+        <button class="btn-primary" id="reset-pw-submit" style="padding:8px 16px;">Reset Password</button>
+      </div>
+    `
+  });
+  if (!handle) return;
 
-    document.getElementById('reset-pw-submit').addEventListener('click', async () => {
-      const userId = document.getElementById('reset-pw-user').value;
-      const newPw = document.getElementById('reset-pw-new').value;
-      const confirmPw = document.getElementById('reset-pw-confirm').value;
-      if (!userId) { showToast('Select a user'); return; }
-      if (!newPw) { showToast('Enter a new password'); return; }
-      const pwErr = Admin.validatePassword(newPw);
-      if (pwErr) { showToast(pwErr); return; }
-      if (newPw !== confirmPw) { showToast('Passwords do not match'); return; }
-      const btn = document.getElementById('reset-pw-submit');
-      btn.disabled = true;
-      btn.textContent = 'Resetting\u2026';
-      const result = await Auth.adminResetPassword(userId, newPw);
-      if (result.ok) {
-        showToast('Password reset — user must log in again');
-        renderResetUserPassword();
-      } else {
-        showToast(result.error || 'Failed to reset password');
-        btn.disabled = false;
-        btn.textContent = 'Reset Password';
-      }
-    });
-  } catch (e) {
-    container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--red);">Failed to load users: ${esc(String(e.message || e))}</div>`;
-  }
+  document.getElementById('reset-pw-cancel').addEventListener('click', () => handle.hide());
+  document.getElementById('reset-pw-submit').addEventListener('click', async () => {
+    const newPw = document.getElementById('reset-pw-new').value;
+    const confirmPw = document.getElementById('reset-pw-confirm').value;
+    if (!newPw) { showToast('Enter a new password'); return; }
+    const pwErr = Admin.validatePassword(newPw);
+    if (pwErr) { showToast(pwErr); return; }
+    if (newPw !== confirmPw) { showToast('Passwords do not match'); return; }
+    const btn = document.getElementById('reset-pw-submit');
+    btn.disabled = true;
+    btn.textContent = 'Resetting\u2026';
+    const result = await Auth.adminResetPassword(userId, newPw);
+    if (result.ok) {
+      showToast(`Password reset for ${esc(username)}`);
+      handle.hide();
+    } else {
+      showToast(result.error || 'Failed to reset password');
+      btn.disabled = false;
+      btn.textContent = 'Reset Password';
+    }
+  });
 }
 
 // ─── runDiagnostics ──────────────────────────────────────

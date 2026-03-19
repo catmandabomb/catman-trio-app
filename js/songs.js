@@ -5,22 +5,22 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.04';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.04';
-import * as Modal from './modal.js?v=20.04';
-import * as Router from './router.js?v=20.04';
-import * as Admin from '../admin.js?v=20.04';
-import * as Auth from '../auth.js?v=20.04';
-import * as Sync from './sync.js?v=20.04';
-import * as Drive from '../drive.js?v=20.04';
-import * as GitHub from '../github.js?v=20.04';
-import * as Player from '../player.js?v=20.04';
-import * as PDFViewer from '../pdf-viewer.js?v=20.04';
-import * as Metronome from '../metronome.js?v=20.04';
-import * as App from '../app.js?v=20.04';
-import * as Setlists from './setlists.js?v=20.04';
-import * as Practice from './practice.js?v=20.04';
-import * as Dashboard from './dashboard.js?v=20.04';
+import * as Store from './store.js?v=20.05';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.05';
+import * as Modal from './modal.js?v=20.05';
+import * as Router from './router.js?v=20.05';
+import * as Admin from '../admin.js?v=20.05';
+import * as Auth from '../auth.js?v=20.05';
+import * as Sync from './sync.js?v=20.05';
+import * as Drive from '../drive.js?v=20.05';
+import * as GitHub from '../github.js?v=20.05';
+import * as Player from '../player.js?v=20.05';
+import * as PDFViewer from '../pdf-viewer.js?v=20.05';
+import * as Metronome from '../metronome.js?v=20.05';
+import * as App from '../app.js?v=20.05';
+import * as Setlists from './setlists.js?v=20.05';
+import * as Practice from './practice.js?v=20.05';
+import * as Dashboard from './dashboard.js?v=20.05';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -901,7 +901,7 @@ function _buildDetailHTML(song) {
 
   let html = `
     <div class="detail-header">
-      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-song">Edit Song</button></div>` : ''}
+      ${Admin.isEditMode() ? `<div class="detail-edit-bar"><button class="btn-ghost btn-edit-song"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit Song</button></div>` : ''}
       <div class="detail-title">${esc(song.title) || 'Untitled'}</div>
       ${song.subtitle ? `<div class="detail-subtitle">${esc(song.subtitle)}</div>` : ''}
       <div class="detail-meta-row">

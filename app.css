@@ -482,7 +482,7 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
-  padding: 8px 16px;
+  padding: 3px 5px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--accent-dim);
   transition: background 0.12s, border-color 0.12s;

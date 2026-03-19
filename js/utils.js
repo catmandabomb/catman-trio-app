@@ -5,7 +5,7 @@
  * functions that need state take it as parameters.
  */
 
-import * as Store from './store.js?v=20.04';
+import * as Store from './store.js?v=20.05';
 
 // ─── HTML / String helpers ──────────────────────────────────
 

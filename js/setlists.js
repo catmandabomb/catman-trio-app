@@ -5,19 +5,19 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.04';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.04';
-import * as Modal from './modal.js?v=20.04';
-import * as Router from './router.js?v=20.04';
-import * as Admin from '../admin.js?v=20.04';
-import * as Auth from '../auth.js?v=20.04';
-import * as Sync from './sync.js?v=20.04';
-import * as Drive from '../drive.js?v=20.04';
-import * as GitHub from '../github.js?v=20.04';
-import * as Player from '../player.js?v=20.04';
-import * as PDFViewer from '../pdf-viewer.js?v=20.04';
-import * as App from '../app.js?v=20.04';
-import * as Songs from './songs.js?v=20.04';
+import * as Store from './store.js?v=20.05';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.05';
+import * as Modal from './modal.js?v=20.05';
+import * as Router from './router.js?v=20.05';
+import * as Admin from '../admin.js?v=20.05';
+import * as Auth from '../auth.js?v=20.05';
+import * as Sync from './sync.js?v=20.05';
+import * as Drive from '../drive.js?v=20.05';
+import * as GitHub from '../github.js?v=20.05';
+import * as Player from '../player.js?v=20.05';
+import * as PDFViewer from '../pdf-viewer.js?v=20.05';
+import * as App from '../app.js?v=20.05';
+import * as Songs from './songs.js?v=20.05';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -463,7 +463,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
   const isAdmin = Admin.isEditMode();
   if (isAdmin) {
     _injectTopbarActions('setlist-detail-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist">Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`);
+      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`);
   }
 
   const _songs = Store.get('songs');
