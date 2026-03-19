@@ -1043,12 +1043,25 @@ function _renderCreateEdit(chart) {
     container.innerHTML = html;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
+    // Sync form inputs back to model before any re-render
+    function _syncFormToModel() {
+      editChart.title = container.querySelector('#wce-title')?.value.trim() || editChart.title;
+      editChart.key = container.querySelector('#wce-key')?.value.trim() || editChart.key;
+      const bpmVal = parseInt(container.querySelector('#wce-bpm')?.value, 10);
+      if (bpmVal > 0 && bpmVal <= 400) editChart.bpm = bpmVal;
+      editChart.timeSig = container.querySelector('#wce-timesig')?.value || editChart.timeSig;
+      editChart.feel = container.querySelector('#wce-feel')?.value.trim() ?? editChart.feel;
+      editChart.structureTag = container.querySelector('#wce-structure')?.value ?? editChart.structureTag;
+      editChart.notes = container.querySelector('#wce-notes')?.value.trim() ?? editChart.notes;
+    }
+
     // Wire mode toggle
-    container.querySelector('#wce-mode-grid')?.addEventListener('click', () => { editMode = 'grid'; _renderForm(); });
-    container.querySelector('#wce-mode-text')?.addEventListener('click', () => { editMode = 'text'; _renderForm(); });
+    container.querySelector('#wce-mode-grid')?.addEventListener('click', () => { _syncFormToModel(); editMode = 'grid'; _renderForm(); });
+    container.querySelector('#wce-mode-text')?.addEventListener('click', () => { _syncFormToModel(); editMode = 'text'; _renderForm(); });
 
     // Wire text parse
     container.querySelector('#wce-parse-btn')?.addEventListener('click', () => {
+      _syncFormToModel();
       const text = container.querySelector('#wce-paste')?.value || '';
       if (!text.trim()) { showToast('Paste some chord text first.'); return; }
       const parsed = _parseChordText(text);
@@ -1061,6 +1074,7 @@ function _renderCreateEdit(chart) {
 
     // Wire add section
     container.querySelector('#wce-add-section')?.addEventListener('click', () => {
+      _syncFormToModel();
       editChart.sections.push({
         id: _generateSectionId(),
         type: 'VERSE',
@@ -1073,10 +1087,10 @@ function _renderCreateEdit(chart) {
     });
 
     // Wire progression library
-    container.querySelector('#wce-add-progression')?.addEventListener('click', () => _showProgressionPicker(editChart, _renderForm));
+    container.querySelector('#wce-add-progression')?.addEventListener('click', () => { _syncFormToModel(); _showProgressionPicker(editChart, _renderForm); });
 
-    // Wire section editors
-    _wireSectionEditors(container, editChart, _renderForm);
+    // Wire section editors (wrap rerender to sync form first)
+    _wireSectionEditors(container, editChart, () => { _syncFormToModel(); _renderForm(); });
 
     // Wire save/cancel
     container.querySelector('#wce-cancel')?.addEventListener('click', () => {
