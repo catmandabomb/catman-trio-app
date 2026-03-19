@@ -2,22 +2,22 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.09';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.09';
-import * as Modal from './js/modal.js?v=20.09';
-import * as Router from './js/router.js?v=20.09';
-import * as Sync from './js/sync.js?v=20.09';
-import * as Drive from './drive.js?v=20.09';
-import * as GitHub from './github.js?v=20.09';
-import * as Admin from './admin.js?v=20.09';
-import * as Auth from './auth.js?v=20.09';
-import * as Player from './player.js?v=20.09';
-import * as Songs from './js/songs.js?v=20.09';
-import * as Setlists from './js/setlists.js?v=20.09';
-import * as Practice from './js/practice.js?v=20.09';
-import * as Dashboard from './js/dashboard.js?v=20.09';
-import * as Migrate from './js/migrate.js?v=20.09';
-import * as IDB from './idb.js?v=20.09';
+import * as Store from './js/store.js?v=20.10';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.10';
+import * as Modal from './js/modal.js?v=20.10';
+import * as Router from './js/router.js?v=20.10';
+import * as Sync from './js/sync.js?v=20.10';
+import * as Drive from './drive.js?v=20.10';
+import * as GitHub from './github.js?v=20.10';
+import * as Admin from './admin.js?v=20.10';
+import * as Auth from './auth.js?v=20.10';
+import * as Player from './player.js?v=20.10';
+import * as Songs from './js/songs.js?v=20.10';
+import * as Setlists from './js/setlists.js?v=20.10';
+import * as Practice from './js/practice.js?v=20.10';
+import * as Dashboard from './js/dashboard.js?v=20.10';
+import * as Migrate from './js/migrate.js?v=20.10';
+import * as IDB from './idb.js?v=20.10';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -335,11 +335,24 @@ let _cachedPdfSet = new Set();
     _songs = Store.get('songs');
   }
 
+  // ─── Badging API ─────────────────────────────────────────────
+  function _updateAppBadge(preSyncCount) {
+    try {
+      if (!navigator.setAppBadge) return;
+      _songs = Store.get('songs') || [];
+      const newCount = _songs.length - preSyncCount;
+      if (newCount > 0) navigator.setAppBadge(newCount).catch(() => {});
+    } catch (_) {}
+  }
+
   // ─── Sync (delegated to Sync module) ─────────────────────────
   const _tryAutoConfigureGitHub = Sync.tryAutoConfigureGitHub;
 
   async function _syncAllFromDrive(force) {
+    const _preSyncCount = _songs.length;
     await Sync.syncAll(force);
+    // Badging API: if songs changed since last open, badge the app icon
+    _updateAppBadge(_preSyncCount);
     // Refresh local state from Store after sync
     _songs = Store.get('songs');
     _setlists = Store.get('setlists');
@@ -497,8 +510,12 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
+        <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border);">
+          <button class="btn-secondary" id="acct-open-settings" style="width:100%;"><i data-lucide="settings" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Settings</button>
+        </div>
+
         ${user.role !== 'owner' ? `
-        <div class="acct-danger-zone" style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);">
+        <div class="acct-danger-zone" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
           <button class="btn-secondary" id="acct-delete-account" style="color:var(--red);border-color:var(--red);width:100%;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Delete Account</button>
         </div>` : ''}
 
@@ -661,6 +678,292 @@ let _cachedPdfSet = new Set();
       }
     });
 
+    // Open settings
+    container.querySelector('#acct-open-settings')?.addEventListener('click', () => {
+      renderSettings();
+    });
+
+  }
+
+  // ─── SETTINGS VIEW ───────────────────────────────────────────
+
+  function _getPref(key, fallback) {
+    try { const v = localStorage.getItem('ct_pref_' + key); return v !== null ? v : fallback; } catch (_) { return fallback; }
+  }
+  function _setPref(key, value) {
+    try { localStorage.setItem('ct_pref_' + key, value); } catch (_) {}
+  }
+
+  function renderSettings() {
+    if (!Auth.isLoggedIn()) { showToast('Sign in to access settings'); Songs.renderList(); return; }
+    Router.pushNav(() => renderAccount());
+    Router.showView('settings');
+    Router.setTopbar('Settings', true);
+
+    const container = document.getElementById('settings-content');
+
+    // Read current prefs
+    const lmDarkDefault     = _getPref('lm_dark_default', '0') === '1';
+    const lmHalfDefault     = _getPref('lm_half_default', '0') === '1';
+    const lmAutoHide        = _getPref('lm_auto_hide', '0') === '1';
+    const lmAutoHideDelay   = _getPref('lm_auto_hide_delay', '4');
+    const lmAutoAdvanceDefault = _getPref('lm_auto_advance_secs', '30');
+    const lmShowNavButtons  = _getPref('lm_show_nav_buttons', '1') === '1';
+    const lmStageRedMode    = _getPref('lm_stage_red', '0') === '1';
+    const lmRehearsalNotes  = _getPref('lm_rehearsal_notes', '0') === '1';
+    const dispDateFormat    = _getPref('date_format', 'relative');
+    const dispListDensity   = _getPref('list_density', 'normal');
+    const notifSyncConflict = _getPref('notif_sync_conflict', '1') === '1';
+
+    container.innerHTML = `
+      <div class="settings-page">
+
+        <!-- LIVE MODE -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="monitor-play" style="width:16px;height:16px;"></i> Live Mode</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Auto-hide header</div>
+              <div class="settings-hint">Fade header after inactivity</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-auto-hide" ${lmAutoHide ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row" id="pref-auto-hide-delay-row" style="${lmAutoHide ? '' : 'opacity:0.4;pointer-events:none;'}">
+            <div class="settings-row-label">
+              <div class="settings-label">Auto-hide delay</div>
+              <div class="settings-hint">Seconds before header fades</div>
+            </div>
+            <select class="settings-select" id="pref-lm-auto-hide-delay">
+              <option value="2" ${lmAutoHideDelay === '2' ? 'selected' : ''}>2s</option>
+              <option value="4" ${lmAutoHideDelay === '4' ? 'selected' : ''}>4s</option>
+              <option value="6" ${lmAutoHideDelay === '6' ? 'selected' : ''}>6s</option>
+              <option value="10" ${lmAutoHideDelay === '10' ? 'selected' : ''}>10s</option>
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Dark mode default</div>
+              <div class="settings-hint">Start Live Mode with inverted colors</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-dark-default" ${lmDarkDefault ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Half-page turns default</div>
+              <div class="settings-hint">Start with half-page mode on</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-half-default" ${lmHalfDefault ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Auto-advance timing</div>
+              <div class="settings-hint">Default seconds between auto turns</div>
+            </div>
+            <select class="settings-select" id="pref-lm-auto-advance">
+              ${[5,10,15,20,30,45,60,90,120].map(s => `<option value="${s}" ${String(s) === lmAutoAdvanceDefault ? 'selected' : ''}>${s}s</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show nav buttons</div>
+              <div class="settings-hint">Prev/Next chevrons at bottom (disable for swipe-only on iPad)</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-show-nav" ${lmShowNavButtons ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Stage red mode</div>
+              <div class="settings-hint">Deep red tint — preserves night vision on dark stages</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-stage-red" ${lmStageRedMode ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Rehearsal notes overlay</div>
+              <div class="settings-hint">Show song notes on charts during rehearsal</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-rehearsal-notes" ${lmRehearsalNotes ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- DISPLAY -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="palette" style="width:16px;height:16px;"></i> Display</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Date format</div>
+              <div class="settings-hint">How dates appear in song lists</div>
+            </div>
+            <select class="settings-select" id="pref-date-format">
+              <option value="relative" ${dispDateFormat === 'relative' ? 'selected' : ''}>Relative (2d ago)</option>
+              <option value="short" ${dispDateFormat === 'short' ? 'selected' : ''}>Short (Mar 19)</option>
+              <option value="iso" ${dispDateFormat === 'iso' ? 'selected' : ''}>ISO (2026-03-19)</option>
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">List density</div>
+              <div class="settings-hint">Song list row spacing</div>
+            </div>
+            <select class="settings-select" id="pref-list-density">
+              <option value="compact" ${dispListDensity === 'compact' ? 'selected' : ''}>Compact</option>
+              <option value="normal" ${dispListDensity === 'normal' ? 'selected' : ''}>Normal</option>
+              <option value="comfortable" ${dispListDensity === 'comfortable' ? 'selected' : ''}>Comfortable</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- NOTIFICATIONS -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="bell" style="width:16px;height:16px;"></i> Notifications</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Sync conflict toasts</div>
+              <div class="settings-hint">Show a toast when a write conflict is detected</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-notif-sync-conflict" ${notifSyncConflict ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- DATA & STORAGE -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="hard-drive" style="width:16px;height:16px;"></i> Data & Storage</div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-label">PDF cache</div>
+              <button class="settings-clear-btn" id="pref-clear-pdf-cache">Clear</button>
+            </div>
+            <div class="settings-storage-bar">
+              <div class="settings-storage-fill" id="pref-pdf-cache-fill" style="width:0%"></div>
+            </div>
+            <div class="settings-storage-label" id="pref-pdf-cache-label">Calculating\u2026</div>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Wire toggle handlers — each saves immediately
+    const wire = (id, key) => {
+      const el = container.querySelector('#' + id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        _setPref(key, el.checked ? '1' : '0');
+      });
+    };
+    wire('pref-lm-auto-hide', 'lm_auto_hide');
+    wire('pref-lm-dark-default', 'lm_dark_default');
+    wire('pref-lm-half-default', 'lm_half_default');
+    wire('pref-lm-show-nav', 'lm_show_nav_buttons');
+    wire('pref-lm-stage-red', 'lm_stage_red');
+    wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
+    wire('pref-notif-sync-conflict', 'notif_sync_conflict');
+
+    // Auto-hide toggle enables/disables delay row
+    container.querySelector('#pref-lm-auto-hide')?.addEventListener('change', (e) => {
+      const row = container.querySelector('#pref-auto-hide-delay-row');
+      if (row) {
+        row.style.opacity = e.target.checked ? '' : '0.4';
+        row.style.pointerEvents = e.target.checked ? '' : 'none';
+      }
+    });
+
+    // Select handlers
+    const wireSelect = (id, key) => {
+      const el = container.querySelector('#' + id);
+      if (!el) return;
+      el.addEventListener('change', () => _setPref(key, el.value));
+    };
+    wireSelect('pref-lm-auto-hide-delay', 'lm_auto_hide_delay');
+    wireSelect('pref-lm-auto-advance', 'lm_auto_advance_secs');
+    wireSelect('pref-date-format', 'date_format');
+    wireSelect('pref-list-density', 'list_density');
+
+    // PDF cache size estimation
+    _estimatePdfCacheSize(container);
+
+    // Clear PDF cache
+    container.querySelector('#pref-clear-pdf-cache')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#pref-clear-pdf-cache');
+      btn.disabled = true;
+      btn.textContent = 'Clearing\u2026';
+      try {
+        const cache = await caches.open('catmantrio-pdfs');
+        const keys = await cache.keys();
+        await Promise.all(keys.map(k => cache.delete(k)));
+        showToast(`Cleared ${keys.length} cached PDF${keys.length !== 1 ? 's' : ''}`);
+        btn.textContent = 'Cleared';
+        _estimatePdfCacheSize(container);
+      } catch (_) {
+        showToast('Could not clear cache');
+        btn.disabled = false;
+        btn.textContent = 'Clear';
+      }
+    });
+  }
+
+  async function _estimatePdfCacheSize(container) {
+    const fillEl = container.querySelector('#pref-pdf-cache-fill');
+    const labelEl = container.querySelector('#pref-pdf-cache-label');
+    if (!fillEl || !labelEl) return;
+    try {
+      let totalBytes = 0;
+      let fileCount = 0;
+      const cache = await caches.open('catmantrio-pdfs');
+      const keys = await cache.keys();
+      for (const req of keys) {
+        const resp = await cache.match(req);
+        if (resp) {
+          const cl = resp.headers.get('content-length');
+          if (cl) { totalBytes += parseInt(cl, 10); fileCount++; }
+          else {
+            try { const blob = await resp.clone().blob(); totalBytes += blob.size; fileCount++; } catch (_) {}
+          }
+        }
+      }
+      const mb = (totalBytes / (1024 * 1024)).toFixed(1);
+      labelEl.textContent = fileCount > 0 ? `${fileCount} file${fileCount !== 1 ? 's' : ''} \u00b7 ${mb} MB` : 'No cached PDFs';
+      // Assume ~100MB quota for progress bar
+      const pct = Math.min(100, (totalBytes / (100 * 1024 * 1024)) * 100);
+      fillEl.style.width = pct + '%';
+    } catch (_) {
+      labelEl.textContent = 'Unable to estimate';
+    }
   }
 
   // ─── RESET PASSWORD VIEW ────────────────────────────────────
@@ -1034,17 +1337,20 @@ let _cachedPdfSet = new Set();
 
   // ─── Init ──────────────────────────────────────────────────
 
+  // Register account + settings views with the Router
+  Router.register('account', () => renderAccount());
+  Router.register('settings', () => renderSettings());
+
   async function init() {
-    // Clear app badge on open (user has seen the app)
+    // Badging API: clear badge on open, record last-open time
     navigator.clearAppBadge?.()?.catch?.(() => {});
+    const _lastOpen = parseInt(localStorage.getItem('ct_last_open') || '0', 10);
+    localStorage.setItem('ct_last_open', String(Date.now()));
 
     // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
     Migrate.runAll();
-    // Safety: dismiss splash after 2.5s no matter what (don't strand user)
-    const _splashSafety = setTimeout(() => {
-      const s = document.getElementById('splash-screen');
-      if (s) { s.classList.add('fade-out'); setTimeout(() => s.remove(), 300); }
-    }, 2500);
+    // Splash safety is now an inline <script> in index.html (2.0s hard kill).
+    // app.js just does early dismiss when init completes (usually faster).
 
     // Show loading skeleton immediately so the user sees activity on cold start
     // (must happen before any await to avoid black-screen perception)
@@ -1628,8 +1934,7 @@ let _cachedPdfSet = new Set();
 
     renderList();
 
-    // Dismiss splash immediately — fade out and remove
-    clearTimeout(_splashSafety);
+    // Dismiss splash — fast fade-out, then remove
     const splash = document.getElementById('splash-screen');
     if (splash) {
       splash.classList.add('fade-out');
@@ -1861,7 +2166,7 @@ export {
   init, showToast, updateAuthUI,
   renderList, renderDetail, renderEdit,
   renderSetlists, renderPractice, renderPracticeListDetail,
-  renderDashboard, renderAccount, renderResetPassword, showForgotPasswordModal,
+  renderDashboard, renderAccount, renderSettings, renderResetPassword, showForgotPasswordModal,
   handleVerifyEmail, checkEmailVerified, runDiagnostics,
   hapticHeavy, hapticSuccess, hapticTap,
   showVolume,

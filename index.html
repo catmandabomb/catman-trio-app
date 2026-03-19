@@ -10,8 +10,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://catman-api.catmandabomb.workers.dev https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob:; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
   <title>Catman Trio</title>
 
-  <!-- Splash screen: inline CSS so it renders BEFORE any external stylesheet loads.
-       This eliminates the black flash on first load. Instagram-style launch screen. -->
+  <!-- Splash screen: inline CSS + animations — renders BEFORE any external stylesheet.
+       Logo fades in (0.6s), holds (0.8s), fades out (0.4s). Total: 1.8s max.
+       Hard 2.0s safety kill via inline script — zero dependency on app.js load time. -->
   <style>
     #splash-screen {
       position: fixed;
@@ -21,8 +22,14 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      animation: splash-dismiss 0.4s ease-in 1.4s forwards;
     }
+    @keyframes splash-dismiss {
+      to { opacity: 0; pointer-events: none; }
+    }
+    /* app.js early dismiss — skip the CSS animation timeline */
     #splash-screen.fade-out {
+      animation: none;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.3s ease-out;
@@ -32,6 +39,12 @@
       line-height: 1.05;
       user-select: none;
       -webkit-user-select: none;
+      opacity: 0;
+      transform: scale(0.92);
+      animation: splash-fade-in 0.6s ease-out 0.05s forwards;
+    }
+    @keyframes splash-fade-in {
+      to { opacity: 1; transform: scale(1); }
     }
     .splash-catman {
       display: block;
@@ -47,7 +60,6 @@
       font-size: clamp(42px, 12vw, 72px);
       letter-spacing: 6px;
     }
-    /* Same gold gradient as the topbar title */
     .splash-catman span:nth-child(1) { color: rgb(215,175,90); }
     .splash-catman span:nth-child(2) { color: rgb(220,184,105); }
     .splash-catman span:nth-child(3) { color: rgb(225,193,120); }
@@ -69,22 +81,27 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.09" as="style">
+  <link rel="preload" href="app.css?v=20.10" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.09">
-  <link rel="stylesheet" href="app.css?v=20.09" />
+  <link rel="modulepreload" href="app.js?v=20.10">
+  <link rel="stylesheet" href="app.css?v=20.10" />
 
   <script src="lib/pdf.min.js"></script>
   <script src="lib/Sortable.min.js"></script>
 </head>
 <body style="background:#0e0e10">
-  <!-- Professional splash screen — visible instantly, dismissed by app.js after init -->
+  <!-- Animated splash — fades in, holds, fades out. Hard 2s kill inline. -->
   <div id="splash-screen">
     <div class="splash-logo">
       <span class="splash-catman"><span>C</span><span>a</span><span>t</span><span>m</span><span>a</span><span>n</span></span>
       <span class="splash-trio"><span>T</span><span>r</span><span>i</span><span>o</span></span>
     </div>
   </div>
+  <script>
+    // Hard 2.0s safety kill — starts at HTML parse time, not when app.js loads.
+    // CSS animation auto-fades at 1.8s; this catches any edge case.
+    setTimeout(function(){var s=document.getElementById('splash-screen');if(s)s.remove()},2000);
+  </script>
 
   <a href="#app" class="skip-link">Skip to content</a>
 
@@ -259,6 +276,11 @@
       <div id="account-content" style="padding:20px 16px"></div>
     </div>
 
+    <!-- SETTINGS VIEW -->
+    <div id="view-settings" class="view">
+      <div id="settings-content" style="padding:20px 16px"></div>
+    </div>
+
   </main>
 
   <!-- LOGIN MODAL -->
@@ -409,6 +431,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.09"></script>
+  <script type="module" src="app.js?v=20.10"></script>
 </body>
 </html>

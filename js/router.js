@@ -5,14 +5,14 @@
  * Router calls them by key, avoiding circular deps.
  */
 
-import * as Store from './store.js?v=20.09';
-import * as Player from '../player.js?v=20.09';
-import * as Metronome from '../metronome.js?v=20.09';
+import * as Store from './store.js?v=20.10';
+import * as Player from '../player.js?v=20.10';
+import * as Metronome from '../metronome.js?v=20.10';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.09');
+  if (!_App) _App = import('../app.js?v=20.10');
   return _App;
 }
 
@@ -55,6 +55,8 @@ function viewToHash(viewName, params) {
     case 'practice': return '#practice';
     case 'practice-detail': return '#practice';
     case 'dashboard': return '#dashboard';
+    case 'account': return '#account';
+    case 'settings': return '#settings';
     default: return '#';
   }
 }
@@ -79,6 +81,8 @@ function resolveHash(hash) {
     case 'practice':
       return { view: 'practice' };
     case 'dashboard': return { view: 'dashboard' };
+    case 'account': return { view: 'account' };
+    case 'settings': return { view: 'settings' };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
     default: return { view: 'list' };

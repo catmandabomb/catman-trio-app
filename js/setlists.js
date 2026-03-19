@@ -5,19 +5,19 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.09';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.09';
-import * as Modal from './modal.js?v=20.09';
-import * as Router from './router.js?v=20.09';
-import * as Admin from '../admin.js?v=20.09';
-import * as Auth from '../auth.js?v=20.09';
-import * as Sync from './sync.js?v=20.09';
-import * as Drive from '../drive.js?v=20.09';
-import * as GitHub from '../github.js?v=20.09';
-import * as Player from '../player.js?v=20.09';
-import * as PDFViewer from '../pdf-viewer.js?v=20.09';
-import * as App from '../app.js?v=20.09';
-import * as Songs from './songs.js?v=20.09';
+import * as Store from './store.js?v=20.10';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.10';
+import * as Modal from './modal.js?v=20.10';
+import * as Router from './router.js?v=20.10';
+import * as Admin from '../admin.js?v=20.10';
+import * as Auth from '../auth.js?v=20.10';
+import * as Sync from './sync.js?v=20.10';
+import * as Drive from '../drive.js?v=20.10';
+import * as GitHub from '../github.js?v=20.10';
+import * as Player from '../player.js?v=20.10';
+import * as PDFViewer from '../pdf-viewer.js?v=20.10';
+import * as App from '../app.js?v=20.10';
+import * as Songs from './songs.js?v=20.10';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -1227,24 +1227,52 @@ function _renderLiveMode(setlist) {
   let _overlayTimer = null;
   let _wakeLock = null;
 
-  // Feature: Dark/Inverted Score Mode
+  // Helper: read user preference from localStorage
+  function _lmPref(key, fallback) {
+    try { const v = localStorage.getItem('ct_pref_' + key); return v !== null ? v : fallback; } catch (_) { return fallback; }
+  }
+
+  // Feature: Dark/Inverted Score Mode — session override > pref default
   let _darkMode = false;
-  try { _darkMode = sessionStorage.getItem('ct_live_dark_mode') === '1'; } catch (_) {}
+  try {
+    const sess = sessionStorage.getItem('ct_live_dark_mode');
+    _darkMode = sess !== null ? sess === '1' : _lmPref('lm_dark_default', '0') === '1';
+  } catch (_) {}
 
-  // Feature: Half-Page Turns
+  // Feature: Half-Page Turns — session override > pref default
   let _halfPageMode = false;
-  try { _halfPageMode = sessionStorage.getItem('ct_live_half_page') === '1'; } catch (_) {}
+  try {
+    const sess = sessionStorage.getItem('ct_live_half_page');
+    _halfPageMode = sess !== null ? sess === '1' : _lmPref('lm_half_default', '0') === '1';
+  } catch (_) {}
 
-  // Feature: Auto-Advance
+  // Feature: Auto-Advance — session override > pref default
   let _autoAdvance = false;
   let _autoAdvanceTimer = null;
-  let _autoAdvanceSecs = 30;
+  let _autoAdvanceSecs = parseInt(_lmPref('lm_auto_advance_secs', '30'), 10) || 30;
   let _autoAdvanceStart = 0; // timestamp for progress bar
   let _autoAdvanceRaf = null;
   try {
     const savedSecs = parseInt(sessionStorage.getItem('ct_live_auto_secs'), 10);
     if (savedSecs > 0) _autoAdvanceSecs = savedSecs;
   } catch (_) {}
+
+  // Feature: Auto-hide header
+  const _autoHideEnabled = _lmPref('lm_auto_hide', '0') === '1';
+  const _autoHideDelay = (parseInt(_lmPref('lm_auto_hide_delay', '4'), 10) || 4) * 1000;
+
+  // Feature: Show/hide nav buttons (prev/next chevrons)
+  const _showNavButtons = _lmPref('lm_show_nav_buttons', '1') === '1';
+
+  // Feature: Stage Red Mode
+  let _stageRedMode = false;
+  try {
+    const _sessRed = sessionStorage.getItem('ct_live_stage_red');
+    _stageRedMode = _sessRed !== null ? _sessRed === '1' : _lmPref('lm_stage_red', '0') === '1';
+  } catch (_) { _stageRedMode = _lmPref('lm_stage_red', '0') === '1'; }
+
+  // Feature: Rehearsal Notes Overlay
+  const _rehearsalNotes = _lmPref('lm_rehearsal_notes', '0') === '1';
 
   // Screen Wake Lock -- keep screen on during Live Mode only
   function _updateWakeLockIndicator(active) {
@@ -1373,18 +1401,23 @@ function _renderLiveMode(setlist) {
     <div class="lm-header" style="opacity:1">
       <div class="lm-header-row1">
         <button class="lm-jump-btn" aria-label="Song picker"><i data-lucide="list" style="width:18px;height:18px;"></i></button>
-        <span class="lm-progress"></span><span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:10px;height:10px;opacity:0.15;"></i></span>
-        <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:18px;height:18px;"></i></button>
-      </div>
-      <div class="lm-header-row2">
-        <div class="lm-tools">
-          <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:16px;height:16px;"></i></button>
-          <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:16px;height:16px;"></i></button>
-          <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:16px;height:16px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
+        <div class="lm-progress-group">
+          <span class="lm-progress"></span>
+          <span id="lm-wake-lock" class="lm-wake-indicator" title="Screen stay awake"><i data-lucide="eye" style="width:8px;height:8px;"></i></span>
         </div>
         <div class="lm-clock-group">
           <span class="lm-clock"></span>
           <button class="lm-timer-btn" aria-label="Start timer"><i data-lucide="play" style="width:10px;height:10px;"></i><span class="lm-timer">Start</span></button>
+        </div>
+        <button class="lm-close-btn" aria-label="Exit Live Mode"><i data-lucide="x" style="width:16px;height:16px;"></i></button>
+      </div>
+      <div class="lm-header-row2">
+        <div class="lm-tools">
+          <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:14px;height:14px;"></i></button>
+          <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:14px;height:14px;"></i></button>
+          <button class="lm-red-toggle${_stageRedMode ? ' active' : ''}" aria-label="Stage red (G)" aria-pressed="${_stageRedMode}" title="Stage red (G)"><i data-lucide="flashlight" style="width:14px;height:14px;"></i></button>
+          ${_rehearsalNotes ? `<button class="lm-notes-toggle" aria-label="Notes overlay (N)" aria-pressed="false" title="Notes overlay (N)"><i data-lucide="sticky-note" style="width:14px;height:14px;"></i></button>` : ''}
+          <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:14px;height:14px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
         </div>
       </div>
     </div>
@@ -1425,7 +1458,7 @@ function _renderLiveMode(setlist) {
       <div class="lm-chart-overlay"></div>
       <div class="lm-auto-progress"></div>
     </div>
-    <div class="lm-nav" style="opacity:0">
+    <div class="lm-nav" style="opacity:0${_showNavButtons ? '' : ';display:none'}">
       <button class="lm-nav-btn lm-prev" aria-label="Previous">
         <i data-lucide="chevron-left" style="width:32px;height:32px;"></i>
       </button>
@@ -1433,6 +1466,7 @@ function _renderLiveMode(setlist) {
         <i data-lucide="chevron-right" style="width:32px;height:32px;"></i>
       </button>
     </div>
+    ${_rehearsalNotes ? '<div class="lm-rehearsal-overlay hidden"></div>' : ''}
   `;
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
@@ -1449,6 +1483,8 @@ function _renderLiveMode(setlist) {
 
   // Restore dark mode class on carousel
   if (_darkMode) carousel.classList.add('lm-dark-mode');
+  // Stage red mode
+  if (_stageRedMode) carousel.classList.add('lm-stage-red');
 
   // Wire buttons
   prevBtn.addEventListener('click', () => { if (_autoAdvance) { _stopAutoAdvance(); _startAutoAdvance(); } _goPage(-1); });
@@ -1516,7 +1552,7 @@ function _renderLiveMode(setlist) {
     carousel.classList.toggle('lm-dark-mode', _darkMode);
     darkToggleBtn.classList.toggle('active', _darkMode);
     darkToggleBtn.setAttribute('aria-pressed', String(_darkMode));
-    darkToggleBtn.innerHTML = `<i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:18px;height:18px;"></i>`;
+    darkToggleBtn.innerHTML = `<i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:14px;height:14px;"></i>`;
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [darkToggleBtn] });
     try { sessionStorage.setItem('ct_live_dark_mode', _darkMode ? '1' : '0'); } catch (_) {}
     haptic.tap();
@@ -1577,6 +1613,45 @@ function _renderLiveMode(setlist) {
     haptic.tap();
   }
   halfToggleBtn.addEventListener('click', _toggleHalfPage);
+
+  // -- Feature: Stage Red Mode Toggle --
+  const redToggleBtn = container.querySelector('.lm-red-toggle');
+  function _toggleStageRed() {
+    _stageRedMode = !_stageRedMode;
+    carousel.classList.toggle('lm-stage-red', _stageRedMode);
+    redToggleBtn.classList.toggle('active', _stageRedMode);
+    redToggleBtn.setAttribute('aria-pressed', String(_stageRedMode));
+    try { sessionStorage.setItem('ct_live_stage_red', _stageRedMode ? '1' : '0'); } catch (_) {}
+    haptic.tap();
+  }
+  redToggleBtn.addEventListener('click', _toggleStageRed);
+
+  // -- Feature: Rehearsal Notes Overlay --
+  const notesToggleBtn = container.querySelector('.lm-notes-toggle');
+  const rehearsalOverlay = container.querySelector('.lm-rehearsal-overlay');
+  let _notesVisible = false;
+
+  function _updateRehearsalNotes() {
+    if (!rehearsalOverlay || !_notesVisible) return;
+    const page = _pages[currentPageIdx];
+    if (!page || !page.song) { rehearsalOverlay.classList.add('hidden'); return; }
+    const notes = page.song.notes || page.song.comment || '';
+    if (!notes.trim()) { rehearsalOverlay.classList.add('hidden'); return; }
+    rehearsalOverlay.textContent = notes;
+    rehearsalOverlay.classList.remove('hidden');
+  }
+
+  function _toggleRehearsalNotes() {
+    _notesVisible = !_notesVisible;
+    if (notesToggleBtn) {
+      notesToggleBtn.classList.toggle('active', _notesVisible);
+      notesToggleBtn.setAttribute('aria-pressed', String(_notesVisible));
+    }
+    if (_notesVisible) _updateRehearsalNotes();
+    else if (rehearsalOverlay) rehearsalOverlay.classList.add('hidden');
+    haptic.tap();
+  }
+  if (notesToggleBtn) notesToggleBtn.addEventListener('click', _toggleRehearsalNotes);
 
   // -- Feature: Auto-Advance --
   const autoToggleBtn = container.querySelector('.lm-auto-toggle');
@@ -1916,13 +1991,15 @@ function _renderLiveMode(setlist) {
     const songNum = page.songIdx + 1;
     const totalSongs = _songEntries.length;
     if (page.type === 'chart') {
-      const halfLabel = page.half ? (page.half === 'top' ? '\u25B2' : '\u25BC') : '';
-      progressEl.textContent = `Song ${songNum}/${totalSongs} \u00b7 Page ${page.pageNum}/${page.totalSongPages}${halfLabel ? ' ' + halfLabel : ''}`;
+      const halfLabel = page.half ? (page.half === 'top' ? ' \u25B2' : ' \u25BC') : '';
+      progressEl.textContent = `Song ${songNum}/${totalSongs} (p ${page.pageNum}/${page.totalSongPages}${halfLabel})`;
     } else {
-      progressEl.textContent = `Song ${songNum}/${totalSongs}`;
+      progressEl.textContent = `Song ${songNum}/${totalSongs} (No Chart)`;
     }
     prevBtn.disabled = currentPageIdx === 0;
     nextBtn.disabled = currentPageIdx === _pages.length - 1;
+    // Update rehearsal notes overlay when page changes
+    if (_notesVisible) _updateRehearsalNotes();
   }
 
   function _goPage(delta, animate) {
@@ -2468,6 +2545,10 @@ function _renderLiveMode(setlist) {
     } else if (e.key === 'r' || e.key === 'R') {
       // B7: retry failed chart loads
       _retryFailedCharts();
+    } else if (e.key === 'g' || e.key === 'G') {
+      _toggleStageRed();
+    } else if (e.key === 'n' || e.key === 'N') {
+      if (_rehearsalNotes) _toggleRehearsalNotes();
     }
   }
   document.addEventListener('keydown', _onKey);
@@ -2501,8 +2582,7 @@ function _renderLiveMode(setlist) {
         el.style.pointerEvents = '';
       });
     }
-    // Auto-hide timer disabled by default — will be a user preference.
-    // When enabled, uncomment: _resetChromeTimer();
+    if (_autoHideEnabled) _resetChromeTimer();
   }
 
   function _hideChrome() {
@@ -2516,7 +2596,7 @@ function _renderLiveMode(setlist) {
 
   function _resetChromeTimer() {
     if (_chromeHideTimer) clearTimeout(_chromeHideTimer);
-    _chromeHideTimer = setTimeout(_hideChrome, 4000);
+    _chromeHideTimer = setTimeout(_hideChrome, _autoHideDelay);
   }
 
   function _toggleChrome() {
@@ -2532,9 +2612,8 @@ function _renderLiveMode(setlist) {
   _lmHeader.addEventListener('mousedown', _onInteraction, { passive: true });
   _lmHeader.addEventListener('click', _onInteraction, { passive: true });
   // 'C' key or center-tap toggles chrome (handled in _onKey for 'C', tap zones for center)
-  // Auto-hide disabled by default — will be a user preference in User Settings.
-  // Users can still toggle via 'C' key or center-tap.
-  // _resetChromeTimer();
+  // Start auto-hide timer if user preference is enabled
+  if (_autoHideEnabled) _resetChromeTimer();
 
   // -- B7: Offline recovery — retry failed charts on visibility change or 'R' key --
   function _retryFailedCharts() {

@@ -5,22 +5,22 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.09';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.09';
-import * as Modal from './modal.js?v=20.09';
-import * as Router from './router.js?v=20.09';
-import * as Admin from '../admin.js?v=20.09';
-import * as Auth from '../auth.js?v=20.09';
-import * as Sync from './sync.js?v=20.09';
-import * as Drive from '../drive.js?v=20.09';
-import * as GitHub from '../github.js?v=20.09';
-import * as Player from '../player.js?v=20.09';
-import * as PDFViewer from '../pdf-viewer.js?v=20.09';
-import * as Metronome from '../metronome.js?v=20.09';
-import * as App from '../app.js?v=20.09';
-import * as Setlists from './setlists.js?v=20.09';
-import * as Practice from './practice.js?v=20.09';
-import * as Dashboard from './dashboard.js?v=20.09';
+import * as Store from './store.js?v=20.10';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.10';
+import * as Modal from './modal.js?v=20.10';
+import * as Router from './router.js?v=20.10';
+import * as Admin from '../admin.js?v=20.10';
+import * as Auth from '../auth.js?v=20.10';
+import * as Sync from './sync.js?v=20.10';
+import * as Drive from '../drive.js?v=20.10';
+import * as GitHub from '../github.js?v=20.10';
+import * as Player from '../player.js?v=20.10';
+import * as PDFViewer from '../pdf-viewer.js?v=20.10';
+import * as Metronome from '../metronome.js?v=20.10';
+import * as App from '../app.js?v=20.10';
+import * as Setlists from './setlists.js?v=20.10';
+import * as Practice from './practice.js?v=20.10';
+import * as Dashboard from './dashboard.js?v=20.10';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -253,7 +253,12 @@ function renderList(force) {
   const noResults = document.getElementById('list-no-results');
   const filtered  = _preFiltered;
 
+  // Apply list density preference
   const scrollWrap = document.getElementById('song-list-scroll');
+  try {
+    const density = localStorage.getItem('ct_pref_list_density') || 'normal';
+    if (scrollWrap) scrollWrap.setAttribute('data-density', density);
+  } catch (_) {}
   const savedScroll = isDataRefresh && scrollWrap ? scrollWrap.scrollTop : 0;
 
   if (isDataRefresh) container.classList.add('no-animate');

@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.09';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.09';
-import * as Modal from './modal.js?v=20.09';
-import * as Router from './router.js?v=20.09';
-import * as Admin from '../admin.js?v=20.09';
-import * as Auth from '../auth.js?v=20.09';
-import * as GitHub from '../github.js?v=20.09';
-import * as Drive from '../drive.js?v=20.09';
-import * as Sync from './sync.js?v=20.09';
-import * as App from '../app.js?v=20.09';
-import * as IDB from '../idb.js?v=20.09';
+import * as Store from './store.js?v=20.10';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.10';
+import * as Modal from './modal.js?v=20.10';
+import * as Router from './router.js?v=20.10';
+import * as Admin from '../admin.js?v=20.10';
+import * as Auth from '../auth.js?v=20.10';
+import * as GitHub from '../github.js?v=20.10';
+import * as Drive from '../drive.js?v=20.10';
+import * as Sync from './sync.js?v=20.10';
+import * as App from '../app.js?v=20.10';
+import * as IDB from '../idb.js?v=20.10';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -378,7 +378,7 @@ function renderDashboard() {
   </div>`;
 
   // Drive sync diagnostic
-  const _cfActive = localStorage.getItem('ct_use_cloudflare') === '1';
+  const _cfActive = Sync.useCloudflare();
   const _driveSectionTitle = _cfActive
     ? 'Drive Status (Legacy — PDFs/Audio only)' : 'Drive Sync Status';
   html += `
@@ -919,6 +919,7 @@ async function _loadSharedPackets() {
     const resp = await fetch(GitHub.workerUrl + '/gig/shared', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
     const packets = data.packets || [];
 
@@ -1003,6 +1004,7 @@ async function _loadMigrationUI() {
     const resp = await fetch(GitHub.workerUrl + '/migration/state', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
     const state = data.state || {};
     const metadataDone = state.metadata_migrated === 'true';
