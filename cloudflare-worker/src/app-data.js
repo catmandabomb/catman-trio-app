@@ -16,7 +16,7 @@ function json(data, status = 200) {
 
 export async function listSongs(env) {
   const { results } = await env.DB.prepare(
-    'SELECT id, title, subtitle, key, bpm, time_sig, duration, tags, notes, assets, chart_order, updated_at, created_at FROM songs ORDER BY title COLLATE NOCASE'
+    'SELECT id, title, subtitle, key, bpm, time_sig, duration, tags, notes, assets, chart_order, version, updated_at, created_at FROM songs ORDER BY title COLLATE NOCASE'
   ).all();
 
   const songs = (results || []).map(_rowToSong);
@@ -29,6 +29,15 @@ export async function saveSongs(request, env) {
     return json({ error: 'songs array required' }, 400);
   }
 
+  // Optimistic locking: if client sends versions, validate before writing
+  const useVersioning = body.songs.some(s => s.version != null);
+
+  if (useVersioning) {
+    // Check versions of existing rows
+    const conflict = await _checkVersionConflicts(env, 'songs', body.songs);
+    if (conflict) return conflict;
+  }
+
   const batch = [];
   const now = new Date().toISOString();
 
@@ -36,8 +45,8 @@ export async function saveSongs(request, env) {
     if (!song.id) continue;
     batch.push(
       env.DB.prepare(`
-        INSERT INTO songs (id, title, subtitle, key, bpm, time_sig, duration, tags, notes, assets, chart_order, updated_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO songs (id, title, subtitle, key, bpm, time_sig, duration, tags, notes, assets, chart_order, version, updated_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           subtitle = excluded.subtitle,
@@ -49,6 +58,7 @@ export async function saveSongs(request, env) {
           notes = excluded.notes,
           assets = excluded.assets,
           chart_order = excluded.chart_order,
+          version = songs.version + 1,
           updated_at = excluded.updated_at
       `).bind(
         song.id,
@@ -86,7 +96,7 @@ export async function saveSongs(request, env) {
 
 export async function listSetlists(env) {
   const { results } = await env.DB.prepare(
-    'SELECT id, venue, gig_date, override_title, songs, notes, archived, updated_at, created_at FROM setlists ORDER BY created_at DESC'
+    'SELECT id, venue, gig_date, override_title, songs, notes, archived, version, updated_at, created_at FROM setlists ORDER BY created_at DESC'
   ).all();
 
   const setlists = (results || []).map(_rowToSetlist);
@@ -99,6 +109,12 @@ export async function saveSetlists(request, env) {
     return json({ error: 'setlists array required' }, 400);
   }
 
+  const useVersioning = body.setlists.some(s => s.version != null);
+  if (useVersioning) {
+    const conflict = await _checkVersionConflicts(env, 'setlists', body.setlists);
+    if (conflict) return conflict;
+  }
+
   const batch = [];
   const now = new Date().toISOString();
 
@@ -106,8 +122,8 @@ export async function saveSetlists(request, env) {
     if (!sl.id) continue;
     batch.push(
       env.DB.prepare(`
-        INSERT INTO setlists (id, venue, gig_date, override_title, songs, notes, archived, updated_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO setlists (id, venue, gig_date, override_title, songs, notes, archived, version, updated_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           venue = excluded.venue,
           gig_date = excluded.gig_date,
@@ -115,6 +131,7 @@ export async function saveSetlists(request, env) {
           songs = excluded.songs,
           notes = excluded.notes,
           archived = excluded.archived,
+          version = setlists.version + 1,
           updated_at = excluded.updated_at
       `).bind(
         sl.id,
@@ -147,7 +164,7 @@ export async function saveSetlists(request, env) {
 
 export async function listPractice(env) {
   const { results } = await env.DB.prepare(
-    'SELECT id, name, created_by, songs, archived, updated_at, created_at FROM practice_lists ORDER BY created_at DESC'
+    'SELECT id, name, created_by, songs, archived, version, updated_at, created_at FROM practice_lists ORDER BY created_at DESC'
   ).all();
 
   const lists = (results || []).map(_rowToPractice);
@@ -158,6 +175,12 @@ export async function savePractice(request, env, currentUser) {
   const body = await _parseBody(request);
   if (!body || !Array.isArray(body.practice)) {
     return json({ error: 'practice array required' }, 400);
+  }
+
+  const useVersioning = body.practice.some(p => p.version != null);
+  if (useVersioning) {
+    const conflict = await _checkVersionConflicts(env, 'practice_lists', body.practice);
+    if (conflict) return conflict;
   }
 
   const isPrivileged = ['owner', 'admin'].includes(currentUser.role);
@@ -178,18 +201,18 @@ export async function savePractice(request, env, currentUser) {
     }
     batch.push(
       env.DB.prepare(`
-        INSERT INTO practice_lists (id, name, created_by, songs, archived, updated_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO practice_lists (id, name, created_by, songs, archived, version, updated_at, created_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
-          created_by = excluded.created_by,
           songs = excluded.songs,
           archived = excluded.archived,
+          version = practice_lists.version + 1,
           updated_at = excluded.updated_at
       `).bind(
         p.id,
         p.name || '',
-        p.createdBy || currentUser.username,
+        isPrivileged ? (p.createdBy || currentUser.username) : currentUser.username,
         JSON.stringify(p.songs || []),
         p.archived ? 1 : 0,
         now,
@@ -216,6 +239,21 @@ export async function savePractice(request, env, currentUser) {
   }
 
   return json({ ok: true, count: body.practice.length });
+}
+
+// ─── Change detection (lightweight poll endpoint) ───────
+
+export async function getChangeTimestamps(env) {
+  const [songsRes, setlistsRes, practiceRes] = await Promise.all([
+    env.DB.prepare('SELECT MAX(updated_at) as latest, COUNT(*) as count FROM songs').first(),
+    env.DB.prepare('SELECT MAX(updated_at) as latest, COUNT(*) as count FROM setlists').first(),
+    env.DB.prepare('SELECT MAX(updated_at) as latest, COUNT(*) as count FROM practice_lists').first(),
+  ]);
+  return json({
+    songs: { latest: songsRes?.latest || null, count: songsRes?.count || 0 },
+    setlists: { latest: setlistsRes?.latest || null, count: setlistsRes?.count || 0 },
+    practice: { latest: practiceRes?.latest || null, count: practiceRes?.count || 0 },
+  });
 }
 
 // ─── Files (R2) ─────────────────────────────────────────
@@ -319,6 +357,44 @@ export async function setMigrationState(request, env) {
 
 // ─── Helpers ────────────────────────────────────────────
 
+/**
+ * Check version conflicts for optimistic locking.
+ * Returns a 409 Response if any item's version doesn't match the DB, or null if all clear.
+ */
+async function _checkVersionConflicts(env, table, items) {
+  const ALLOWED_TABLES = new Set(['songs', 'setlists', 'practice_lists']);
+  if (!ALLOWED_TABLES.has(table)) throw new Error(`Invalid table: ${table}`);
+
+  const itemsWithVersion = items.filter(i => i.id && i.version != null);
+  if (itemsWithVersion.length === 0) return null;
+
+  // Batch-fetch current versions (chunk to stay under D1's 999 bind limit)
+  const ids = itemsWithVersion.map(i => i.id);
+  const dbVersions = {};
+  for (let i = 0; i < ids.length; i += 900) {
+    const chunk = ids.slice(i, i + 900);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT id, version FROM ${table} WHERE id IN (${placeholders})`
+    ).bind(...chunk).all();
+    (results || []).forEach(r => { dbVersions[r.id] = r.version; });
+  }
+
+  const conflicts = [];
+  for (const item of itemsWithVersion) {
+    const dbVer = dbVersions[item.id];
+    // New items (not in DB) always pass; existing items must match version
+    if (dbVer != null && dbVer !== item.version) {
+      conflicts.push({ id: item.id, clientVersion: item.version, serverVersion: dbVer });
+    }
+  }
+
+  if (conflicts.length > 0) {
+    return json({ error: 'Version conflict', conflicts }, 409);
+  }
+  return null;
+}
+
 async function _parseBody(request) {
   try { return await request.json(); } catch (_) { return null; }
 }
@@ -352,6 +428,7 @@ function _rowToSong(row) {
     notes: row.notes,
     assets: _parseJson(row.assets, {}),
     chartOrder: _parseJson(row.chart_order, []),
+    version: row.version || 1,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
   };
@@ -366,6 +443,7 @@ function _rowToSetlist(row) {
     songs: _parseJson(row.songs, []),
     notes: row.notes,
     archived: !!row.archived,
+    version: row.version || 1,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
   };
@@ -378,6 +456,7 @@ function _rowToPractice(row) {
     createdBy: row.created_by,
     songs: _parseJson(row.songs, []),
     archived: !!row.archived,
+    version: row.version || 1,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
   };

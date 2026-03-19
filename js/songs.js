@@ -5,22 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.10';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender } from './utils.js?v=20.10';
-import * as Modal from './modal.js?v=20.10';
-import * as Router from './router.js?v=20.10';
-import * as Admin from '../admin.js?v=20.10';
-import * as Auth from '../auth.js?v=20.10';
-import * as Sync from './sync.js?v=20.10';
-import * as Drive from '../drive.js?v=20.10';
-import * as GitHub from '../github.js?v=20.10';
-import * as Player from '../player.js?v=20.10';
-import * as PDFViewer from '../pdf-viewer.js?v=20.10';
-import * as Metronome from '../metronome.js?v=20.10';
-import * as App from '../app.js?v=20.10';
-import * as Setlists from './setlists.js?v=20.10';
-import * as Practice from './practice.js?v=20.10';
-import * as Dashboard from './dashboard.js?v=20.10';
+import * as Store from './store.js?v=20.11';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.11';
+import * as Modal from './modal.js?v=20.11';
+import * as Router from './router.js?v=20.11';
+import * as Admin from '../admin.js?v=20.11';
+import * as Auth from '../auth.js?v=20.11';
+import * as Sync from './sync.js?v=20.11';
+import * as Drive from '../drive.js?v=20.11';
+import * as GitHub from '../github.js?v=20.11';
+import * as Player from '../player.js?v=20.11';
+import * as PDFViewer from '../pdf-viewer.js?v=20.11';
+import * as Metronome from '../metronome.js?v=20.11';
+import * as App from '../app.js?v=20.11';
+import * as Setlists from './setlists.js?v=20.11';
+import * as Practice from './practice.js?v=20.11';
+import * as Dashboard from './dashboard.js?v=20.11';
+import * as IDB from '../idb.js?v=20.11';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -846,6 +847,78 @@ function renderDetail(song, skipNavPush) {
       App.downloadFile(btn.dataset.dlId, btn.dataset.dlName, btn);
     });
   });
+
+  // Audio offline cache buttons — update state to show cached/uncached
+  _updateAudioCacheButtons(container);
+
+  container.querySelectorAll('.btn-cache-audio').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const fileId = btn.dataset.cacheId;
+      const filename = btn.dataset.cacheName;
+      const songId = btn.dataset.songId;
+      if (!IDB.isAvailable()) { showToast('Offline storage not available'); return; }
+      // Check if already cached — toggle
+      const existing = await IDB.getCachedAudio(fileId);
+      if (existing) {
+        await IDB.removeCachedAudio(fileId);
+        btn.classList.remove('cached');
+        btn.title = 'Save for offline';
+        showToast('Removed from offline cache');
+      } else {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="dl-spinner"></span>';
+        try {
+          const url = await App.getBlobUrl(fileId);
+          const resp = await fetch(url);
+          const blob = await resp.blob();
+          await IDB.cacheAudio(fileId, blob, songId, filename);
+          btn.classList.add('cached');
+          btn.title = 'Saved offline (tap to remove)';
+          showToast('Saved for offline playback');
+        } catch (e) {
+          console.error('Audio cache failed:', e);
+          showToast('Failed to cache audio');
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = '<i data-lucide="hard-drive-download" style="width:14px;height:14px;"></i>';
+          if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+      }
+    });
+  });
+
+  // "Download all for offline" section button
+  container.querySelectorAll('.btn-cache-all-audio').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!IDB.isAvailable()) { showToast('Offline storage not available'); return; }
+      const audioBtns = container.querySelectorAll('.btn-cache-audio:not(.cached)');
+      if (!audioBtns.length) { showToast('All audio already cached'); return; }
+      btn.disabled = true;
+      btn.textContent = 'Caching...';
+      let cached = 0;
+      for (const ab of audioBtns) {
+        try { ab.click(); cached++; } catch (_) {}
+        await new Promise(r => setTimeout(r, 200)); // stagger fetches
+      }
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="hard-drive-download" style="width:12px;height:12px;vertical-align:-2px;margin-right:3px;"></i>Offline';
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+  });
+}
+
+async function _updateAudioCacheButtons(container) {
+  if (!IDB.isAvailable()) return;
+  try {
+    const cached = await IDB.listCachedAudio();
+    const cachedIds = new Set(cached.map(c => c.fileId));
+    container.querySelectorAll('.btn-cache-audio').forEach(btn => {
+      if (cachedIds.has(btn.dataset.cacheId)) {
+        btn.classList.add('cached');
+        btn.title = 'Saved offline (tap to remove)';
+      }
+    });
+  } catch (_) {}
 }
 
 function _showSetlistPicker(song) {
@@ -960,13 +1033,21 @@ function _buildDetailHTML(song) {
 
   if (audio.length) {
     html += `<div class="detail-section" id="detail-audio">
-      <div class="detail-section-label">Demo Recordings</div>
+      <div class="detail-section-label" style="display:flex;justify-content:space-between;align-items:center;">
+        Demo Recordings
+        <button class="btn-ghost btn-cache-all-audio" data-song-id="${esc(song.id)}" style="font-size:11px;padding:2px 8px;" title="Save all audio for offline">
+          <i data-lucide="hard-drive-download" style="width:12px;height:12px;vertical-align:-2px;margin-right:3px;"></i>Offline
+        </button>
+      </div>
       <div style="display:flex;flex-direction:column;gap:10px;">
         ${audio.map(a => {
           const fid = a.r2FileId || a.driveId;
           return `
           <div class="audio-row">
             <div class="audio-row-player" data-audio-container="${esc(fid)}" data-name="${esc(a.name)}" data-song-title="${esc(song.title || '')}"></div>
+            <button class="btn-cache-audio" data-cache-id="${esc(fid)}" data-cache-name="${esc(a.name)}" data-song-id="${esc(song.id)}" aria-label="Save for offline" title="Save for offline">
+              <i data-lucide="hard-drive-download" style="width:14px;height:14px;"></i>
+            </button>
             <button class="dl-btn" data-dl-id="${esc(fid)}" data-dl-name="${esc(a.name)}" aria-label="Download">
               <i data-lucide="download" class="dl-icon"></i>
               <span class="dl-spinner hidden"></span>
@@ -1100,7 +1181,7 @@ function _buildEditHTML(song, isNew) {
           <input class="form-input" id="ef-key" type="text" value="${esc(song.key)}" placeholder="e.g. Bm, F#" />
         </div>
         <div class="form-field">
-          <label class="form-label">BPM</label>
+          <label class="form-label">BPM${(assets.audio||[]).length > 0 ? ' <button class="btn-bpm-detect" id="ef-bpm-detect" title="Auto-detect BPM from audio"><i data-lucide="activity" style="width:11px;height:11px;"></i></button>' : ''}</label>
           <input class="form-input" id="ef-bpm" type="number" value="${esc(String(song.bpm||''))}" placeholder="120" min="1" max="999" />
         </div>
         <div class="form-field">
@@ -1178,10 +1259,17 @@ function _linkEditRowHTML(link) {
   </div>`;
 }
 
+let _editDirtyTracker = null;
+
 function _wireEditForm() {
   const song   = Store.get('editSong');
   const assets = song.assets;
   const editIsNew = Store.get('editIsNew');
+
+  // Dirty tracking for unsaved changes confirmation
+  _editDirtyTracker = createDirtyTracker();
+  const editContainer = document.getElementById('edit-content');
+  if (editContainer) trackFormInputs(editContainer, _editDirtyTracker);
 
   // Duplicate detection on title input
   const titleInput = document.getElementById('ef-title');
@@ -1407,6 +1495,75 @@ function _wireEditForm() {
     wireOneLinkRow(el, blank);
   });
 
+  // BPM auto-detect
+  const bpmDetectBtn = document.getElementById('ef-bpm-detect');
+  if (bpmDetectBtn) {
+    bpmDetectBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const firstAudio = (assets.audio || [])[0];
+      if (!firstAudio) { showToast('No audio file to analyze'); return; }
+      bpmDetectBtn.disabled = true;
+      bpmDetectBtn.innerHTML = '<i data-lucide="loader" style="width:11px;height:11px;" class="spin"></i>';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bpmDetectBtn] });
+      try {
+        const fileId = firstAudio.r2FileId || firstAudio.driveId;
+        let blob;
+        if (firstAudio.r2FileId && GitHub.workerUrl) {
+          const token = Auth.getToken ? Auth.getToken() : null;
+          const resp = await fetch(`${GitHub.workerUrl}/files/${fileId}`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          });
+          if (!resp.ok) throw new Error('Could not fetch audio');
+          blob = await resp.blob();
+        } else {
+          blob = await Drive.downloadFile(fileId);
+        }
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let result;
+        try {
+          const arrayBuf = await blob.arrayBuffer();
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+          // Mix to mono
+          const mono = new Float32Array(audioBuffer.length);
+          for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+            const chData = audioBuffer.getChannelData(ch);
+            for (let i = 0; i < audioBuffer.length; i++) mono[i] += chData[i];
+          }
+          const channels = audioBuffer.numberOfChannels;
+          if (channels > 1) for (let i = 0; i < mono.length; i++) mono[i] /= channels;
+
+          // Use worker for BPM detection
+          const worker = new Worker('./workers/bpm-detect-worker.js');
+          result = await new Promise((resolve, reject) => {
+            worker.onmessage = (ev) => {
+              worker.terminate();
+              if (ev.data.type === 'RESULT') resolve(ev.data);
+              else reject(new Error(ev.data.error || 'Detection failed'));
+            };
+            worker.onerror = (err) => { worker.terminate(); reject(err); };
+            worker.postMessage({ type: 'DETECT', samples: mono, sampleRate: audioBuffer.sampleRate });
+          });
+        } finally {
+          audioCtx.close();
+        }
+
+        if (result.bpm > 0) {
+          const bpmInput = document.getElementById('ef-bpm');
+          bpmInput.value = result.bpm;
+          bpmInput.dispatchEvent(new Event('input', { bubbles: true }));
+          showToast(`Detected ${result.bpm} BPM (${Math.round(result.confidence * 100)}% confidence)`);
+        } else {
+          showToast('Could not detect BPM');
+        }
+      } catch (err) {
+        showToast('BPM detect failed: ' + err.message);
+      }
+      bpmDetectBtn.disabled = false;
+      bpmDetectBtn.innerHTML = '<i data-lucide="activity" style="width:11px;height:11px;"></i>';
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [bpmDetectBtn] });
+    });
+  }
+
   // Save
   document.getElementById('ef-save').addEventListener('click', async () => {
     if (Store.get('savingSongs')) return;
@@ -1428,6 +1585,7 @@ function _wireEditForm() {
     }
 
     async function _doSaveSong() {
+      if (_editDirtyTracker) _editDirtyTracker.reset();
       Store.set('savingSongs', true);
       song._ts = Date.now();
       try {
@@ -1461,10 +1619,14 @@ function _wireEditForm() {
     _doSaveSong();
   });
 
-  // Cancel
+  // Cancel — confirm discard if form has unsaved changes
   document.getElementById('ef-cancel').addEventListener('click', () => {
-    const activeSong = Store.get('activeSong');
-    (editIsNew || !activeSong) ? renderList() : renderDetail(activeSong, true);
+    const go = () => {
+      const activeSong = Store.get('activeSong');
+      (editIsNew || !activeSong) ? renderList() : renderDetail(activeSong, true);
+    };
+    if (_editDirtyTracker) { _editDirtyTracker.confirmDiscard(go); }
+    else { go(); }
   });
 
   // Delete

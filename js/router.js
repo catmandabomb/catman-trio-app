@@ -3,16 +3,18 @@
  *
  * Registry pattern: view modules register render functions at load time.
  * Router calls them by key, avoiding circular deps.
+ *
+ * @module router
  */
 
-import * as Store from './store.js?v=20.10';
-import * as Player from '../player.js?v=20.10';
-import * as Metronome from '../metronome.js?v=20.10';
+import * as Store from './store.js?v=20.11';
+import * as Player from '../player.js?v=20.11';
+import * as Metronome from '../metronome.js?v=20.11';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.10');
+  if (!_App) _App = import('../app.js?v=20.11');
   return _App;
 }
 
@@ -46,6 +48,12 @@ function _callHook(name) {
 
 // ─── Hash ↔ View mapping ───────────────────────────────────
 
+/**
+ * Convert a view name and optional params to a URL hash.
+ * @param {string} viewName
+ * @param {{songId?: string, setlistId?: string}} [params]
+ * @returns {string} Hash string (e.g. "#song/abc1")
+ */
 function viewToHash(viewName, params) {
   switch (viewName) {
     case 'list': return '#';
@@ -61,6 +69,11 @@ function viewToHash(viewName, params) {
   }
 }
 
+/**
+ * Parse a URL hash into a route object.
+ * @param {string} hash - e.g. "#song/abc1" or "#setlists"
+ * @returns {{view: string, songId?: string, setlistId?: string, token?: string}}
+ */
 function resolveHash(hash) {
   if (!hash || hash === '#' || hash === '') return { view: 'list' };
   const raw = hash.replace(/^#/, '');
@@ -110,6 +123,10 @@ function _ensureCached() {
   if (!_navBtns) _navBtns = document.querySelectorAll('.topbar-nav-btn');
 }
 
+/**
+ * Switch to a named view, updating DOM, URL hash, and ARIA state.
+ * @param {string} name - View name (e.g. 'list', 'detail', 'setlists')
+ */
 function showView(name) {
   _ensureCached();
   const popstateNav = Store.get('isPopstateNavigation');
@@ -183,6 +200,13 @@ function showView(name) {
   }
 }
 
+/**
+ * Update the topbar title and back button visibility.
+ * @param {string} title - Title text or HTML
+ * @param {boolean} showBack - Show the back arrow button
+ * @param {boolean} [isHtml] - If true, title is set as innerHTML
+ * @param {boolean} [isHome] - If true, only update version badge
+ */
 function setTopbar(title, showBack, isHtml, isHome) {
   const el = document.getElementById('topbar-title');
   if (el) {
@@ -200,6 +224,10 @@ function setTopbar(title, showBack, isHtml, isHome) {
   document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
 }
 
+/**
+ * Push a render function onto the navigation stack (for back button behavior).
+ * @param {Function} renderFn - Function to call when navigating back
+ */
 function pushNav(renderFn) {
   const stack = Store.get('navStack');
   stack.push(renderFn);

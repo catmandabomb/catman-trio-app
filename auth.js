@@ -7,7 +7,7 @@
  * Dependencies: GitHub (for workerUrl), Utils (for showToast)
  */
 
-import * as GitHub from './github.js?v=20.10';
+import * as GitHub from './github.js?v=20.11';
 
 // ─── State ──────────────────────────────────────────────
 

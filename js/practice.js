@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.10';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS } from './utils.js?v=20.10';
-import * as Modal from './modal.js?v=20.10';
-import * as Router from './router.js?v=20.10';
-import * as Sync from './sync.js?v=20.10';
-import * as Drive from '../drive.js?v=20.10';
-import * as GitHub from '../github.js?v=20.10';
-import * as Admin from '../admin.js?v=20.10';
-import * as Auth from '../auth.js?v=20.10';
-import * as Player from '../player.js?v=20.10';
-import * as Metronome from '../metronome.js?v=20.10';
-import * as PDFViewer from '../pdf-viewer.js?v=20.10';
-import * as App from '../app.js?v=20.10';
+import * as Store from './store.js?v=20.11';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.11';
+import * as Modal from './modal.js?v=20.11';
+import * as Router from './router.js?v=20.11';
+import * as Sync from './sync.js?v=20.11';
+import * as Drive from '../drive.js?v=20.11';
+import * as GitHub from '../github.js?v=20.11';
+import * as Admin from '../admin.js?v=20.11';
+import * as Auth from '../auth.js?v=20.11';
+import * as Player from '../player.js?v=20.11';
+import * as Metronome from '../metronome.js?v=20.11';
+import * as PDFViewer from '../pdf-viewer.js?v=20.11';
+import * as App from '../app.js?v=20.11';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -709,8 +709,13 @@ function _renderPracticeListEdit(practiceList, isNew) {
 
   container.innerHTML = html;
 
+  // Dirty tracking for unsaved changes confirmation
+  const _practiceDirtyTracker = createDirtyTracker();
+  trackFormInputs(container, _practiceDirtyTracker);
+
   let _sortablePL = null;
   function _renderPLSongs() {
+    _practiceDirtyTracker.markDirty();
     const songContainer = document.getElementById('pl-selected-songs');
     document.getElementById('pl-empty-msg')?.classList.toggle('hidden', pl.songs.length > 0);
 
@@ -768,6 +773,7 @@ function _renderPracticeListEdit(practiceList, isNew) {
     if (_savingPractice) return;
     pl.name = document.getElementById('pl-name').value.trim();
     if (!pl.name) { showToast('Name is required.'); document.getElementById('pl-name').focus(); return; }
+    _practiceDirtyTracker.reset();
     _savingPractice = true;
     try {
       pl.updatedAt = new Date().toISOString();
@@ -785,7 +791,9 @@ function _renderPracticeListEdit(practiceList, isNew) {
     }
   });
 
-  document.getElementById('pl-cancel').addEventListener('click', () => _navigateBack());
+  document.getElementById('pl-cancel').addEventListener('click', () => {
+    _practiceDirtyTracker.confirmDiscard(() => _navigateBack());
+  });
 
   document.getElementById('pl-delete')?.addEventListener('click', () => {
     if (_savingPractice) return;

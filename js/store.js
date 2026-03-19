@@ -6,11 +6,63 @@
  *
  * Phase 1: app.js keeps local `let` vars and syncs to Store at key boundaries.
  * Phase 4: View modules own state through Store directly.
+ *
+ * @module store
+ */
+
+/**
+ * @typedef {Object} Song
+ * @property {string} id - 4-digit hex ID
+ * @property {string} title
+ * @property {string} subtitle
+ * @property {string} key - Musical key (e.g. "C", "Am")
+ * @property {string} bpm
+ * @property {string} timeSig - Time signature (e.g. "4/4")
+ * @property {number} duration - Duration in seconds
+ * @property {string[]} tags
+ * @property {string} notes
+ * @property {{ charts?: Array, audio?: Array, links?: Array }} assets
+ * @property {Array<{driveId: string, order: number}>} chartOrder
+ * @property {number} [version] - Optimistic locking version
+ * @property {string} updatedAt
+ * @property {string} createdAt
+ */
+
+/**
+ * @typedef {Object} Setlist
+ * @property {string} id
+ * @property {string} venue
+ * @property {string} gigDate
+ * @property {string} overrideTitle
+ * @property {Array<{id: string, comment?: string}>} songs
+ * @property {string} notes
+ * @property {boolean} archived
+ * @property {number} [version]
+ * @property {string} updatedAt
+ * @property {string} createdAt
+ */
+
+/**
+ * @typedef {Object} PracticeList
+ * @property {string} id
+ * @property {string} name
+ * @property {string} createdBy
+ * @property {Array} songs
+ * @property {boolean} archived
+ * @property {number} [version]
+ * @property {string} updatedAt
+ * @property {string} createdAt
+ */
+
+/**
+ * @typedef {Object} TimeSig
+ * @property {string} display - e.g. "4/4"
+ * @property {number} beats - e.g. 4
  */
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.10',
+  APP_VERSION:        'v20.11',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────

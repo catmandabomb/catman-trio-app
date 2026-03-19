@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.10';
+const CACHE_NAME = 'catmantrio-v20.11';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -283,6 +283,31 @@ self.addEventListener('sync', (e) => {
 // - Shell assets (JS/CSS): cache-first with ignoreSearch for offline resilience
 // - External APIs: bypass SW entirely
 self.addEventListener('fetch', (e) => {
+  // Share Target: intercept POST to /share-target, store file, redirect to app
+  if (e.request.method === 'POST' && e.request.url.includes('/share-target')) {
+    e.respondWith((async () => {
+      try {
+        const formData = await e.request.formData();
+        const file = formData.get('file');
+        if (file && file.type === 'application/pdf') {
+          // Store the shared PDF in a temporary cache for the app to pick up
+          const cache = await caches.open('catmantrio-shared');
+          await cache.put('shared-pdf', new Response(file, {
+            headers: {
+              'Content-Type': file.type,
+              'X-Shared-Filename': file.name || 'shared.pdf',
+            }
+          }));
+        }
+      } catch (err) {
+        console.warn('SW: share target error', err);
+      }
+      // Redirect to app root — the app will check for shared files on init
+      return Response.redirect('/?shared=1', 303);
+    })());
+    return;
+  }
+
   // 2A: Audio proxy — serve registered blobs via real URL for iOS Safari.
   // Supports Range requests (required for iOS Safari audio seeking).
   if (e.request.url.includes('/audio-proxy/')) {

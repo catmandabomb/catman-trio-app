@@ -2,22 +2,22 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.10';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.10';
-import * as Modal from './js/modal.js?v=20.10';
-import * as Router from './js/router.js?v=20.10';
-import * as Sync from './js/sync.js?v=20.10';
-import * as Drive from './drive.js?v=20.10';
-import * as GitHub from './github.js?v=20.10';
-import * as Admin from './admin.js?v=20.10';
-import * as Auth from './auth.js?v=20.10';
-import * as Player from './player.js?v=20.10';
-import * as Songs from './js/songs.js?v=20.10';
-import * as Setlists from './js/setlists.js?v=20.10';
-import * as Practice from './js/practice.js?v=20.10';
-import * as Dashboard from './js/dashboard.js?v=20.10';
-import * as Migrate from './js/migrate.js?v=20.10';
-import * as IDB from './idb.js?v=20.10';
+import * as Store from './js/store.js?v=20.11';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.11';
+import * as Modal from './js/modal.js?v=20.11';
+import * as Router from './js/router.js?v=20.11';
+import * as Sync from './js/sync.js?v=20.11';
+import * as Drive from './drive.js?v=20.11';
+import * as GitHub from './github.js?v=20.11';
+import * as Admin from './admin.js?v=20.11';
+import * as Auth from './auth.js?v=20.11';
+import * as Player from './player.js?v=20.11';
+import * as Songs from './js/songs.js?v=20.11';
+import * as Setlists from './js/setlists.js?v=20.11';
+import * as Practice from './js/practice.js?v=20.11';
+import * as Dashboard from './js/dashboard.js?v=20.11';
+import * as Migrate from './js/migrate.js?v=20.11';
+import * as IDB from './idb.js?v=20.11';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -138,7 +138,21 @@ let _cachedPdfSet = new Set();
       return _blobCache[fileId];
     }
 
-    // Try PDF cache from service worker first
+    // Try IDB audio cache first (user-pinned offline files)
+    if (IDB.isAvailable()) {
+      try {
+        const cachedAudio = await IDB.getCachedAudio(fileId);
+        if (cachedAudio) {
+          const url = URL.createObjectURL(cachedAudio);
+          _blobCache[fileId] = url;
+          _blobCacheOrder.push(fileId);
+          _evictBlobCache();
+          return url;
+        }
+      } catch (_) {}
+    }
+
+    // Try PDF cache from service worker
     const cachedBlob = await _getCachedPdfBlob(fileId);
     if (cachedBlob) {
       const url = URL.createObjectURL(cachedBlob);
@@ -351,6 +365,8 @@ let _cachedPdfSet = new Set();
   async function _syncAllFromDrive(force) {
     const _preSyncCount = _songs.length;
     await Sync.syncAll(force);
+    // Start real-time sync polling after first successful sync
+    Sync.startSyncPolling();
     // Badging API: if songs changed since last open, badge the app icon
     _updateAppBadge(_preSyncCount);
     // Refresh local state from Store after sync
@@ -432,6 +448,7 @@ let _cachedPdfSet = new Set();
       topbarRight.appendChild(logoutBtn);
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [logoutBtn] });
       logoutBtn.addEventListener('click', async () => {
+        Sync.stopSyncPolling();
         await Auth.logout();
         Admin.resetAdminMode(false);
         _updateAuthUI();
@@ -871,6 +888,34 @@ let _cachedPdfSet = new Set();
             </div>
             <div class="settings-storage-label" id="pref-pdf-cache-label">Calculating\u2026</div>
           </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-label">Audio offline cache</div>
+              <button class="settings-clear-btn" id="pref-clear-audio-cache">Clear</button>
+            </div>
+            <div class="settings-storage-bar">
+              <div class="settings-storage-fill" id="pref-audio-cache-fill" style="width:0%"></div>
+            </div>
+            <div class="settings-storage-label" id="pref-audio-cache-label">Calculating\u2026</div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Export data</div>
+              <div class="settings-hint">Download songs, setlists & practice as JSON</div>
+            </div>
+            <button class="settings-clear-btn" id="pref-export-data"><i data-lucide="download" style="width:13px;height:13px;vertical-align:-2px;"></i> Export</button>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Import data</div>
+              <div class="settings-hint">Restore from a previously exported JSON file</div>
+            </div>
+            <button class="settings-clear-btn" id="pref-import-data"><i data-lucide="upload" style="width:13px;height:13px;vertical-align:-2px;"></i> Import</button>
+            <input type="file" id="pref-import-file" accept=".json" style="display:none">
+          </div>
         </div>
 
       </div>
@@ -935,6 +980,93 @@ let _cachedPdfSet = new Set();
         btn.textContent = 'Clear';
       }
     });
+
+    // Audio cache size estimation
+    _estimateAudioCacheSize(container);
+
+    // Clear audio cache
+    container.querySelector('#pref-clear-audio-cache')?.addEventListener('click', async () => {
+      const btn = container.querySelector('#pref-clear-audio-cache');
+      btn.disabled = true;
+      btn.textContent = 'Clearing\u2026';
+      try {
+        await IDB.clearAudioCache();
+        showToast('Audio cache cleared');
+        btn.textContent = 'Cleared';
+        _estimateAudioCacheSize(container);
+      } catch (_) {
+        showToast('Could not clear cache');
+        btn.disabled = false;
+        btn.textContent = 'Clear';
+      }
+    });
+
+    // Export data as JSON
+    container.querySelector('#pref-export-data')?.addEventListener('click', () => {
+      try {
+        const exportData = {
+          _catmanTrioBackup: true,
+          exportedAt: new Date().toISOString(),
+          version: APP_VERSION,
+          songs: Store.get('songs') || [],
+          setlists: Store.get('setlists') || [],
+          practice: Store.get('practice') || [],
+        };
+        const json = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        a.download = `catman-trio-backup-${date}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Data exported');
+      } catch (e) {
+        showToast('Export failed: ' + e.message);
+      }
+    });
+
+    // Import data from JSON
+    const importBtn = container.querySelector('#pref-import-data');
+    const importFile = container.querySelector('#pref-import-file');
+    importBtn?.addEventListener('click', () => importFile?.click());
+    importFile?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data._catmanTrioBackup) {
+          showToast('Invalid backup file');
+          return;
+        }
+        const songCount = (data.songs || []).length;
+        const slCount = (data.setlists || []).length;
+        const prCount = (data.practice || []).length;
+        const ok = await Modal.confirm(
+          'Import Data',
+          `This will replace all current data with:\n\n${songCount} songs, ${slCount} setlists, ${prCount} practice lists\n\nExported: ${data.exportedAt ? new Date(data.exportedAt).toLocaleString() : 'unknown'}\n\nThis cannot be undone.`,
+          'Import',
+          'Cancel'
+        );
+        if (!ok) return;
+        if (data.songs) { Store.set('songs', data.songs); await Sync.saveSongs(); }
+        if (data.setlists) { Store.set('setlists', data.setlists); await Sync.saveSetlists(); }
+        if (data.practice) { Store.set('practice', data.practice); await Sync.savePractice(); }
+        showToast(`Imported ${songCount} songs, ${slCount} setlists, ${prCount} practice lists`);
+        // Re-render the current view to reflect imported data
+        const view = Store.get('view');
+        if (view === 'setlists' || view === 'setlist-detail') renderSetlists();
+        else if (view === 'practice' || view === 'practice-detail') Practice.renderPractice(true);
+        else Songs.renderList();
+      } catch (err) {
+        showToast('Import failed: ' + err.message);
+      }
+      importFile.value = '';
+    });
   }
 
   async function _estimatePdfCacheSize(container) {
@@ -960,6 +1092,23 @@ let _cachedPdfSet = new Set();
       labelEl.textContent = fileCount > 0 ? `${fileCount} file${fileCount !== 1 ? 's' : ''} \u00b7 ${mb} MB` : 'No cached PDFs';
       // Assume ~100MB quota for progress bar
       const pct = Math.min(100, (totalBytes / (100 * 1024 * 1024)) * 100);
+      fillEl.style.width = pct + '%';
+    } catch (_) {
+      labelEl.textContent = 'Unable to estimate';
+    }
+  }
+
+  async function _estimateAudioCacheSize(container) {
+    const fillEl = container.querySelector('#pref-audio-cache-fill');
+    const labelEl = container.querySelector('#pref-audio-cache-label');
+    if (!fillEl || !labelEl) return;
+    try {
+      const totalBytes = await IDB.getAudioCacheSize();
+      const entries = await IDB.listCachedAudio();
+      const count = entries.length;
+      const mb = (totalBytes / (1024 * 1024)).toFixed(1);
+      labelEl.textContent = count > 0 ? `${count} file${count !== 1 ? 's' : ''} \u00b7 ${mb} MB` : 'No cached audio';
+      const pct = Math.min(100, (totalBytes / (200 * 1024 * 1024)) * 100);
       fillEl.style.width = pct + '%';
     } catch (_) {
       labelEl.textContent = 'Unable to estimate';
@@ -1341,11 +1490,33 @@ let _cachedPdfSet = new Set();
   Router.register('account', () => renderAccount());
   Router.register('settings', () => renderSettings());
 
+  // Share Target: check for shared PDFs from the OS share sheet
+  async function _checkSharedFiles() {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('shared')) return;
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+    try {
+      const cache = await caches.open('catmantrio-shared');
+      const resp = await cache.match('shared-pdf');
+      if (!resp) return;
+      const filename = resp.headers.get('X-Shared-Filename') || 'shared.pdf';
+      // Leave blob in cache for the edit flow to retrieve; store metadata as flag
+      try { localStorage.setItem('ct_shared_pdf', JSON.stringify({ filename, ts: Date.now() })); } catch (_) {}
+      showToast(`Received "${esc(filename)}" \u2014 open a song to attach it`);
+    } catch (e) {
+      console.warn('Share target pickup failed:', e);
+    }
+  }
+
   async function init() {
     // Badging API: clear badge on open, record last-open time
     navigator.clearAppBadge?.()?.catch?.(() => {});
     const _lastOpen = parseInt(localStorage.getItem('ct_last_open') || '0', 10);
     localStorage.setItem('ct_last_open', String(Date.now()));
+
+    // Check for shared files (Share Target API)
+    _checkSharedFiles();
 
     // Run one-time storage migrations (bb_ → ct_, etc.) before anything else
     Migrate.runAll();
@@ -1506,6 +1677,18 @@ let _cachedPdfSet = new Set();
     }
 
     document.getElementById('btn-back').addEventListener('click', () => {
+      // If on an edit view, delegate to the cancel button which handles dirty check
+      const view = Store.get('view');
+      if (view === 'edit') {
+        const cancelBtn = document.getElementById('ef-cancel');
+        if (cancelBtn) { cancelBtn.click(); return; }
+      } else if (view === 'setlist-edit') {
+        const cancelBtn = document.getElementById('slf-cancel');
+        if (cancelBtn) { cancelBtn.click(); return; }
+      } else if (view === 'practice-edit') {
+        const cancelBtn = document.getElementById('pl-cancel');
+        if (cancelBtn) { cancelBtn.click(); return; }
+      }
       _navigateBack();
     });
 
@@ -1514,6 +1697,7 @@ let _cachedPdfSet = new Set();
       haptic.double();
       if (Auth.isLoggedIn()) {
         // Logged in — log out
+        Sync.stopSyncPolling();
         await Auth.logout();
         Admin.resetAdminMode(false);
         _updateAuthUI();
@@ -1525,6 +1709,7 @@ let _cachedPdfSet = new Set();
           Admin.resetAdminMode();
           _updateAuthUI();
           renderList();
+          Sync.startSyncPolling();
         });
       }
     });

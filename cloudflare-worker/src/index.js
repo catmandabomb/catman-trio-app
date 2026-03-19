@@ -1077,6 +1077,11 @@ export default {
       return respond(await AppData.savePractice(request, env, currentUser));
     }
 
+    // GET /data/changes — lightweight timestamp check for polling sync
+    if (path === '/data/changes' && method === 'GET') {
+      return respond(await AppData.getChangeTimestamps(env));
+    }
+
     // ─── /files/* — R2-backed file storage (replaces Drive) ─────
 
     // POST /files/upload — upload a file to R2

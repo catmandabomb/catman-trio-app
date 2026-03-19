@@ -97,7 +97,7 @@
   --text:         #d4d0cc;
   --text-bright:  #f0eeeb;
   --text-2:       #9e9a94;
-  --text-3:       #97918b;
+  --text-3:       #a8a29c;
 
   /* Accent: vibrant gold */
   --accent:       #f0cc80;
@@ -1492,6 +1492,34 @@ body.is-mobile .search-refresh-btn { display: none; }
 .audio-row .dl-btn {
   align-self: center;
 }
+.btn-cache-audio {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.btn-cache-audio:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+.btn-cache-audio.cached {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+.btn-cache-audio:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* Audio player */
 .audio-player {
@@ -1821,6 +1849,23 @@ body.is-mobile .search-refresh-btn { display: none; }
   color: var(--text-2);
   margin-bottom: 8px;
 }
+.btn-bpm-detect {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-3);
+  padding: 1px 5px;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-left: 4px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-bpm-detect:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
 
 .form-input {
   width: 100%;
@@ -5264,13 +5309,13 @@ body:not(.authed) #ptr-indicator {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.5);
   margin-bottom: 8px;
 }
 .footer-link {
   display: block;
   font-size: 12px;
-  color: rgba(255,255,255,0.55);
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
   padding: 3px 0;
   transition: color 0.15s;
@@ -5284,7 +5329,7 @@ body:not(.authed) #ptr-indicator {
 }
 .footer-text {
   font-size: 10px;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.4);
   letter-spacing: 1px;
 }
 @media (max-width: 360px) {

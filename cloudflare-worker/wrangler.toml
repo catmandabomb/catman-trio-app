@@ -21,7 +21,6 @@ bucket_name = "catman-packets"
 
 # Secrets (set via `wrangler secret put <NAME>`):
 #   GITHUB_PAT          — GitHub Personal Access Token
-#   ADMIN_HASH          — PBKDF2 admin password hash (from localStorage ct_pw_hash)
 #   ENCRYPTION_KEY_SEED — 64-char hex string for AES key derivation
 #   DRIVE_API_KEY       — Google Drive API key (for proxying file downloads to gig packets)
 

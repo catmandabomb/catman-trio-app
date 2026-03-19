@@ -13,6 +13,7 @@
     "serve": "npx serve . -p 8080 -s"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.50.0",
     "esbuild": "^0.27.4",
     "serve": "^14.2.0"

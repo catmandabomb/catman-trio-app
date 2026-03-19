@@ -2,24 +2,30 @@
  * sync.js — Data load/save/sync layer
  *
  * Handles localStorage, IndexedDB, SW cache, and remote sync
- * (GitHub primary, Drive legacy fallback).
+ * (Cloudflare D1 primary, GitHub/Drive legacy fallback).
  * State lives in Store; re-renders via Router.
+ *
+ * @module sync
  */
 
-import * as Store from './store.js?v=20.10';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.10';
-import * as GitHub from '../github.js?v=20.10';
-import * as Drive from '../drive.js?v=20.10';
-import * as Router from './router.js?v=20.10';
-import * as IDB from '../idb.js?v=20.10';
-import * as Auth from '../auth.js?v=20.10';
-import * as Admin from '../admin.js?v=20.10';
+import * as Store from './store.js?v=20.11';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.11';
+import * as GitHub from '../github.js?v=20.11';
+import * as Drive from '../drive.js?v=20.11';
+import * as Router from './router.js?v=20.11';
+import * as IDB from '../idb.js?v=20.11';
+import * as Auth from '../auth.js?v=20.11';
+import * as Admin from '../admin.js?v=20.11';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
 // explicitly opted out. The 'ct_use_cloudflare' flag can force '0' to
 // revert to GitHub/Drive (legacy), but defaults to Cloudflare when Worker exists.
 
+/**
+ * Check if the app should use Cloudflare D1/R2 for data storage.
+ * @returns {boolean}
+ */
 function useCloudflare() {
   const flag = localStorage.getItem('ct_use_cloudflare');
   if (flag === '0') return false;   // explicitly opted out
@@ -27,6 +33,13 @@ function useCloudflare() {
   return !!GitHub.workerUrl;        // default: use Cloudflare when Worker is configured
 }
 
+/**
+ * Authenticated fetch to the Cloudflare Worker API.
+ * @param {string} path - API path (e.g. '/data/songs')
+ * @param {RequestInit} [options]
+ * @returns {Promise<Object>} Parsed JSON response
+ * @throws {Error} On non-OK response (409 errors include .status and .conflicts)
+ */
 async function _workerFetch(path, options = {}) {
   const token = Auth.getToken ? Auth.getToken() : null;
   if (!token) throw new Error('Not authenticated');
@@ -39,6 +52,12 @@ async function _workerFetch(path, options = {}) {
   });
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
+    if (resp.status === 409) {
+      const err = new Error('Version conflict');
+      err.status = 409;
+      err.conflicts = data.conflicts || [];
+      throw err;
+    }
     throw new Error(data.error || `Request failed: ${resp.status}`);
   }
   return resp.json();
@@ -57,6 +76,13 @@ async function _loadFromD1() {
   };
 }
 
+/**
+ * Save data to D1 via the Worker API.
+ * @param {'songs'|'setlists'|'practice'} type
+ * @param {Array} data - Items to upsert (includes version for optimistic locking)
+ * @param {string[]} [deletions] - IDs to delete
+ * @returns {Promise<Object>}
+ */
 async function _saveToD1(type, data, deletions) {
   const body = { [type]: data };
   if (deletions && deletions.length > 0) body.deletions = deletions;
@@ -65,6 +91,49 @@ async function _saveToD1(type, data, deletions) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Handle a 409 version conflict: re-fetch server data, merge with local,
+ * update Store + local storage, then retry the save once.
+ */
+async function _handleConflict(type, localData, saveFn) {
+  console.warn(`Version conflict on ${type} — re-fetching and merging`);
+  try {
+    const remote = await _workerFetch(`/data/${type}`);
+    const remoteItems = remote[type] || [];
+    // Build lookup of remote items by ID
+    const remoteMap = {};
+    remoteItems.forEach(item => { remoteMap[item.id] = item; });
+    // Merge: remote wins for version-tracked fields, keep local-only items
+    const merged = [];
+    const seen = new Set();
+    for (const local of localData) {
+      seen.add(local.id);
+      const server = remoteMap[local.id];
+      if (server && (server.version || 1) > (local.version || 1)) {
+        // Server is newer — use server version
+        merged.push(server);
+      } else {
+        // Local is same or newer (shouldn't happen but safe fallback) — use local with server version
+        merged.push(server ? { ...local, version: server.version } : local);
+      }
+    }
+    // Add remote-only items we don't have locally
+    for (const item of remoteItems) {
+      if (!seen.has(item.id)) merged.push(item);
+    }
+    // Retry save with updated versions FIRST — only update local if D1 succeeds
+    await _saveToD1(type, merged);
+    // D1 succeeded — now update store + local
+    const storeKey = type === 'practice' ? 'practice' : type;
+    Store.set(storeKey, merged);
+    saveFn(merged);
+    showToast('Sync conflict resolved.');
+  } catch (retryErr) {
+    console.error('Conflict resolution failed', retryErr);
+    showToast('Sync conflict — please refresh.');
+  }
 }
 
 // ─── Schema migration ──────────────────────────────────────
@@ -352,6 +421,10 @@ async function tryAutoConfigureGitHub() {
 
 // ─── Main sync orchestrator ────────────────────────────────
 
+/**
+ * Main sync orchestrator. Fetches remote data and updates local state.
+ * @param {boolean} [force] - Skip cooldown timer (manual refresh)
+ */
 async function syncAll(force) {
   const _useCF = useCloudflare();
   const _useGitHub = !_useCF && GitHub.isConfigured();
@@ -489,11 +562,18 @@ async function doSyncRefresh(afterCallback) {
 
 // ─── Save functions ────────────────────────────────────────
 
+/**
+ * Save songs to local storage and sync to remote backend.
+ * @param {string} [toastMsg] - Custom toast message (default: "Saved.")
+ */
 async function saveSongs(toastMsg) {
   const songs = Store.get('songs');
   _saveLocal(songs);
   if (useCloudflare()) {
-    _saveToD1('songs', songs).then(() => _markSynced()).catch(e => console.warn('D1 save songs failed', e));
+    _saveToD1('songs', songs).then(() => _markSynced()).catch(e => {
+      if (e.status === 409) { _handleConflict('songs', songs, _saveLocal); return; }
+      console.warn('D1 save songs failed', e);
+    });
     showToast(toastMsg || 'Saved.');
     return;
   }
@@ -520,11 +600,18 @@ async function saveSongs(toastMsg) {
   }
 }
 
+/**
+ * Save setlists to local storage and sync to remote backend.
+ * @param {string} [toastMsg]
+ */
 async function saveSetlists(toastMsg) {
   const setlists = Store.get('setlists');
   _saveSetlistsLocal(setlists);
   if (useCloudflare()) {
-    _saveToD1('setlists', setlists).then(() => _markSynced()).catch(e => console.warn('D1 save setlists failed', e));
+    _saveToD1('setlists', setlists).then(() => _markSynced()).catch(e => {
+      if (e.status === 409) { _handleConflict('setlists', setlists, _saveSetlistsLocal); return; }
+      console.warn('D1 save setlists failed', e);
+    });
     showToast(toastMsg || 'Saved.');
     return;
   }
@@ -551,11 +638,18 @@ async function saveSetlists(toastMsg) {
   }
 }
 
+/**
+ * Save practice lists to local storage and sync to remote backend.
+ * @param {string} [toastMsg]
+ */
 async function savePractice(toastMsg) {
   const practice = Store.get('practice');
   _savePracticeLocal(practice);
   if (useCloudflare()) {
-    _saveToD1('practice', practice).then(() => _markSynced()).catch(e => console.warn('D1 save practice failed', e));
+    _saveToD1('practice', practice).then(() => _markSynced()).catch(e => {
+      if (e.status === 409) { _handleConflict('practice', practice, _savePracticeLocal); return; }
+      console.warn('D1 save practice failed', e);
+    });
     showToast(toastMsg || 'Saved.');
     return;
   }
@@ -582,7 +676,57 @@ async function savePractice(toastMsg) {
   }
 }
 
+// ─── Real-time sync polling ─────────────────────────────────
+// Lightweight polling — checks /data/changes for timestamp diffs,
+// only does full sync when data has actually changed.
+
+let _pollTimer = null;
+let _lastChanges = null;
+const POLL_INTERVAL_MS = 30000; // 30 seconds
+
+function startSyncPolling() {
+  if (_pollTimer) return; // already running
+  if (!useCloudflare()) return; // only for D1 backend
+  if (!Auth.getToken?.()) return; // need auth for polling
+  _pollTimer = setInterval(_pollForChanges, POLL_INTERVAL_MS);
+}
+
+function stopSyncPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  _lastChanges = null;
+}
+
+async function _pollForChanges() {
+  if (!useCloudflare() || !Auth.getToken?.()) return;
+  if (Store.get('syncing')) return; // don't poll during active sync
+  try {
+    const changes = await _workerFetch('/data/changes');
+    if (!_lastChanges) {
+      // First poll — just store baseline, don't sync
+      _lastChanges = changes;
+      return;
+    }
+    // Check if anything changed since last poll
+    const changed = (
+      changes.songs?.latest !== _lastChanges.songs?.latest ||
+      changes.songs?.count !== _lastChanges.songs?.count ||
+      changes.setlists?.latest !== _lastChanges.setlists?.latest ||
+      changes.setlists?.count !== _lastChanges.setlists?.count ||
+      changes.practice?.latest !== _lastChanges.practice?.latest ||
+      changes.practice?.count !== _lastChanges.practice?.count
+    );
+    _lastChanges = changes;
+    if (changed) {
+      console.info('Remote data changed — syncing');
+      await syncAll(true);
+    }
+  } catch (e) {
+    // Silently ignore poll failures (network issues, etc.)
+    console.debug('Sync poll failed:', e.message);
+  }
+}
+
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, useCloudflare };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, useCloudflare, startSyncPolling, stopSyncPolling };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal };

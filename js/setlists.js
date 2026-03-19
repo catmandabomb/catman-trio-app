@@ -5,19 +5,19 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.10';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender } from './utils.js?v=20.10';
-import * as Modal from './modal.js?v=20.10';
-import * as Router from './router.js?v=20.10';
-import * as Admin from '../admin.js?v=20.10';
-import * as Auth from '../auth.js?v=20.10';
-import * as Sync from './sync.js?v=20.10';
-import * as Drive from '../drive.js?v=20.10';
-import * as GitHub from '../github.js?v=20.10';
-import * as Player from '../player.js?v=20.10';
-import * as PDFViewer from '../pdf-viewer.js?v=20.10';
-import * as App from '../app.js?v=20.10';
-import * as Songs from './songs.js?v=20.10';
+import * as Store from './store.js?v=20.11';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.11';
+import * as Modal from './modal.js?v=20.11';
+import * as Router from './router.js?v=20.11';
+import * as Admin from '../admin.js?v=20.11';
+import * as Auth from '../auth.js?v=20.11';
+import * as Sync from './sync.js?v=20.11';
+import * as Drive from '../drive.js?v=20.11';
+import * as GitHub from '../github.js?v=20.11';
+import * as Player from '../player.js?v=20.11';
+import * as PDFViewer from '../pdf-viewer.js?v=20.11';
+import * as App from '../app.js?v=20.11';
+import * as Songs from './songs.js?v=20.11';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -3053,11 +3053,19 @@ function _buildSetlistEditHTML() {
   `;
 }
 
+let _setlistDirtyTracker = null;
+
 function _wireSetlistEditForm() {
   const sl = _editSetlist;
   const _songs = Store.get('songs');
 
+  // Dirty tracking for unsaved changes confirmation
+  _setlistDirtyTracker = createDirtyTracker();
+  const editContainer = document.getElementById('setlist-edit-content');
+  if (editContainer) trackFormInputs(editContainer, _setlistDirtyTracker);
+
   function _renderSelectedSongs() {
+    if (_setlistDirtyTracker) _setlistDirtyTracker.markDirty();
     const container = document.getElementById('slf-selected-songs');
     const emptyMsg = document.getElementById('slf-empty-msg');
     emptyMsg.classList.toggle('hidden', sl.songs.length > 0);
@@ -3327,6 +3335,7 @@ function _wireSetlistEditForm() {
     sl.overrideTitle = document.getElementById('slf-override-title').value.trim();
     const emptyFt = sl.songs.find(e => e.freetext && !(e.title || '').trim());
     if (emptyFt) { showToast('All freetext songs need a title.'); return; }
+    if (_setlistDirtyTracker) _setlistDirtyTracker.reset();
     _savingSetlists = true;
     sl._ts = Date.now();
     try {
@@ -3347,10 +3356,14 @@ function _wireSetlistEditForm() {
     }
   });
 
-  // Cancel
+  // Cancel — confirm discard if form has unsaved changes
   document.getElementById('slf-cancel').addEventListener('click', () => {
-    if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
-    _navigateBack();
+    const go = () => {
+      if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
+      _navigateBack();
+    };
+    if (_setlistDirtyTracker) { _setlistDirtyTracker.confirmDiscard(go); }
+    else { go(); }
   });
 
   // Delete

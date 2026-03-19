@@ -3,18 +3,31 @@
  *
  * Pure utilities used across multiple modules. No state dependencies —
  * functions that need state take it as parameters.
+ *
+ * @module utils
  */
 
-import * as Store from './store.js?v=20.10';
+import * as Store from './store.js?v=20.11';
 
 // ─── HTML / String helpers ──────────────────────────────────
 
+/**
+ * Escape HTML special characters.
+ * @param {string} str
+ * @returns {string}
+ */
 function esc(str) {
   return String(str || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/**
+ * Escape HTML and wrap search query matches in <mark> tags.
+ * @param {string} text
+ * @param {string} query
+ * @returns {string} HTML with highlighted matches
+ */
 function highlight(text, query) {
   if (!query) return esc(text);
   const escaped = esc(text);
@@ -22,11 +35,21 @@ function highlight(text, query) {
   return escaped.replace(new RegExp(`(${q})`, 'gi'), '<mark class="search-hi">$1</mark>');
 }
 
+/**
+ * Deep clone an object using structuredClone or JSON fallback.
+ * @param {*} obj
+ * @returns {*}
+ */
 function deepClone(obj) {
   if (typeof structuredClone === 'function') return structuredClone(obj);
   return JSON.parse(JSON.stringify(obj));
 }
 
+/**
+ * Format a timestamp as relative time (e.g. "5m ago", "2h ago").
+ * @param {number} ts - Unix timestamp in milliseconds
+ * @returns {string}
+ */
 function timeAgo(ts) {
   const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 60) return 'just now';
@@ -35,6 +58,13 @@ function timeAgo(ts) {
   return Math.floor(diff / 86400) + 'd ago';
 }
 
+/**
+ * Render text with a per-character RGB gradient.
+ * @param {string} str
+ * @param {[number,number,number]} from - Starting RGB color
+ * @param {[number,number,number]} to - Ending RGB color
+ * @returns {string} HTML with colored spans
+ */
 function gradientText(str, from, to) {
   const chars = str.split('');
   const visible = chars.filter(c => c !== ' ');
@@ -52,6 +82,11 @@ function gradientText(str, from, to) {
 
 // ─── Duration helpers ───────────────────────────────────────
 
+/**
+ * Parse duration input ("3:45" or "225") to seconds.
+ * @param {string} val
+ * @returns {number} Duration in seconds
+ */
 function parseDurationInput(val) {
   if (!val) return 0;
   val = val.trim();
@@ -63,6 +98,11 @@ function parseDurationInput(val) {
   return isNaN(n) ? 0 : n;
 }
 
+/**
+ * Format seconds as "m:ss" string.
+ * @param {number} secs
+ * @returns {string}
+ */
 function formatDuration(secs) {
   if (!secs || secs <= 0) return '';
   const m = Math.floor(secs / 60);
@@ -75,6 +115,10 @@ function formatDuration(secs) {
 
 const _canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 
+/**
+ * Trigger haptic feedback via the Vibration API. No-op on unsupported devices.
+ * @param {number|number[]} pattern - Vibration pattern in ms
+ */
 function haptic(pattern) {
   if (_canVibrate) try { navigator.vibrate(pattern); } catch (_) {}
 }
@@ -87,6 +131,11 @@ haptic.success   = () => haptic([10, 40, 15]);
 
 // ─── Toast ──────────────────────────────────────────────────
 
+/**
+ * Show a toast notification. Supports <br> tags for line breaks.
+ * @param {string} msg - Message text (HTML <br> is preserved, all other HTML escaped)
+ * @param {number} [duration=3000] - Duration in ms before auto-hide
+ */
 function showToast(msg, duration = 3000) {
   const el = document.getElementById('toast');
   if (!el) return;
@@ -103,6 +152,10 @@ function showToast(msg, duration = 3000) {
   }, duration));
 }
 
+/**
+ * Fallback clipboard copy using a hidden textarea (for older browsers).
+ * @param {string} text
+ */
 function fallbackCopy(text) {
   const ta = document.createElement('textarea');
   ta.value = text;
@@ -120,11 +173,13 @@ function fallbackCopy(text) {
 
 // ─── Platform detection ─────────────────────────────────────
 
+/** @returns {boolean} True if running on iOS/iPadOS */
 function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+/** @returns {boolean} True if running on a mobile/tablet device */
 function isMobile() {
   if (/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
   if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
@@ -132,6 +187,7 @@ function isMobile() {
   return false;
 }
 
+/** @returns {boolean} True if the app is running as an installed PWA */
 function isPWAInstalled() {
   if (window.navigator.standalone === true) return true;
   try {
@@ -143,6 +199,10 @@ function isPWAInstalled() {
   return false;
 }
 
+/**
+ * Detect the user's platform.
+ * @returns {'ipad'|'ios'|'android'|'other'|'desktop'}
+ */
 function detectPlatform() {
   const ua = navigator.userAgent;
   if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
@@ -154,6 +214,11 @@ function detectPlatform() {
 
 // ─── Chart ordering helpers ─────────────────────────────────
 
+/**
+ * Get charts for a song in their user-defined order.
+ * @param {import('./store.js').Song} song
+ * @returns {Array} Ordered chart objects
+ */
 function getOrderedCharts(song) {
   const charts = song.assets?.charts || [];
   if (!charts.length) return [];
@@ -169,6 +234,12 @@ function getOrderedCharts(song) {
     .filter(Boolean);
 }
 
+/**
+ * Get the ordering number for a specific chart within a song.
+ * @param {import('./store.js').Song} song
+ * @param {string} driveId
+ * @returns {number} Order number (0 if not set)
+ */
 function getChartOrderNum(song, driveId) {
   const order = song.chartOrder || [];
   const entry = order.find(o => o.driveId === driveId);
@@ -177,6 +248,11 @@ function getChartOrderNum(song, driveId) {
 
 // ─── Key filter helper ──────────────────────────────────────
 
+/**
+ * Check if a musical key is a hybrid/multi-key designation.
+ * @param {string} k
+ * @returns {boolean}
+ */
 function isHybridKey(k) {
   if (k.includes('/')) return true;
   const low = k.toLowerCase();
@@ -185,6 +261,12 @@ function isHybridKey(k) {
 
 // ─── Duplicate detection (Levenshtein) ──────────────────────
 
+/**
+ * Compute the Levenshtein edit distance between two strings.
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
 function levenshtein(a, b) {
   const la = a.length, lb = b.length;
   if (la === 0) return lb;
@@ -246,6 +328,11 @@ function findSimilarSongsAsync(title, excludeId, songs, levWorker) {
 
 // ─── Metronome time sig helper ──────────────────────────────
 
+/**
+ * Parse a time signature string into a TimeSig object.
+ * @param {string} ts - e.g. "3/4"
+ * @returns {import('./store.js').TimeSig}
+ */
 function parseTimeSig(ts) {
   const TIME_SIGS = Store.get('TIME_SIGS');
   if (!ts) return TIME_SIGS[0];
@@ -255,6 +342,12 @@ function parseTimeSig(ts) {
 
 // ─── Error boundary wrapper ─────────────────────────────────
 
+/**
+ * Wrap a render function with error boundary that shows a friendly error UI.
+ * @param {string} name - View name for error messages
+ * @param {Function} renderFn - The render function to wrap
+ * @returns {Function} Wrapped render function
+ */
 function safeRender(name, renderFn) {
   return function(...args) {
     try {
@@ -274,6 +367,59 @@ function safeRender(name, renderFn) {
   };
 }
 
+// ─── Form dirty tracking ─────────────────────────────────────
+
+/**
+ * Track whether a form has unsaved changes.
+ * Call markDirty() when any input changes.
+ * Call confirmDiscard() before navigating away.
+ * @returns {{ markDirty: Function, isDirty: Function, confirmDiscard: (onDiscard: Function) => void, reset: Function }}
+ */
+function createDirtyTracker() {
+  let _dirty = false;
+  return {
+    markDirty() { _dirty = true; },
+    isDirty() { return _dirty; },
+    reset() { _dirty = false; },
+    confirmDiscard(onDiscard) {
+      if (!_dirty) { onDiscard(); return; }
+      // Use the app's confirm modal
+      const overlay = document.getElementById('modal-confirm');
+      const okBtn = document.getElementById('btn-confirm-ok');
+      const cancelBtn = document.getElementById('btn-confirm-cancel');
+      const titleEl = document.getElementById('confirm-title');
+      const msgEl = document.getElementById('confirm-message');
+      if (!overlay || !okBtn || !cancelBtn) { onDiscard(); return; }
+      titleEl.textContent = 'Unsaved Changes';
+      msgEl.textContent = 'You have unsaved changes. Discard them?';
+      okBtn.textContent = 'Discard';
+      okBtn.className = 'btn-danger';
+      overlay.classList.remove('hidden');
+      const cleanup = () => {
+        overlay.classList.add('hidden');
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+      };
+      const onOk = () => { cleanup(); _dirty = false; onDiscard(); };
+      const onCancel = () => { cleanup(); };
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    },
+  };
+}
+
+/**
+ * Attach dirty tracking to all inputs/textareas/selects within a container.
+ * @param {HTMLElement} container
+ * @param {{ markDirty: Function }} tracker
+ */
+function trackFormInputs(container, tracker) {
+  container.querySelectorAll('input, textarea, select').forEach(el => {
+    el.addEventListener('input', tracker.markDirty);
+    el.addEventListener('change', tracker.markDirty);
+  });
+}
+
 // ─── Public API ─────────────────────────────────────────────
 
-export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender };
+export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs };
