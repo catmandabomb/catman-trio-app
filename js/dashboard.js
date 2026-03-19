@@ -2,21 +2,21 @@
  * dashboard.js — Admin Dashboard + Diagnostics
  *
  * Renders the admin dashboard with system health, data stats,
- * GitHub/Drive sync status, tag manager, and full diagnostics suite.
+ * Cloudflare/Drive sync status, tag manager, and full diagnostics suite.
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.05';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.05';
-import * as Modal from './modal.js?v=20.05';
-import * as Router from './router.js?v=20.05';
-import * as Admin from '../admin.js?v=20.05';
-import * as Auth from '../auth.js?v=20.05';
-import * as GitHub from '../github.js?v=20.05';
-import * as Drive from '../drive.js?v=20.05';
-import * as Sync from './sync.js?v=20.05';
-import * as App from '../app.js?v=20.05';
-import * as IDB from '../idb.js?v=20.05';
+import * as Store from './store.js?v=20.06';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.06';
+import * as Modal from './modal.js?v=20.06';
+import * as Router from './router.js?v=20.06';
+import * as Admin from '../admin.js?v=20.06';
+import * as Auth from '../auth.js?v=20.06';
+import * as GitHub from '../github.js?v=20.06';
+import * as Drive from '../drive.js?v=20.06';
+import * as Sync from './sync.js?v=20.06';
+import * as App from '../app.js?v=20.06';
+import * as IDB from '../idb.js?v=20.06';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -278,7 +278,7 @@ function renderDashboard() {
 
     <div class="dash-section">
       <div class="dash-section-title">
-        System Health
+        <i data-lucide="heart-pulse" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>System Health
         <span class="dash-section-badge ${healthBadge}">${healthStatus}</span>
       </div>`;
 
@@ -317,7 +317,7 @@ function renderDashboard() {
   // Data breakdown
   html += `
     <div class="dash-section">
-      <div class="dash-section-title">Data Breakdown</div>
+      <div class="dash-section-title"><i data-lucide="bar-chart-3" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Data Breakdown</div>
       <div class="dash-alert info">
         <div class="dash-alert-title">${_codeTag(4101)} File Attachment Summary</div>
         <div class="dash-alert-detail">
@@ -365,52 +365,26 @@ function renderDashboard() {
       </div>`;
   }
 
-  // GitHub sync status
-  html += `<div class="dash-section"><div class="dash-section-title">GitHub Sync</div>`;
-  if (GitHub.isConfigured()) {
-    const rl = GitHub.getRateLimitStatus();
-    const wq = GitHub.getWriteQueueStatus();
-    const migrated = localStorage.getItem('ct_migrated_to_github') === '1';
-    const fillClass = rl.warnLevel === 'critical' ? 'critical' : rl.warnLevel === 'warning' ? 'warning' : '';
-    html += `
-        <div class="dash-alert info">
-          <div class="dash-alert-title">${_codeTag(4601)} GitHub Connection</div>
-          <div class="dash-github-status">
-            <div class="status-row"><span>Repository</span><span>${esc(GitHub.getConfig().owner + '/' + GitHub.getConfig().repo)}</span></div>
-            <div class="status-row"><span>Data Branch</span><span>data</span></div>
-            <div class="status-row"><span>Migrated</span><span style="color:${migrated ? 'var(--green)' : 'var(--text-3)'}">${migrated ? 'Yes' : 'No'}</span></div>
-            <div class="status-row"><span>Write Queue</span><span>${wq.hasPending ? wq.pendingTypes.join(', ') + (wq.flushing ? ' (flushing)' : ' (pending)') : 'Empty'}</span></div>
-          </div>
-          <div style="margin-top:8px;">
-            <div class="dash-alert-detail" style="font-size:11px;margin-bottom:4px;">API Usage: ${rl.callsThisHour} / ${rl.limit} (${rl.pct}%)</div>
-            <div class="dash-rate-bar"><div class="dash-rate-fill ${fillClass}" style="width:${Math.min(rl.pct, 100)}%"></div></div>
-          </div>
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="dash-github-push" class="btn-primary" style="font-size:11px;padding:4px 6px;">Push Now</button>
-            <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:4px 6px;">GitHub Setup</button>
-            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Run Diagnostics</button>
-            ${!migrated ? '<button id="dash-github-migrate" class="btn-primary" style="font-size:11px;padding:4px 6px;background:var(--green);color:#000;">Migrate to GitHub</button>' : ''}
-          </div>
-        </div>`;
-  } else {
-    html += `
-        <div class="dash-alert warn-orange">
-          <div class="dash-alert-title">${_codeTag(2501)} GitHub not configured</div>
-          <div class="dash-alert-detail">Connect GitHub for encrypted metadata sync across all devices (including mobile).</div>
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="dash-github-setup" class="btn-primary" style="font-size:11px;padding:4px 6px;">Configure GitHub</button>
-            <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Run Diagnostics</button>
-          </div>
-        </div>`;
-  }
-  html += `</div>`;
+  // Cloudflare Status (replaces GitHub Sync — data is now on D1/R2/KV)
+  html += `<div class="dash-section"><div class="dash-section-title">
+    <i data-lucide="cloud" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Cloudflare Status
+  </div>
+    <div id="dash-cf-status" class="dash-alert info">
+      <div class="dash-alert-detail" style="color:var(--text-3)">Loading…</div>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button id="dash-run-diag" class="btn-secondary" style="font-size:11px;padding:4px 6px;">Run Diagnostics</button>
+      <button id="dash-github-setup" class="btn-secondary" style="font-size:11px;padding:4px 6px;">GitHub Setup</button>
+    </div>
+  </div>`;
 
   // Drive sync diagnostic
-  const _driveSectionTitle = (GitHub.isConfigured() && localStorage.getItem('ct_migrated_to_github') === '1')
+  const _cfActive = localStorage.getItem('ct_use_cloudflare') === '1';
+  const _driveSectionTitle = _cfActive
     ? 'Drive Status (Legacy — PDFs/Audio only)' : 'Drive Sync Status';
   html += `
     <div class="dash-section">
-      <div class="dash-section-title">${_driveSectionTitle}</div>
+      <div class="dash-section-title"><i data-lucide="folder-sync" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>${_driveSectionTitle}</div>
       <div id="dash-drive-sync" class="dash-alert info">
         <div class="dash-alert-detail">Checking Drive…</div>
       </div>
@@ -446,7 +420,7 @@ function renderDashboard() {
         <button class="btn-danger" id="dash-purge-practice" style="font-size:13px;padding:10px 16px;">
           <i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Purge All Practice Lists (${totalPracticeLists})
         </button>
-        <p class="muted" style="font-size:11px;margin:0;padding:0 4px;">Permanently deletes ALL practice lists for ALL users. Syncs to GitHub/Drive. Cannot be undone.</p>
+        <p class="muted" style="font-size:11px;margin:0;padding:0 4px;">Permanently deletes ALL practice lists for ALL users. Syncs to Cloudflare. Cannot be undone.</p>
       </div>
     </div>`;
   }
@@ -512,7 +486,7 @@ function renderDashboard() {
         <i data-lucide="refresh-cw" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Sync Queue
       </div>
       <div id="dash-sync-status" style="margin-top:8px;font-size:13px;">
-        ${ghConfigured ? '<span class="muted">Checking queue\u2026</span>' : '<span class="muted">GitHub not configured \u2014 sync inactive</span>'}
+        ${ghConfigured ? '<span class="muted">Checking queue\u2026</span>' : '<span class="muted">Sync queue idle</span>'}
       </div>
     </div>`;
 
@@ -536,7 +510,7 @@ function renderDashboard() {
       <div id="dash-error-log" style="margin-top:8px;font-size:12px;max-height:200px;overflow-y:auto;">
         <span class="muted">No errors captured</span>
       </div>
-      <button class="btn-ghost" id="dash-clear-errors" style="font-size:12px;margin-top:6px;display:none;">Clear Log</button>
+      <button class="btn-ghost" id="dash-clear-errors" style="font-size:12px;margin-top:6px;display:none;color:#e87c6a;"><i data-lucide="trash-2" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px;"></i>Clear Log</button>
     </div>`;
 
     // ── Server Error Log ──
@@ -620,23 +594,7 @@ function renderDashboard() {
     renderUserManagement();
   });
 
-  // Wire GitHub dashboard buttons
-  const ghPushBtn = document.getElementById('dash-github-push');
-  if (ghPushBtn) {
-    ghPushBtn.addEventListener('click', async () => {
-      ghPushBtn.disabled = true;
-      ghPushBtn.textContent = 'Pushing…';
-      try {
-        await GitHub.flushNow();
-        showToast('GitHub push complete.');
-        renderDashboard();
-      } catch (e) {
-        showToast('GitHub push failed: ' + (e.message || 'unknown error'));
-        ghPushBtn.disabled = false;
-        ghPushBtn.textContent = 'Push Now';
-      }
-    });
-  }
+  // Wire dashboard buttons (Cloudflare section + legacy GitHub setup)
   const ghSetupBtn = document.getElementById('dash-github-setup');
   if (ghSetupBtn) {
     ghSetupBtn.addEventListener('click', () => Admin.showGitHubModal(() => renderDashboard()));
@@ -651,8 +609,8 @@ function renderDashboard() {
         panel = document.createElement('div');
         panel.id = 'diag-panel';
         panel.className = 'diag-panel';
-        const ghSection = diagBtn.closest('.dash-section');
-        if (ghSection) ghSection.after(panel);
+        const cfSection = diagBtn.closest('.dash-section');
+        if (cfSection) cfSection.after(panel);
         else container.appendChild(panel);
       }
       panel.innerHTML = '<div style="color:var(--accent);padding:8px 0;">Initializing diagnostics...</div>';
@@ -660,32 +618,6 @@ function renderDashboard() {
         diagBtn.disabled = false;
         diagBtn.textContent = 'Run Diagnostics';
       });
-    });
-  }
-  let _migrating = false;
-  const ghMigrateBtn = document.getElementById('dash-github-migrate');
-  if (ghMigrateBtn) {
-    ghMigrateBtn.addEventListener('click', async () => {
-      if (_migrating) return;
-      _migrating = true;
-      ghMigrateBtn.disabled = true;
-      ghMigrateBtn.textContent = 'Migrating…';
-      try {
-        const curSongs = Store.get('songs');
-        const curSetlists = Store.get('setlists');
-        const curPractice = Store.get('practice');
-        await GitHub.migrateData({ songs: curSongs, setlists: curSetlists, practice: curPractice });
-        localStorage.setItem('ct_migrated_to_github', '1');
-        showToast('Migration complete! Data is now syncing via GitHub.');
-        renderDashboard();
-      } catch (e) {
-        console.error('Migration failed', e);
-        showToast('Migration failed: ' + (e.message || 'unknown error'));
-        ghMigrateBtn.disabled = false;
-        ghMigrateBtn.textContent = 'Migrate to GitHub';
-      } finally {
-        _migrating = false;
-      }
     });
   }
 
@@ -791,7 +723,7 @@ function renderDashboard() {
         errorLogEl.innerHTML = errors.slice(-20).reverse().map(e =>
           `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
             <div style="color:#e87c6a;">${esc(e.message || 'Unknown error')}</div>
-            <div style="color:var(--text-3);font-size:11px;">${esc(e.source || '')} ${e.time ? '&middot; ' + timeAgo(e.time) : ''}</div>
+            <div style="color:var(--text-3);font-size:11px;">${esc(e.source || '')} ${e.time ? '&middot; ' + timeAgo(new Date(e.time).getTime()) : ''}</div>
           </div>`
         ).join('');
         if (clearErrorsBtn) clearErrorsBtn.style.display = '';
@@ -805,10 +737,10 @@ function renderDashboard() {
     showToast('Error log cleared');
   });
 
-  // Async service quotas fetch
-  const quotasEl = document.getElementById('dash-quotas');
+  // Async Cloudflare Status fetch (populates the main CF section)
+  const cfStatusEl = document.getElementById('dash-cf-status');
   const isOwner = Auth.isLoggedIn() && Auth.getUser()?.role === 'owner';
-  if (quotasEl && isOwner) {
+  if (cfStatusEl && isOwner) {
     (async () => {
       try {
         const workerUrl = (GitHub.workerUrl) ? GitHub.workerUrl : 'https://catman-api.catmandabomb.workers.dev';
@@ -820,70 +752,82 @@ function renderDashboard() {
           const data = await resp.json();
           const q = data.quotas || {};
           let html = '';
-
-          // GitHub API (client-side tracking)
-          {
-            const gh = GitHub.getRateLimitStatus();
-            const ghColor = gh.pct >= 90 ? '#e87c6a' : gh.pct >= 60 ? '#d4b478' : '#7ec87e';
-            html += `<div style="margin-bottom:10px;">
+          const _bar = (label, used, limit, pct) => {
+            const color = pct >= 90 ? '#e87c6a' : pct >= 60 ? '#d4b478' : '#7ec87e';
+            return `<div style="margin-bottom:10px;">
               <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-                <span>GitHub API</span>
-                <span style="color:${ghColor}">${gh.callsThisHour} / ${gh.limit} per hour (${gh.pct}%)</span>
+                <span>${esc(label)}</span>
+                <span style="color:${color}">${used} / ${limit} (${pct}%)</span>
               </div>
               <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
-                <div style="background:${ghColor};height:100%;width:${Math.min(gh.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
+                <div style="background:${color};height:100%;width:${Math.min(pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
               </div>
             </div>`;
+          };
+
+          // 1. KV Daily Writes (the critical one)
+          if (q.kv) {
+            html += _bar('KV Daily Writes', q.kv.estimatedWrites, q.kv.limit, q.kv.pct);
           }
 
-          // Resend emails
-          if (q.resend) {
-            const dColor = q.resend.daily.pct >= 90 ? '#e87c6a' : q.resend.daily.pct >= 60 ? '#d4b478' : '#7ec87e';
-            const mColor = q.resend.monthly.pct >= 90 ? '#e87c6a' : q.resend.monthly.pct >= 60 ? '#d4b478' : '#7ec87e';
-            html += `<div style="margin-bottom:10px;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-                <span>Resend Emails (daily)</span>
-                <span style="color:${dColor}">${q.resend.daily.used} / ${q.resend.daily.limit} (${q.resend.daily.pct}%)</span>
-              </div>
-              <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
-                <div style="background:${dColor};height:100%;width:${Math.min(q.resend.daily.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
-              </div>
-            </div>
-            <div style="margin-bottom:10px;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-                <span>Resend Emails (monthly)</span>
-                <span style="color:${mColor}">${q.resend.monthly.used} / ${q.resend.monthly.limit} (${q.resend.monthly.pct}%)</span>
-              </div>
-              <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
-                <div style="background:${mColor};height:100%;width:${Math.min(q.resend.monthly.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
-              </div>
-            </div>`;
-          }
-
-          // D1 table sizes
+          // 2-4. D1 Database (Users, Active Sessions, Error Log)
           if (q.d1) {
             html += `<div style="margin-bottom:10px;">
               <div style="color:var(--text-2);margin-bottom:4px;">D1 Database</div>
-              <div style="color:var(--text-3);font-size:12px;">
-                Users: ${q.d1.users} &middot; Sessions: ${q.d1.sessions} &middot; Error log: ${q.d1.errorLog}
+              <div class="dash-github-status">
+                <div class="status-row"><span>Users</span><span>${q.d1.users}</span></div>
+                <div class="status-row"><span>Active Sessions</span><span style="color:var(--green)">${q.d1.activeSessions} <span style="color:var(--text-3);font-size:11px;">/ ${q.d1.sessions} total</span></span></div>
+                <div class="status-row"><span>Error Log</span><span style="color:${q.d1.errorLog > 0 ? '#e87c6a' : 'var(--text-3)'}">${q.d1.errorLog}</span></div>
               </div>
-              <div style="color:var(--text-3);font-size:11px;margin-top:2px;">${esc(q.d1.note || '')}</div>
             </div>`;
           }
 
-          // Static quotas info
-          html += `<div style="color:var(--text-3);font-size:11px;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
-            Workers: 100K req/day &middot; KV: 100K reads/day, 1K writes/day
-          </div>`;
+          // 5. R2 Files
+          if (q.r2) {
+            const sizeStr = q.r2.totalBytes < 1024 * 1024
+              ? (q.r2.totalBytes / 1024).toFixed(1) + ' KB'
+              : (q.r2.totalBytes / (1024 * 1024)).toFixed(1) + ' MB';
+            html += `<div style="margin-bottom:10px;">
+              <div class="dash-github-status">
+                <div class="status-row"><span>R2 Files</span><span>${q.r2.fileCount} files (${sizeStr})</span></div>
+              </div>
+            </div>`;
+          }
 
-          quotasEl.innerHTML = html || '<span class="muted">No quota data</span>';
+          // 6. Emails Today
+          if (q.resend) {
+            html += _bar('Emails Today', q.resend.daily.used, q.resend.daily.limit, q.resend.daily.pct);
+            // 7. Emails This Month
+            html += _bar('Emails This Month', q.resend.monthly.used, q.resend.monthly.limit, q.resend.monthly.pct);
+          }
+
+          cfStatusEl.innerHTML = html || '<span class="muted">No data</span>';
         } else {
-          quotasEl.innerHTML = '<span class="muted">Could not fetch quotas</span>';
+          cfStatusEl.innerHTML = '<span class="muted">Could not fetch Cloudflare status</span>';
         }
       } catch (_) {
-        quotasEl.innerHTML = '<span class="muted">Could not fetch quotas</span>';
+        cfStatusEl.innerHTML = '<span class="muted">Could not fetch Cloudflare status</span>';
       }
     })();
+  }
+
+  // Service quotas — GitHub API (client-side only, no extra fetch needed)
+  const quotasEl = document.getElementById('dash-quotas');
+  if (quotasEl && isOwner) {
+    const gh = GitHub.getRateLimitStatus();
+    const ghColor = gh.pct >= 90 ? '#e87c6a' : gh.pct >= 60 ? '#d4b478' : '#7ec87e';
+    quotasEl.innerHTML = `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span>GitHub API</span>
+        <span style="color:${ghColor}">${gh.callsThisHour} / ${gh.limit} per hour (${gh.pct}%)</span>
+      </div>
+      <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
+        <div style="background:${ghColor};height:100%;width:${Math.min(gh.pct, 100)}%;border-radius:4px;transition:width 0.3s;"></div>
+      </div>
+    </div>
+    <div style="color:var(--text-3);font-size:11px;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
+      Workers: 100K req/day &middot; KV: 100K reads/day, 1K writes/day &middot; D1: 5M reads, 100K writes/day
+    </div>`;
   }
 
   // Async server error log fetch
@@ -932,7 +876,7 @@ function renderDashboard() {
             <div style="font-size:13px;color:var(--text);">${esc(s.deviceInfo || 'Unknown device')}</div>
             <div style="font-size:11px;color:var(--text-3);">Last active: ${timeAgo(new Date(s.lastUsed).getTime())}${s.isCurrent ? ' \xb7 <strong style="color:var(--accent);">This device</strong>' : ''}</div>
           </div>
-          ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;">Revoke</button>`}
+          ${s.isCurrent ? '' : `<button class="btn-ghost btn-sm" data-revoke-session="${esc(s.id)}" style="font-size:11px;color:#e87c6a;"><i data-lucide="x-circle" style="width:11px;height:11px;vertical-align:-2px;margin-right:3px;"></i>Revoke</button>`}
         </div>
       `).join('');
       sessionsEl.querySelectorAll('[data-revoke-session]').forEach(btn => {
@@ -1778,7 +1722,7 @@ function _renderDriveSection(container, songs, setlists, practice, _codeTag) {
       el.innerHTML =
         `<div class="dash-alert-title">${_codeTag(4402)} Drive Connected</div>` +
         `<div class="dash-alert-detail" style="font-size:11px;color:var(--text-3);">` +
-        `Used for PDFs and audio files only. Metadata syncs via GitHub.<br><br>` +
+        `Used for PDFs and audio files only. Metadata syncs via Cloudflare D1.<br><br>` +
         `API Key: ${cfg.apiKey ? '✓ set' : '✗ missing'} · ` +
         `Client ID: ${cfg.clientId ? '✓ set' : '✗ missing'} · ` +
         `Folder ID: ${cfg.folderId ? '✓ set' : '✗ missing'}</div>`;

@@ -151,10 +151,17 @@ export default {
       }));
     }
 
-    // ─── Rate limiting (all non-health routes) ───────
-    const rateResult = await checkRateLimit(request, env);
-    if (!rateResult.ok) {
-      return cors(json({ error: rateResult.error }, 429));
+    // ─── Rate limiting (sensitive endpoints only) ───────
+    // Only burn KV ops on login/register/reset/setup to stay within free tier.
+    // Authenticated requests are gated by D1 session tokens already.
+    const _isSensitivePath = path === '/auth/login' || path === '/auth/register'
+      || path === '/auth/forgot-password' || path === '/auth/reset-password'
+      || path === '/setup/init';
+    if (_isSensitivePath) {
+      const rateResult = await checkRateLimit(request, env);
+      if (!rateResult.ok) {
+        return cors(json({ error: rateResult.error }, 429));
+      }
     }
 
     // ─── PUBLIC: POST /auth/login ────────────────────
@@ -194,7 +201,7 @@ export default {
         return cors(json({ error: 'Invalid credentials' }, 401));
       }
       const ok = await verifyPassword(body.password, user.pw_hash);
-      // Transparent rehash: if password verified with legacy 100k iterations, upgrade to 600k
+      // Transparent rehash: if password was hashed with legacy iterations, rehash at current 100k
       if (ok === 'needs_rehash' && env.DB) {
         rehashPassword(env.DB, user.id, body.password).catch(() => {});
       }
@@ -1243,29 +1250,66 @@ export default {
           quotas.resend = { daily: { used: 0, limit: 100, pct: 0 }, monthly: { used: 0, limit: 3000, pct: 0 } };
         }
       }
-      // D1 table sizes
+      // D1 table sizes + active sessions
       if (env.DB) {
         try {
           const userCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM users').first();
           const sessionCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM sessions').first();
+          const nowISO = new Date().toISOString();
+          let activeSessionCount = { cnt: 0 };
+          try { activeSessionCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM sessions WHERE expires_at > ?').bind(nowISO).first(); } catch (_) {}
           let errorCount = { cnt: 0 };
           try { errorCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM error_log').first(); } catch (_) {}
           quotas.d1 = {
             users: userCount?.cnt || 0,
             sessions: sessionCount?.cnt || 0,
+            activeSessions: activeSessionCount?.cnt || 0,
             errorLog: errorCount?.cnt || 0,
-            note: 'Free tier: 5M reads/day, 100K writes/day, 5GB storage',
           };
         } catch (_) {
-          quotas.d1 = { users: 0, sessions: 0, errorLog: 0 };
+          quotas.d1 = { users: 0, sessions: 0, activeSessions: 0, errorLog: 0 };
         }
       }
-      // Cloudflare Workers free tier info
-      quotas.workers = { note: 'Free tier: 100K requests/day, 10ms CPU/request' };
-      // KV free tier info
-      quotas.kv = { note: 'Free tier: 100K reads/day, 1K writes/day' };
-      // GitHub API (tracked client-side, not available here)
-      quotas.github = { note: '5,000 requests/hour (authenticated), tracked client-side' };
+      // R2 file stats (from D1 files table)
+      if (env.DB) {
+        try {
+          const fileStats = await env.DB.prepare('SELECT COUNT(*) as cnt, COALESCE(SUM(size_bytes), 0) as totalBytes FROM files').first();
+          quotas.r2 = {
+            fileCount: fileStats?.cnt || 0,
+            totalBytes: fileStats?.totalBytes || 0,
+          };
+        } catch (_) {
+          quotas.r2 = { fileCount: 0, totalBytes: 0 };
+        }
+      }
+      // KV write estimation (rate limit entries for today + email sends × 2)
+      if (env.DB && env.CATMAN_RATE) {
+        try {
+          const nowMs = Date.now();
+          // Rate limit windows: sensitive = 15min (LOGIN_WINDOW_SECS=900), general = 1hr
+          // Count rate_limits rows from today (each row = 1 KV write)
+          const todayStart = Math.floor(nowMs / 86400000);
+          const minWindow15 = Math.floor((todayStart * 86400000) / (900 * 1000)); // earliest 15-min window today
+          const minWindow60 = Math.floor((todayStart * 86400000) / (3600 * 1000)); // earliest 1-hr window today
+          let rlWrites = 0;
+          try {
+            const r = await env.DB.prepare('SELECT COALESCE(SUM(count), 0) as total FROM rate_limits WHERE window >= ?').bind(Math.min(minWindow15, minWindow60)).first();
+            rlWrites = r?.total || 0;
+          } catch (_) {}
+          // Email sends: each send = 2 KV writes (day + month keys)
+          const emailDaily = quotas.resend?.daily?.used || 0;
+          const estimatedKvWrites = rlWrites + (emailDaily * 2);
+          quotas.kv = {
+            estimatedWrites: estimatedKvWrites,
+            limit: 1000,
+            pct: Math.round(estimatedKvWrites / 1000 * 100),
+          };
+        } catch (_) {
+          quotas.kv = { estimatedWrites: 0, limit: 1000, pct: 0 };
+        }
+      } else {
+        quotas.kv = { estimatedWrites: 0, limit: 1000, pct: 0 };
+      }
       return respond(json({ quotas }));
     }
 

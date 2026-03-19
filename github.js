@@ -15,8 +15,8 @@
  * File format on GitHub: { "iv": "<base64>", "data": "<base64>" }
  */
 
-import * as IDB from './idb.js?v=20.05';
-import * as Auth from './auth.js?v=20.05';
+import * as IDB from './idb.js?v=20.06';
+import * as Auth from './auth.js?v=20.06';
 
 // ─── Worker Proxy ─────────────────────────────────────────
 //
@@ -325,6 +325,7 @@ async function _ghRequest(path, options = {}, _retryCount = 0) {
 
 async function testConnection() {
   try {
+    if (USE_WORKER) return { ok: true, repoName: 'Worker proxy active' };
     const pat = _getPat();
     const owner = _owner();
     const repo = _repo();
