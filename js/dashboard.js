@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.17';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.17';
-import * as Modal from './modal.js?v=20.17';
-import * as Router from './router.js?v=20.17';
-import * as Admin from '../admin.js?v=20.17';
-import * as Auth from '../auth.js?v=20.17';
-import * as GitHub from '../github.js?v=20.17';
-import * as Drive from '../drive.js?v=20.17';
-import * as Sync from './sync.js?v=20.17';
-import * as App from '../app.js?v=20.17';
-import * as IDB from '../idb.js?v=20.17';
+import * as Store from './store.js?v=20.18';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.18';
+import * as Modal from './modal.js?v=20.18';
+import * as Router from './router.js?v=20.18';
+import * as Admin from '../admin.js?v=20.18';
+import * as Auth from '../auth.js?v=20.18';
+import * as GitHub from '../github.js?v=20.18';
+import * as Drive from '../drive.js?v=20.18';
+import * as Sync from './sync.js?v=20.18';
+import * as App from '../app.js?v=20.18';
+import * as IDB from '../idb.js?v=20.18';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -31,6 +31,9 @@ function renderDashboard() {
   if (App.cleanupPlayers) App.cleanupPlayers();
   Store.set('navStack', []);
   Router.pushNav(() => App.renderList());
+  // Skip view transition so swap() runs synchronously — ensures topbar buttons
+  // injected after showView() aren't removed by an async swap() callback.
+  Store.set('skipViewTransition', true);
   Router.showView('dashboard');
   Router.setTopbar('Dashboard', true);
 

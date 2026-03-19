@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.17';
-import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.17';
-import * as Modal from './modal.js?v=20.17';
-import * as Router from './router.js?v=20.17';
-import * as Admin from '../admin.js?v=20.17';
-import * as Auth from '../auth.js?v=20.17';
-import * as Sync from './sync.js?v=20.17';
+import * as Store from './store.js?v=20.18';
+import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.18';
+import * as Modal from './modal.js?v=20.18';
+import * as Router from './router.js?v=20.18';
+import * as Admin from '../admin.js?v=20.18';
+import * as Auth from '../auth.js?v=20.18';
+import * as Sync from './sync.js?v=20.18';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -337,7 +337,7 @@ function _saveVersion(chart) {
 
 // ─── Navigation helpers ─────────────────────────────────────
 
-function _showView(name) { Router.showView(name); }
+function _showView(name) { Store.set('skipViewTransition', true); Router.showView(name); }
 function _setTopbar(title, showBack) { Router.setTopbar(title, showBack); }
 function _pushNav(fn) { Router.pushNav(fn); }
 function _setRouteParams(p) { Store.set('currentRouteParams', p); }

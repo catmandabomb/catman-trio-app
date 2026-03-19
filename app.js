@@ -2,23 +2,23 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.17';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.17';
-import * as Modal from './js/modal.js?v=20.17';
-import * as Router from './js/router.js?v=20.17';
-import * as Sync from './js/sync.js?v=20.17';
-import * as Drive from './drive.js?v=20.17';
-import * as GitHub from './github.js?v=20.17';
-import * as Admin from './admin.js?v=20.17';
-import * as Auth from './auth.js?v=20.17';
-import * as Player from './player.js?v=20.17';
-import * as Songs from './js/songs.js?v=20.17';
-import * as Setlists from './js/setlists.js?v=20.17';
-import * as Practice from './js/practice.js?v=20.17';
-import * as Dashboard from './js/dashboard.js?v=20.17';
-import * as Migrate from './js/migrate.js?v=20.17';
-import * as WikiCharts from './js/wikicharts.js?v=20.17';
-import * as IDB from './idb.js?v=20.17';
+import * as Store from './js/store.js?v=20.18';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.18';
+import * as Modal from './js/modal.js?v=20.18';
+import * as Router from './js/router.js?v=20.18';
+import * as Sync from './js/sync.js?v=20.18';
+import * as Drive from './drive.js?v=20.18';
+import * as GitHub from './github.js?v=20.18';
+import * as Admin from './admin.js?v=20.18';
+import * as Auth from './auth.js?v=20.18';
+import * as Player from './player.js?v=20.18';
+import * as Songs from './js/songs.js?v=20.18';
+import * as Setlists from './js/setlists.js?v=20.18';
+import * as Practice from './js/practice.js?v=20.18';
+import * as Dashboard from './js/dashboard.js?v=20.18';
+import * as Migrate from './js/migrate.js?v=20.18';
+import * as WikiCharts from './js/wikicharts.js?v=20.18';
+import * as IDB from './idb.js?v=20.18';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -437,6 +437,9 @@ let _cachedPdfSet = new Set();
     _cleanupPlayers();
     Store.set('navStack', []);
     Router.pushNav(() => renderList());
+    // Skip view transition so swap() runs synchronously — ensures topbar buttons
+    // injected after showView() aren't removed by an async swap() callback.
+    Store.set('skipViewTransition', true);
     Router.showView('account');
     Router.setTopbar('My Account', true);
 
