@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.26';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.26';
-import * as Modal from './modal.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as Sync from './sync.js?v=20.26';
-import * as Drive from '../drive.js?v=20.26';
-import * as GitHub from '../github.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as Player from '../player.js?v=20.26';
-import * as Metronome from '../metronome.js?v=20.26';
-import * as PDFViewer from '../pdf-viewer.js?v=20.26';
-import * as App from '../app.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.28';
+import * as Modal from './modal.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as Sync from './sync.js?v=20.28';
+import * as Drive from '../drive.js?v=20.28';
+import * as GitHub from '../github.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as Player from '../player.js?v=20.28';
+import * as Metronome from '../metronome.js?v=20.28';
+import * as PDFViewer from '../pdf-viewer.js?v=20.28';
+import * as App from '../app.js?v=20.28';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -50,11 +50,12 @@ let _tfPitchIdx = 0; // index into _TF_PITCHES, default A440
 
 const _TUNING_FORK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2v9a5 5 0 0 0 5 5 5 5 0 0 0 5-5V2"/><line x1="12" y1="16" x2="12" y2="22"/><line x1="9" y1="22" x2="15" y2="22"/></svg>`;
 
-function _playTuningFork() {
+async function _playTuningFork() {
   if (_tfOsc) { _stopTuningFork(); return; }
 
   if (!_tfCtx || _tfCtx.state === 'closed') _tfCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (_tfCtx.state === 'suspended') _tfCtx.resume();
+  // Must await resume — browsers suspend AudioContext until user gesture
+  if (_tfCtx.state === 'suspended') await _tfCtx.resume();
 
   const freq = _TF_PITCHES[_tfPitchIdx].freq;
   const now = _tfCtx.currentTime;
@@ -137,19 +138,19 @@ function _closePitchDropdown() {
   if (dd) dd.classList.remove('open');
 }
 
-function _selectPitch(e) {
+async function _selectPitch(e) {
   const item = e.target.closest('.tuning-fork-dropdown-item');
   if (!item) return;
   const idx = parseInt(item.dataset.idx, 10);
   if (isNaN(idx) || idx < 0 || idx >= _TF_PITCHES.length) return;
+  const wasPlaying = !!_tfOsc;
   _tfPitchIdx = idx;
   _closePitchDropdown();
   _updatePitchBtnLabel();
-  if (_tfOsc) {
+  if (wasPlaying) {
     _stopTuningFork();
-    _playTuningFork();
+    await _playTuningFork();
   }
-  _updateTfBtn(!!_tfOsc);
 }
 
 function _injectTuningForkBtn() {
@@ -199,7 +200,11 @@ function _injectTuningForkBtn() {
 
 function _cleanupTuningFork() {
   _stopTuningFork();
-  if (_tfCtx && _tfCtx.state !== 'closed') _tfCtx.suspend().catch(() => {});
+  // Close the context entirely so a fresh one is created next time
+  if (_tfCtx && _tfCtx.state !== 'closed') {
+    _tfCtx.close().catch(() => {});
+    _tfCtx = null;
+  }
   document.getElementById('tuning-fork-wrap')?.remove();
 }
 
@@ -1136,6 +1141,9 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
   });
 
   // Wire accordion toggle
+  // Single-expand mode: only one song open at a time (user/device pref)
+  const _singleExpand = (() => { try { return localStorage.getItem('ct_pref_practice_single_expand') === '1'; } catch { return false; } })();
+
   container.querySelectorAll('.practice-accordion-header').forEach(header => {
     header.addEventListener('click', () => {
       accState.touched = true;
@@ -1145,6 +1153,25 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
       const body = item.querySelector('.practice-accordion-body');
       const chevron = header.querySelector('.accordion-chevron');
       const isOpen = !body.classList.contains('hidden');
+
+      // Single-expand: close all others first
+      if (_singleExpand && !isOpen) {
+        container.querySelectorAll('.practice-accordion-item').forEach(otherItem => {
+          if (otherItem === item) return;
+          const otherBody = otherItem.querySelector('.practice-accordion-body');
+          const otherChevron = otherItem.querySelector('.accordion-chevron');
+          const otherHeader = otherItem.querySelector('.practice-accordion-header');
+          if (otherBody && !otherBody.classList.contains('hidden')) {
+            otherBody.classList.add('hidden');
+            if (otherChevron) otherChevron.style.transform = '';
+            if (otherHeader) otherHeader.setAttribute('aria-expanded', 'false');
+            const otherIdx = parseInt(otherItem.dataset.practiceIdx, 10);
+            const otherEntry = plSongs[otherIdx];
+            if (otherEntry) accState.openSet.delete(otherEntry.songId);
+          }
+        });
+      }
+
       body.classList.toggle('hidden');
       header.setAttribute('aria-expanded', String(!isOpen));
       if (chevron) {

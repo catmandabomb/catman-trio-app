@@ -403,8 +403,20 @@ export async function uploadFile(request, env, currentUser, orchestraId) {
   if (!data || data.byteLength === 0) {
     return json({ error: 'Empty file' }, 400);
   }
-  if (data.byteLength > 50 * 1024 * 1024) {
-    return json({ error: 'File too large (max 50MB)' }, 400);
+
+  // Dynamic upload size limit from admin settings (default 50MB)
+  let maxUploadMB = 50;
+  try {
+    const row = await env.DB.prepare('SELECT value FROM admin_settings WHERE key = ?').bind('upload_size_limit_mb').first();
+    if (row) {
+      const parsed = parseInt(row.value, 10);
+      if (parsed > 0) maxUploadMB = parsed;
+      if (row.value === '0') maxUploadMB = 0; // 0 = no limit
+    }
+  } catch (_) {}
+
+  if (maxUploadMB > 0 && data.byteLength > maxUploadMB * 1024 * 1024) {
+    return json({ error: `File too large (max ${maxUploadMB}MB)` }, 400);
   }
 
   const fileId = _generateId();
@@ -823,6 +835,129 @@ export async function switchActiveOrchestra(env, currentUser, orchestraId) {
   ).bind(orchestraId, new Date().toISOString(), currentUser.userId).run();
 
   return json({ ok: true, activeOrchestraId: orchestraId });
+}
+
+// ─── Orchestra Settings ─────────────────────────────────
+
+export async function listOrchestraSettings(env, orchestraId) {
+  if (!orchestraId) return json({ settings: {} });
+  const { results } = await env.DB.prepare(
+    'SELECT key, value FROM orchestra_settings WHERE orchestra_id = ?'
+  ).bind(orchestraId).all();
+  const settings = {};
+  (results || []).forEach(r => { settings[r.key] = _parseJson(r.value, r.value); });
+  return json({ settings });
+}
+
+export async function saveOrchestraSetting(env, orchestraId, currentUser, body) {
+  if (!orchestraId) return json({ error: 'Orchestra ID required' }, 400);
+  if (!body || !body.key || body.value === undefined) return json({ error: 'key and value required' }, 400);
+
+  // Verify conductr/owner/admin
+  if (!['owner', 'admin'].includes(currentUser.role)) {
+    const orch = await env.DB.prepare('SELECT conductr_id FROM orchestras WHERE id = ?').bind(orchestraId).first();
+    if (!orch || orch.conductr_id !== currentUser.userId) return json({ error: 'Permission denied' }, 403);
+  }
+
+  const valueStr = typeof body.value === 'string' ? body.value : JSON.stringify(body.value);
+  await env.DB.prepare(`
+    INSERT INTO orchestra_settings (orchestra_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(orchestra_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `).bind(orchestraId, body.key, valueStr).run();
+
+  return json({ ok: true });
+}
+
+export async function saveOrchestraSettingsBatch(env, orchestraId, currentUser, body) {
+  if (!orchestraId) return json({ error: 'Orchestra ID required' }, 400);
+  if (!body || !body.settings || typeof body.settings !== 'object') return json({ error: 'settings object required' }, 400);
+
+  // Verify conductr/owner/admin
+  if (!['owner', 'admin'].includes(currentUser.role)) {
+    const orch = await env.DB.prepare('SELECT conductr_id FROM orchestras WHERE id = ?').bind(orchestraId).first();
+    if (!orch || orch.conductr_id !== currentUser.userId) return json({ error: 'Permission denied' }, 403);
+  }
+
+  const batch = [];
+  for (const [key, value] of Object.entries(body.settings)) {
+    const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
+    batch.push(env.DB.prepare(`
+      INSERT INTO orchestra_settings (orchestra_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(orchestra_id, key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+    `).bind(orchestraId, key, valueStr));
+  }
+  if (batch.length > 0) await env.DB.batch(batch);
+  return json({ ok: true, count: batch.length });
+}
+
+// ─── Admin Settings ─────────────────────────────────────
+
+export async function listAdminSettings(env) {
+  const { results } = await env.DB.prepare('SELECT key, value FROM admin_settings').all();
+  const settings = {};
+  (results || []).forEach(r => { settings[r.key] = _parseJson(r.value, r.value); });
+  return json({ settings });
+}
+
+export async function saveAdminSetting(env, body) {
+  if (!body || !body.key || body.value === undefined) return json({ error: 'key and value required' }, 400);
+  const valueStr = typeof body.value === 'string' ? body.value : JSON.stringify(body.value);
+  await env.DB.prepare(`
+    INSERT INTO admin_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `).bind(body.key, valueStr).run();
+  return json({ ok: true });
+}
+
+// ─── Song Suggestions ───────────────────────────────────
+
+export async function listSongSuggestions(env, orchestraId, status = 'pending') {
+  const { results } = await env.DB.prepare(
+    'SELECT id, song_id, orchestra_id, submitted_by, field_name, old_value, new_value, status, reviewed_by, reviewed_at, created_at FROM song_suggestions WHERE orchestra_id = ? AND status = ? ORDER BY created_at DESC'
+  ).bind(orchestraId, status).all();
+  return json({ suggestions: results || [] });
+}
+
+export async function createSongSuggestion(env, orchestraId, currentUser, body) {
+  if (!body || !body.songId || !body.fieldName || body.newValue === undefined) {
+    return json({ error: 'songId, fieldName, newValue required' }, 400);
+  }
+  const id = _generateId();
+  await env.DB.prepare(`
+    INSERT INTO song_suggestions (id, song_id, orchestra_id, submitted_by, field_name, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, body.songId, orchestraId, currentUser.username, body.fieldName, body.oldValue || '', String(body.newValue)).run();
+  return json({ ok: true, id }, 201);
+}
+
+export async function reviewSongSuggestion(env, suggestionId, currentUser, body) {
+  if (!body || !['approved', 'rejected'].includes(body.status)) {
+    return json({ error: 'status must be approved or rejected' }, 400);
+  }
+  const suggestion = await env.DB.prepare('SELECT * FROM song_suggestions WHERE id = ?').bind(suggestionId).first();
+  if (!suggestion) return json({ error: 'Suggestion not found' }, 404);
+
+  await env.DB.prepare(
+    'UPDATE song_suggestions SET status = ?, reviewed_by = ?, reviewed_at = datetime(\'now\') WHERE id = ?'
+  ).bind(body.status, currentUser.username, suggestionId).run();
+
+  // If approved, apply the change to the song
+  if (body.status === 'approved') {
+    const fieldMap = { key: 'key', bpm: 'bpm', timeSig: 'time_sig', title: 'title', subtitle: 'subtitle', notes: 'notes' };
+    const dbField = fieldMap[suggestion.field_name];
+    if (dbField) {
+      await env.DB.prepare(
+        `UPDATE songs SET ${dbField} = ?, version = version + 1, updated_at = datetime('now') WHERE id = ?`
+      ).bind(suggestion.new_value, suggestion.song_id).run();
+    }
+    // Tags need JSON handling
+    if (suggestion.field_name === 'tags') {
+      await env.DB.prepare(
+        'UPDATE songs SET tags = ?, version = version + 1, updated_at = datetime(\'now\') WHERE id = ?'
+      ).bind(suggestion.new_value, suggestion.song_id).run();
+    }
+  }
+
+  return json({ ok: true, applied: body.status === 'approved' });
 }
 
 // ─── Migration ──────────────────────────────────────────

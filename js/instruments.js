@@ -9,8 +9,8 @@
  * @module instruments
  */
 
-import * as Store from './store.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
 
 // ─── SVG Icons (inline, archetype-level) ────────────────
 

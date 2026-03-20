@@ -68,38 +68,53 @@ Storage strategy: Server-side in D1 `orchestra_settings` table (keyed by `orches
 
 ---
 
-## Implementation Priority Recommendation
+## 5 Switch Results (v20.26 session)
 
-**Phase 1 -- Tiny/Small effort, immediate value (v-next):**
-- #5 Default setlist sort (tiny)
-- #8 Freetext entry default (tiny)
-- #12 Difficulty visibility toggle (tiny)
-- #13 Live Mode default theme (tiny)
-- #14 Live Mode font size (tiny)
-- #19 Default tags for new songs (tiny)
-- #20 WikiChart default key (tiny)
-- #24 Quick-add song mode (tiny)
-- #25 Setlist duplicate detection (small)
+### NO (killed)
+| # | Setting | Reason |
+|---|---------|--------|
+| 1 | Practice list visibility | All Rehearsal & Practice items rejected |
+| 2 | Practice list creation rights | All Rehearsal & Practice items rejected |
+| 3 | Default practice due date | All Rehearsal & Practice items rejected |
+| 4 | Practice completion tracking | All Rehearsal & Practice items rejected |
+| 21 | File upload size limit (as Conductr setting) | Moved to Admin Dashboard instead |
 
-**Phase 2 -- Small effort, strong Conductr value:**
-- #1 Practice list visibility (small)
-- #2 Practice list creation rights (small)
-- #6 Auto-archive after gig date (small)
-- #7 Setlist duration warnings (small)
-- #9 Song notes visibility (small)
-- #16 Live Mode toolbar defaults (small)
-- #17 Bluetooth page turner mapping (small)
-- #18 Required song fields (small)
-- #22 Rehearsal reminder banner (small)
+### GO (queued for implementation)
+| # | Setting | Implementation Notes | Effort |
+|---|---------|---------------------|--------|
+| 5 | Default setlist sort | 3-way: "Newest first" / "Oldest first" / "A-Z". Clear labels. | Tiny |
+| 6 | Auto-archive after gig | Slider 1-30 days (0=off). Purge at 8am next morning. | Small |
+| 7 | Set-length warning | TWO settings: (a) enable/disable, (b) threshold in minutes. Gentle notification. | Small |
+| 8 | Freetext entry redesign | Separate class for non-song fillers (BREAK, ANNOUNCEMENT). Don't count against song total. | Small |
+| 9 | Song notes visibility | Hide Conductr notes from members. | Small |
+| 10 | Member song editing | Suggestion queue — members propose, Conductr approves/rejects. | Large |
+| 11 | Chart filter default | Per-orchestra default for `chartFilterMode` (smart/all/mine-only). | Tiny |
+| 12 | Difficulty visibility | Toggle to hide ratings from members. | Tiny |
+| 13 | Live Mode default theme | Dark/light default when entering Live Mode. | Tiny |
+| 14 | Live Mode font size | Default font size for chord charts in Live Mode. | Tiny |
+| 15 | Auto-advance between songs | Configurable delay (seconds) or manual-only. | Medium |
+| 17 | Bluetooth page turner | Dedicated modal with "Learn" mode — press button → app captures keycode → maps to action. Pre-built profiles for AirTurn, PageFlip, iRig BlueTurn. Per-device storage. | Small |
+| 18 | Required song fields | Lightweight popup with per-field enable/disable toggles. Granular control. | Small |
+| 20 | WikiChart default key | Pre-selected key when creating a new WikiChart. | Tiny |
+| 23 | New material alert | "X new songs" badge on songs tab for members since last visit. Based on `lastSeen` vs `createdAt`. | Medium |
+| 24 | Quick-add song mode | After save, immediately open fresh Add Song modal. | Tiny |
+| 25 | Duplicate detection | 3-way: Always Allow / Warn / Block. | Small |
 
-**Phase 3 -- Medium/Large, high differentiation:**
-- #3 Default practice due date (medium)
-- #4 Practice completion tracking (medium)
-- #15 Auto-advance between songs (medium)
-- #23 New material alert (medium)
-- #10 Member song editing / suggestion queue (large)
-- #11 Chart filter default (tiny but needs Orchestra-level override plumbing)
-- #21 File upload size limit (small but needs worker enforcement)
+### PARK (deferred)
+| # | Setting | Reason |
+|---|---------|--------|
+| 16 | Live Mode toolbar defaults | Low value — per-device prefs sufficient |
+| 19 | Default tags for new songs | |
+| 22 | Rehearsal reminder lead time | |
+
+### Admin-level feature (not a Conductr setting)
+| Feature | Implementation Notes |
+|---------|---------------------|
+| File upload size limit | Admin Dashboard control. Slider: 10MB-250MB in 10MB increments + "No limit" option. Default 50MB for all new orchestras. Client-side + worker-side enforcement. Toast on rejection. |
+
+### Section renames
+- "Setlist & Gig" → "Live & Setlists"
+- "Performance / Live Mode" → "Live Mode"
 
 ---
 

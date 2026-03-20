@@ -62,7 +62,7 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.26',
+  APP_VERSION:        'v20.28',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────
@@ -114,6 +114,7 @@ const _state = {
   instrumentHierarchy:  null,   // { sections: [...] } cached tree
   userInstrumentId:     null,
   chartFilterMode:      'smart', // 'smart' | 'section' | 'all' | 'mine-only'
+  orchestraSettings:    {},      // per-orchestra conductr settings (key-value)
 
   // ─── Sync / Save state ───────────────────────────────────
   syncing:            false,

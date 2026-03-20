@@ -2,25 +2,25 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.26';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.26';
-import * as Modal from './js/modal.js?v=20.26';
-import * as Router from './js/router.js?v=20.26';
-import * as Sync from './js/sync.js?v=20.26';
-import * as Drive from './drive.js?v=20.26';
-import * as GitHub from './github.js?v=20.26';
-import * as Admin from './admin.js?v=20.26';
-import * as Auth from './auth.js?v=20.26';
-import * as Player from './player.js?v=20.26';
-import * as Songs from './js/songs.js?v=20.26';
-import * as Setlists from './js/setlists.js?v=20.26';
-import * as Practice from './js/practice.js?v=20.26';
-import * as Dashboard from './js/dashboard.js?v=20.26';
-import * as Migrate from './js/migrate.js?v=20.26';
-import * as WikiCharts from './js/wikicharts.js?v=20.26';
-import * as IDB from './idb.js?v=20.26';
-import * as Orchestra from './js/orchestra.js?v=20.26';
-import * as Instruments from './js/instruments.js?v=20.26';
+import * as Store from './js/store.js?v=20.28';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.28';
+import * as Modal from './js/modal.js?v=20.28';
+import * as Router from './js/router.js?v=20.28';
+import * as Sync from './js/sync.js?v=20.28';
+import * as Drive from './drive.js?v=20.28';
+import * as GitHub from './github.js?v=20.28';
+import * as Admin from './admin.js?v=20.28';
+import * as Auth from './auth.js?v=20.28';
+import * as Player from './player.js?v=20.28';
+import * as Songs from './js/songs.js?v=20.28';
+import * as Setlists from './js/setlists.js?v=20.28';
+import * as Practice from './js/practice.js?v=20.28';
+import * as Dashboard from './js/dashboard.js?v=20.28';
+import * as Migrate from './js/migrate.js?v=20.28';
+import * as WikiCharts from './js/wikicharts.js?v=20.28';
+import * as IDB from './idb.js?v=20.28';
+import * as Orchestra from './js/orchestra.js?v=20.28';
+import * as Instruments from './js/instruments.js?v=20.28';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -382,6 +382,8 @@ let _cachedPdfSet = new Set();
       Promise.all([
         Sync.loadOrchestras().catch(() => []),
         Sync.loadInstrumentHierarchy().catch(() => null),
+        Sync.loadOrchestraSettings().catch(() => ({})),
+        Sync.loadAdminSettings().catch(() => ({})),
       ]).then(([orchs]) => {
         // Set active orchestra in Store from user data
         const user = Auth.getUser();
@@ -389,6 +391,9 @@ let _cachedPdfSet = new Set();
           Store.set('activeOrchestraId', user.activeOrchestraId);
           Store.set('userInstrumentId', user.instrumentId || null);
         }
+        // Apply orchestra-level chart filter default
+        const orchFilterDefault = Sync.getOrchestraSetting('chart_filter_default', null);
+        if (orchFilterDefault) Store.set('chartFilterMode', orchFilterDefault);
       });
     }
     // Badging API: if songs changed since last open, badge the app icon
@@ -1103,6 +1108,17 @@ let _cachedPdfSet = new Set();
               <option value="6" ${pracTfPitch === '6' ? 'selected' : ''}>A415 (Baroque)</option>
             </select>
           </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">One song at a time</div>
+              <div class="settings-hint">Only expand one song in practice mode</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-practice-single-expand" ${_getPref('practice_single_expand', '0') === '1' ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
         </div>
 
         <!-- WIKICHARTS -->
@@ -1271,6 +1287,213 @@ let _cachedPdfSet = new Set();
         </div>
         ` : ''}
 
+        ${Auth.canEditSongs() ? `
+        <!-- ORCHESTRA SETTINGS (conductr/admin/owner — synced to D1) -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="settings-2" style="width:16px;height:16px;"></i> Orchestra Settings</div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Default setlist sort</div>
+                <div class="settings-hint">How setlists appear in the list</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-setlist-sort" style="width:100%;max-width:280px;">
+              <option value="date-desc" ${Sync.getOrchestraSetting('default_setlist_sort', 'date-desc') === 'date-desc' ? 'selected' : ''}>Newest first</option>
+              <option value="date-asc" ${Sync.getOrchestraSetting('default_setlist_sort', 'date-desc') === 'date-asc' ? 'selected' : ''}>Oldest first</option>
+              <option value="alpha" ${Sync.getOrchestraSetting('default_setlist_sort', 'date-desc') === 'alpha' ? 'selected' : ''}>A-Z</option>
+            </select>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Auto-archive after gig</div>
+                <div class="settings-hint">Days after gig date to auto-archive (0 = off)</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="orch-auto-archive" min="0" max="30" step="1" value="${Sync.getOrchestraSetting('auto_archive_days', 0)}" style="flex:1;max-width:200px;">
+              <span id="orch-auto-archive-val" style="font-size:12px;color:var(--text-2);min-width:40px;">${Sync.getOrchestraSetting('auto_archive_days', 0) == 0 ? 'Off' : Sync.getOrchestraSetting('auto_archive_days', 0) + 'd'}</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Set-length warning</div>
+              <div class="settings-hint">Warn when setlist exceeds a time limit</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-set-length-warn" ${Sync.getOrchestraSetting('set_length_warning', false) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+          <div class="settings-row" id="orch-set-length-row" style="opacity:${Sync.getOrchestraSetting('set_length_warning', false) ? '1' : '0.4'};pointer-events:${Sync.getOrchestraSetting('set_length_warning', false) ? 'auto' : 'none'};">
+            <div class="settings-row-label">
+              <div class="settings-label">Set-length threshold</div>
+              <div class="settings-hint">Maximum set duration (minutes)</div>
+            </div>
+            <input type="number" id="orch-set-length-mins" min="10" max="300" step="5" value="${Sync.getOrchestraSetting('set_length_minutes', 90)}" style="width:60px;padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);color:var(--text);font-size:13px;text-align:center;">
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Hide notes from members</div>
+              <div class="settings-hint">Conductr notes on songs are hidden from members</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-hide-notes" ${Sync.getOrchestraSetting('hide_notes_from_members', false) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Hide difficulty from members</div>
+              <div class="settings-hint">Difficulty ratings are hidden from non-conductr users</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-hide-difficulty" ${Sync.getOrchestraSetting('hide_difficulty', false) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Duplicate detection in setlists</div>
+                <div class="settings-hint">When adding a song already in the setlist</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-duplicate-mode" style="width:100%;max-width:280px;">
+              <option value="allow" ${Sync.getOrchestraSetting('duplicate_detection', 'warn') === 'allow' ? 'selected' : ''}>Always allow</option>
+              <option value="warn" ${Sync.getOrchestraSetting('duplicate_detection', 'warn') === 'warn' ? 'selected' : ''}>Warn (allow override)</option>
+              <option value="block" ${Sync.getOrchestraSetting('duplicate_detection', 'warn') === 'block' ? 'selected' : ''}>Block duplicates</option>
+            </select>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Chart filter default</div>
+                <div class="settings-hint">Default chart filter for new members</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-chart-filter" style="width:100%;max-width:280px;">
+              <option value="smart" ${Sync.getOrchestraSetting('chart_filter_default', 'smart') === 'smart' ? 'selected' : ''}>Smart (match instrument)</option>
+              <option value="all" ${Sync.getOrchestraSetting('chart_filter_default', 'smart') === 'all' ? 'selected' : ''}>Show all charts</option>
+              <option value="mine-only" ${Sync.getOrchestraSetting('chart_filter_default', 'smart') === 'mine-only' ? 'selected' : ''}>My instrument only</option>
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Quick-add song mode</div>
+              <div class="settings-hint">Reopen Add Song modal after saving</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-quick-add" ${Sync.getOrchestraSetting('quick_add_mode', false) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Member song suggestions</div>
+              <div class="settings-hint">Members can propose edits for your approval</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-member-suggestions" ${Sync.getOrchestraSetting('member_suggestions', false) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">New material alerts</div>
+              <div class="settings-hint">Show badge when new songs are added</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="orch-new-material-alert" ${Sync.getOrchestraSetting('new_material_alert', true) ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">WikiChart default key</div>
+                <div class="settings-hint">Pre-selected key when creating new WikiCharts</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-wc-default-key" style="width:100%;max-width:160px;">
+              ${['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'].map(k => `<option value="${k}" ${Sync.getOrchestraSetting('wikichart_default_key', 'C') === k ? 'selected' : ''}>${k}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Required song fields</div>
+              <div class="settings-hint">Enforce fields when adding songs</div>
+            </div>
+            <button class="settings-clear-btn" id="orch-required-fields-btn"><i data-lucide="list-checks" style="width:13px;height:13px;vertical-align:-2px;"></i> Configure</button>
+          </div>
+        </div>
+
+        <!-- LIVE MODE SETTINGS (conductr/admin/owner) -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="radio" style="width:16px;height:16px;"></i> Live Mode</div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Default theme</div>
+                <div class="settings-hint">Theme when entering Live Mode</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-live-theme" style="width:100%;max-width:200px;">
+              <option value="dark" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'dark' ? 'selected' : ''}>Dark</option>
+              <option value="light" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'light' ? 'selected' : ''}>Light</option>
+            </select>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Default font size</div>
+                <div class="settings-hint">Chart text size in Live Mode</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="orch-live-fontsize" min="14" max="36" step="2" value="${Sync.getOrchestraSetting('live_font_size', 22)}" style="flex:1;max-width:200px;">
+              <span id="orch-live-fontsize-val" style="font-size:12px;color:var(--text-2);min-width:32px;">${Sync.getOrchestraSetting('live_font_size', 22)}px</span>
+            </div>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Auto-advance between songs</div>
+                <div class="settings-hint">Delay before advancing to next song (0 = manual)</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="orch-live-auto-advance" min="0" max="30" step="1" value="${Sync.getOrchestraSetting('live_auto_advance_secs', 0)}" style="flex:1;max-width:200px;">
+              <span id="orch-live-auto-advance-val" style="font-size:12px;color:var(--text-2);min-width:48px;">${Sync.getOrchestraSetting('live_auto_advance_secs', 0) == 0 ? 'Manual' : Sync.getOrchestraSetting('live_auto_advance_secs', 0) + 's'}</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Page turner setup</div>
+              <div class="settings-hint">Configure Bluetooth page turner buttons</div>
+            </div>
+            <button class="settings-clear-btn" id="orch-page-turner-btn"><i data-lucide="bluetooth" style="width:13px;height:13px;vertical-align:-2px;"></i> Configure</button>
+          </div>
+        </div>
+        ` : ''}
+
         <!-- DATA & STORAGE -->
         <div class="settings-section">
           <div class="settings-section-title"><i data-lucide="hard-drive" style="width:16px;height:16px;"></i> Data & Storage</div>
@@ -1390,6 +1613,7 @@ let _cachedPdfSet = new Set();
     wireSelect('pref-lm-auto-hide-delay', 'lm_auto_hide_delay');
     wireSelect('pref-lm-auto-advance', 'lm_auto_advance_secs');
     wireSelect('pref-tf-pitch', 'tf_default_pitch');
+    wire('pref-practice-single-expand', 'practice_single_expand');
     wireSelect('pref-list-density', 'list_density');
 
     // WikiCharts settings
@@ -1416,6 +1640,71 @@ let _cachedPdfSet = new Set();
         if (label) label.textContent = wcVolSlider.value + '%';
       });
     }
+
+    // ─── Orchestra Settings event wiring (D1-synced) ──────
+    const wireOrchSelect = (id, key) => {
+      const el = container.querySelector('#' + id);
+      if (!el) return;
+      el.addEventListener('change', () => Sync.saveOrchestraSetting(key, el.value));
+    };
+    const wireOrchToggle = (id, key) => {
+      const el = container.querySelector('#' + id);
+      if (!el) return;
+      el.addEventListener('change', () => Sync.saveOrchestraSetting(key, el.checked));
+    };
+    const wireOrchSlider = (id, key, labelId, formatter) => {
+      const el = container.querySelector('#' + id);
+      if (!el) return;
+      el.addEventListener('input', () => {
+        const label = container.querySelector('#' + labelId);
+        if (label) label.textContent = formatter(el.value);
+      });
+      el.addEventListener('change', () => Sync.saveOrchestraSetting(key, parseInt(el.value, 10)));
+    };
+
+    wireOrchSelect('orch-setlist-sort', 'default_setlist_sort');
+    wireOrchSlider('orch-auto-archive', 'auto_archive_days', 'orch-auto-archive-val', v => v == 0 ? 'Off' : v + 'd');
+    wireOrchToggle('orch-set-length-warn', 'set_length_warning');
+    wireOrchToggle('orch-hide-notes', 'hide_notes_from_members');
+    wireOrchToggle('orch-hide-difficulty', 'hide_difficulty');
+    wireOrchSelect('orch-duplicate-mode', 'duplicate_detection');
+    wireOrchSelect('orch-chart-filter', 'chart_filter_default');
+    wireOrchToggle('orch-quick-add', 'quick_add_mode');
+    wireOrchToggle('orch-member-suggestions', 'member_suggestions');
+    wireOrchToggle('orch-new-material-alert', 'new_material_alert');
+    wireOrchSelect('orch-wc-default-key', 'wikichart_default_key');
+    wireOrchSelect('orch-live-theme', 'live_default_theme');
+    wireOrchSlider('orch-live-fontsize', 'live_font_size', 'orch-live-fontsize-val', v => v + 'px');
+    wireOrchSlider('orch-live-auto-advance', 'live_auto_advance_secs', 'orch-live-auto-advance-val', v => v == 0 ? 'Manual' : v + 's');
+
+    // Set-length warning toggle → enable/disable threshold input
+    container.querySelector('#orch-set-length-warn')?.addEventListener('change', (e) => {
+      const row = container.querySelector('#orch-set-length-row');
+      if (row) {
+        row.style.opacity = e.target.checked ? '1' : '0.4';
+        row.style.pointerEvents = e.target.checked ? 'auto' : 'none';
+      }
+    });
+
+    // Set-length threshold (number input)
+    const setLengthInput = container.querySelector('#orch-set-length-mins');
+    if (setLengthInput) {
+      setLengthInput.addEventListener('change', () => {
+        const val = Math.max(10, Math.min(300, parseInt(setLengthInput.value, 10) || 90));
+        setLengthInput.value = val;
+        Sync.saveOrchestraSetting('set_length_minutes', val);
+      });
+    }
+
+    // Required song fields button → show popup
+    container.querySelector('#orch-required-fields-btn')?.addEventListener('click', () => {
+      _showRequiredFieldsPopup();
+    });
+
+    // Page turner setup button → show modal
+    container.querySelector('#orch-page-turner-btn')?.addEventListener('click', () => {
+      _showPageTurnerModal();
+    });
 
     // PDF cache size estimation
     _estimatePdfCacheSize(container);
@@ -1525,6 +1814,174 @@ let _cachedPdfSet = new Set();
       }
       importFile.value = '';
     });
+  }
+
+  // ─── Required Song Fields popup ────────────────────────
+  function _showRequiredFieldsPopup() {
+    const fields = [
+      { key: 'key', label: 'Key', hint: 'Musical key (C, Am, etc.)' },
+      { key: 'bpm', label: 'BPM', hint: 'Tempo in beats per minute' },
+      { key: 'timeSig', label: 'Time Signature', hint: '4/4, 3/4, 6/8, etc.' },
+      { key: 'tags', label: 'At least one tag', hint: 'Genre, style, or category tags' },
+      { key: 'duration', label: 'Duration', hint: 'Song length' },
+    ];
+    const current = Sync.getOrchestraSetting('required_fields', []);
+    const overlay = document.getElementById('modal-confirm');
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-message');
+    const okBtn = document.getElementById('btn-confirm-ok');
+    const cancelBtn = document.getElementById('btn-confirm-cancel');
+    if (!overlay) return;
+
+    titleEl.textContent = 'Required Song Fields';
+    msgEl.innerHTML = '<div style="text-align:left;margin-top:8px;">' + fields.map(f =>
+      `<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;">
+        <input type="checkbox" data-field="${f.key}" ${current.includes(f.key) ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent);">
+        <div><div style="font-weight:500;">${f.label}</div><div style="font-size:11px;color:var(--text-3);">${f.hint}</div></div>
+      </label>`
+    ).join('') + '<div style="font-size:11px;color:var(--text-3);margin-top:8px;">Title is always required.</div></div>';
+    okBtn.textContent = 'Save';
+    okBtn.className = 'btn-primary';
+    overlay.classList.remove('hidden');
+
+    const cleanup = () => {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+    };
+    const onOk = () => {
+      const selected = [];
+      overlay.querySelectorAll('input[data-field]').forEach(el => {
+        if (el.checked) selected.push(el.dataset.field);
+      });
+      Sync.saveOrchestraSetting('required_fields', selected);
+      showToast('Required fields updated');
+      cleanup();
+    };
+    const onCancel = () => cleanup();
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  }
+
+  // ─── Page Turner Setup modal ──────────────────────────
+  function _showPageTurnerModal() {
+    const overlay = document.getElementById('modal-confirm');
+    const titleEl = document.getElementById('confirm-title');
+    const msgEl = document.getElementById('confirm-message');
+    const okBtn = document.getElementById('btn-confirm-ok');
+    const cancelBtn = document.getElementById('btn-confirm-cancel');
+    if (!overlay) return;
+
+    const mapping = JSON.parse(localStorage.getItem('ct_page_turner_mapping') || 'null') || {
+      next: 'ArrowRight',
+      prev: 'ArrowLeft',
+      nextSong: 'ArrowDown',
+      prevSong: 'ArrowUp',
+    };
+
+    const profiles = [
+      { name: 'Default (Arrow Keys)', next: 'ArrowRight', prev: 'ArrowLeft', nextSong: 'ArrowDown', prevSong: 'ArrowUp' },
+      { name: 'AirTurn', next: 'ArrowRight', prev: 'ArrowLeft', nextSong: 'PageDown', prevSong: 'PageUp' },
+      { name: 'PageFlip', next: 'Enter', prev: 'Backspace', nextSong: ' ', prevSong: 'Escape' },
+      { name: 'iRig BlueTurn', next: 'ArrowUp', prev: 'ArrowDown', nextSong: 'ArrowRight', prevSong: 'ArrowLeft' },
+    ];
+
+    let _learning = null; // which action we're learning
+
+    titleEl.textContent = 'Page Turner Setup';
+    msgEl.innerHTML = `
+      <div style="text-align:left;margin-top:8px;">
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;color:var(--text-2);display:block;margin-bottom:4px;">Device profile</label>
+          <select id="pt-profile" class="settings-select" style="width:100%;">
+            <option value="custom">Custom</option>
+            ${profiles.map((p, i) => `<option value="${i}">${p.name}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:grid;gap:8px;">
+          ${['next', 'prev', 'nextSong', 'prevSong'].map(action => {
+            const labels = { next: 'Next Page', prev: 'Previous Page', nextSong: 'Next Song', prevSong: 'Previous Song' };
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+              <span style="font-size:13px;">${labels[action]}</span>
+              <button class="settings-clear-btn pt-learn-btn" data-action="${action}" style="min-width:90px;font-family:monospace;font-size:12px;" id="pt-key-${action}">${_keyLabel(mapping[action])}</button>
+            </div>`;
+          }).join('')}
+        </div>
+        <div id="pt-learn-hint" style="font-size:11px;color:var(--accent);margin-top:8px;min-height:16px;"></div>
+      </div>
+    `;
+    okBtn.textContent = 'Save';
+    okBtn.className = 'btn-primary';
+    overlay.classList.remove('hidden');
+
+    // Profile select
+    const profileSelect = overlay.querySelector('#pt-profile');
+    profileSelect?.addEventListener('change', () => {
+      const idx = parseInt(profileSelect.value, 10);
+      if (!isNaN(idx) && profiles[idx]) {
+        const p = profiles[idx];
+        ['next', 'prev', 'nextSong', 'prevSong'].forEach(a => {
+          mapping[a] = p[a];
+          const btn = overlay.querySelector('#pt-key-' + a);
+          if (btn) btn.textContent = _keyLabel(p[a]);
+        });
+      }
+    });
+
+    // Learn buttons
+    overlay.querySelectorAll('.pt-learn-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _learning = btn.dataset.action;
+        const hint = overlay.querySelector('#pt-learn-hint');
+        if (hint) hint.textContent = 'Press a button on your page turner\u2026';
+        btn.textContent = '\u2026';
+        btn.style.background = 'var(--accent)';
+        btn.style.color = 'var(--bg)';
+      });
+    });
+
+    // Key listener for learning
+    const _onKey = (e) => {
+      if (!_learning) return;
+      e.preventDefault();
+      e.stopPropagation();
+      mapping[_learning] = e.key;
+      const btn = overlay.querySelector('#pt-key-' + _learning);
+      if (btn) {
+        btn.textContent = _keyLabel(e.key);
+        btn.style.background = '';
+        btn.style.color = '';
+      }
+      const hint = overlay.querySelector('#pt-learn-hint');
+      if (hint) hint.textContent = `Mapped "${_keyLabel(e.key)}" to ${_learning}`;
+      _learning = null;
+      profileSelect.value = 'custom';
+    };
+    document.addEventListener('keydown', _onKey, true);
+
+    const cleanup = () => {
+      overlay.classList.add('hidden');
+      document.removeEventListener('keydown', _onKey, true);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+    };
+    const onOk = () => {
+      localStorage.setItem('ct_page_turner_mapping', JSON.stringify(mapping));
+      showToast('Page turner mapping saved');
+      cleanup();
+    };
+    const onCancel = () => cleanup();
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  }
+
+  function _keyLabel(key) {
+    const labels = {
+      'ArrowRight': '\u2192', 'ArrowLeft': '\u2190', 'ArrowUp': '\u2191', 'ArrowDown': '\u2193',
+      'Enter': '\u21B5 Enter', 'Backspace': '\u232B Bksp', ' ': 'Space', 'Escape': 'Esc',
+      'PageUp': 'PgUp', 'PageDown': 'PgDn',
+    };
+    return labels[key] || key;
   }
 
   async function _estimatePdfCacheSize(container) {
@@ -2176,8 +2633,11 @@ let _cachedPdfSet = new Set();
           reg.update().catch(() => {});
         })
         .catch(e => console.warn('SW registration failed:', e));
-      // Load cached PDF list once SW is ready
-      navigator.serviceWorker.ready.then(() => _loadCachedPdfList()).catch(() => {});
+      // Load cached PDF list once SW is ready, then verify SW health
+      navigator.serviceWorker.ready.then(() => {
+        _loadCachedPdfList();
+        _verifySWHealth();
+      }).catch(() => {});
     }
 
     // ─── Hash-based routing listener ────────────────────────
@@ -2989,6 +3449,62 @@ window.addEventListener('unhandledrejection', (e) => {
     localStorage.setItem('ct_error_log', JSON.stringify(log));
   } catch (_) {}
 });
+
+// ─── Client error flush to server (Stability G1) ──────────
+// Periodically sends unflushed client errors to the Worker for centralized logging.
+// Errors are marked with `flushed: true` after successful send so they aren't re-sent.
+async function _flushClientErrors() {
+  try {
+    const token = Auth.getToken();
+    if (!token || !navigator.onLine) return;
+    const raw = localStorage.getItem('ct_error_log');
+    if (!raw) return;
+    const log = JSON.parse(raw);
+    const unflushed = log.filter(e => !e.flushed);
+    if (unflushed.length === 0) return;
+    const workerUrl = GitHub.workerUrl || 'https://catman-api.catmandabomb.workers.dev';
+    const resp = await fetch(`${workerUrl}/client-errors`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ errors: unflushed.slice(0, 20).map(e => ({
+        msg: e.message, source: e.source, ts: e.time ? new Date(e.time).getTime() : Date.now(),
+        ua: navigator.userAgent.slice(0, 150), v: APP_VERSION,
+      })) }),
+    });
+    if (resp.ok) {
+      for (const e of unflushed) e.flushed = true;
+      localStorage.setItem('ct_error_log', JSON.stringify(log));
+    }
+  } catch (_) { /* retry on next interval */ }
+}
+
+// ─── SW health check (Stability G2) ──────────
+// Verifies the service worker is alive and running the expected version.
+// If version mismatches, triggers SKIP_WAITING to force update.
+function _verifySWHealth() {
+  if (!navigator.serviceWorker?.controller) return;
+  try {
+    const channel = new MessageChannel();
+    const timeout = setTimeout(() => {
+      console.warn('SW health check: no response within 5s');
+    }, 5000);
+    channel.port1.onmessage = (e) => {
+      clearTimeout(timeout);
+      if (e.data?.version && e.data.version !== APP_VERSION) {
+        console.warn('SW version mismatch:', e.data.version, 'vs app', APP_VERSION);
+        navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+      }
+    };
+    navigator.serviceWorker.controller.postMessage(
+      { type: 'HEALTH_CHECK' },
+      [channel.port2]
+    );
+  } catch (_) {}
+}
+
+// Flush client errors on load and every 5 minutes
+_flushClientErrors();
+setInterval(_flushClientErrors, 5 * 60 * 1000);
 
 // ─── Bootstrap (module scripts are deferred, DOM is parsed) ──────
 document.addEventListener('DOMContentLoaded', () => {

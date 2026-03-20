@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.26';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.26';
-import * as Modal from './modal.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as Sync from './sync.js?v=20.26';
-import * as Drive from '../drive.js?v=20.26';
-import * as GitHub from '../github.js?v=20.26';
-import * as Player from '../player.js?v=20.26';
-import * as PDFViewer from '../pdf-viewer.js?v=20.26';
-import * as Metronome from '../metronome.js?v=20.26';
-import * as App from '../app.js?v=20.26';
-import * as Setlists from './setlists.js?v=20.26';
-import * as Practice from './practice.js?v=20.26';
-import * as Dashboard from './dashboard.js?v=20.26';
-import * as IDB from '../idb.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.28';
+import * as Modal from './modal.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as Sync from './sync.js?v=20.28';
+import * as Drive from '../drive.js?v=20.28';
+import * as GitHub from '../github.js?v=20.28';
+import * as Player from '../player.js?v=20.28';
+import * as PDFViewer from '../pdf-viewer.js?v=20.28';
+import * as Metronome from '../metronome.js?v=20.28';
+import * as App from '../app.js?v=20.28';
+import * as Setlists from './setlists.js?v=20.28';
+import * as Practice from './practice.js?v=20.28';
+import * as Dashboard from './dashboard.js?v=20.28';
+import * as IDB from '../idb.js?v=20.28';
 
 // ─── Background audio conversion ────────────────────────────
 // After uploading audio to R2, silently convert to WebM/Opus if the
@@ -1178,12 +1178,14 @@ function _buildDetailHTML(song) {
         ${song.key ? `<div class="detail-meta-item"><span class="detail-meta-label">Key</span><span class="detail-meta-value">${esc(song.key)}</span></div>` : ''}
         ${song.bpm ? `<div class="detail-meta-item"><span class="detail-meta-label">BPM</span><span class="detail-meta-value">${esc(String(song.bpm))}</span></div>` : ''}
         ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
-        ${song.difficulty ? `<div class="detail-meta-item"><span class="detail-meta-label">Difficulty</span><span class="detail-meta-value"><span class="song-difficulty-badge" data-diff="${song.difficulty}">${song.difficulty}</span></span></div>` : ''}
+        ${song.difficulty && !(Sync.getOrchestraSetting('hide_difficulty_from_members', 'false') === 'true' && !Auth.canEditSongs?.()) ? `<div class="detail-meta-item"><span class="detail-meta-label">Difficulty</span><span class="detail-meta-value"><span class="song-difficulty-badge" data-diff="${song.difficulty}">${song.difficulty}</span></span></div>` : ''}
       </div>
     </div>
     `;
 
-  if (song.notes) {
+  // Hide notes from members if conductr setting is enabled
+  const _hideNotes = Sync.getOrchestraSetting('hide_notes_from_members', 'false') === 'true' && !Auth.canEditSongs?.();
+  if (song.notes && !_hideNotes) {
     html += `<div class="detail-section" id="detail-notes">
       <div class="detail-section-label">Notes & Directions</div>
       <div class="detail-notes">${esc(song.notes)}</div>
@@ -1806,6 +1808,14 @@ function _wireEditForm() {
 
     if (!song.title) { showToast('Title is required.'); document.getElementById('ef-title').focus(); return; }
 
+    // Required fields validation from orchestra settings
+    const _reqFields = (() => { try { return JSON.parse(Sync.getOrchestraSetting('required_fields', '[]')); } catch { return []; } })();
+    const _reqMap = { key: { el: 'ef-key', label: 'Key', val: song.key }, bpm: { el: 'ef-bpm', label: 'BPM', val: song.bpm }, timeSig: { el: 'ef-timesig', label: 'Time Signature', val: song.timeSig }, tags: { el: 'ef-tag-input', label: 'Tags', val: (song.tags || []).length > 0 } };
+    for (const f of _reqFields) {
+      const r = _reqMap[f];
+      if (r && !r.val) { showToast(`${r.label} is required.`); document.getElementById(r.el)?.focus(); return; }
+    }
+
     // Auto-favorite first chart if song had no charts before and now has one+
     if (assets.charts.length > 0 && (!song.chartOrder || song.chartOrder.length === 0)) {
       song.chartOrder = [{ driveId: assets.charts[0].driveId, order: 1 }];
@@ -1826,22 +1836,36 @@ function _wireEditForm() {
         Store.set('songs', songs);
         await Sync.saveSongs();
         Store.set('activeSong', null);
-        renderList();
+        // Quick-add mode: if enabled and this was a new song, reopen the add form
+        if (editIsNew && Sync.getOrchestraSetting('quick_add_mode', 'false') === 'true') {
+          renderEdit(Admin.newSong(Store.get('songs')), true);
+          showToast('Song saved! Add another.');
+        } else {
+          renderList();
+        }
       } finally {
         Store.set('savingSongs', false);
       }
     }
 
-    const similar = await _findSimilarSongsAsync(song.title, editIsNew ? null : song.id);
-    if (similar.length > 0) {
-      const names = similar.map(s => s.title).join(', ');
-      Admin.showConfirm(
-        'Similar Song Exists',
-        `A similar song already exists: "${names}". Save anyway?`,
-        () => _doSaveSong(),
-        'Save'
-      );
-      return;
+    const dupMode = Sync.getOrchestraSetting('duplicate_detection', 'warn');
+    if (dupMode !== 'allow') {
+      const similar = await _findSimilarSongsAsync(song.title, editIsNew ? null : song.id);
+      if (similar.length > 0) {
+        const names = similar.map(s => s.title).join(', ');
+        if (dupMode === 'block') {
+          showToast(`Duplicate blocked: "${names}" already exists.`);
+          return;
+        }
+        // 'warn' — confirm dialog
+        Admin.showConfirm(
+          'Similar Song Exists',
+          `A similar song already exists: "${names}". Save anyway?`,
+          () => _doSaveSong(),
+          'Save'
+        );
+        return;
+      }
     }
     _doSaveSong();
   });

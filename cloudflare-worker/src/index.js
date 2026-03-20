@@ -30,6 +30,7 @@
  *   GET     /files?songId=     — List files (auth)
  *   GET/POST /migration/state  — Migration tracking (owner only)
  *   *       /github/*     — GitHub API proxy (session auth)
+ *   POST    /client-errors  — Flush client-side error log to D1 (auth)
  *   POST    /email/send   — Send email via Resend (admin/owner only)
  *   GET     /push/vapid-key       — VAPID public key (auth)
  *   POST    /push/subscribe       — Store push subscription (auth)
@@ -1491,6 +1492,59 @@ export default {
       return respond(await AppData.getInstrumentHierarchy(env, _orchId));
     }
 
+    // ─── /orchestras/:id/settings — Orchestra settings CRUD ──
+
+    // GET /orchestras/:id/settings — list all settings for an orchestra
+    const orchSettingsGetMatch = path.match(/^\/orchestras\/([^/]+)\/settings$/);
+    if (orchSettingsGetMatch && method === 'GET') {
+      return respond(await AppData.listOrchestraSettings(env, orchSettingsGetMatch[1]));
+    }
+
+    // PUT /orchestras/:id/settings — save a single setting
+    if (orchSettingsGetMatch && method === 'PUT') {
+      const body = await parseBody(request);
+      return respond(await AppData.saveOrchestraSetting(env, orchSettingsGetMatch[1], currentUser, body));
+    }
+
+    // POST /orchestras/:id/settings/batch — save multiple settings at once
+    const orchSettingsBatchMatch = path.match(/^\/orchestras\/([^/]+)\/settings\/batch$/);
+    if (orchSettingsBatchMatch && method === 'POST') {
+      const body = await parseBody(request);
+      return respond(await AppData.saveOrchestraSettingsBatch(env, orchSettingsBatchMatch[1], currentUser, body));
+    }
+
+    // ─── /admin/settings — Global admin settings (owner/admin only) ──
+
+    if (path === '/admin/settings' && method === 'GET') {
+      if (!['owner', 'admin'].includes(currentUser.role)) return respond(json({ error: 'Admin only' }, 403));
+      return respond(await AppData.listAdminSettings(env));
+    }
+    if (path === '/admin/settings' && method === 'PUT') {
+      if (!['owner', 'admin'].includes(currentUser.role)) return respond(json({ error: 'Admin only' }, 403));
+      const body = await parseBody(request);
+      return respond(await AppData.saveAdminSetting(env, body));
+    }
+
+    // ─── /orchestras/:id/suggestions — Song suggestion queue ──
+
+    const orchSuggestionsMatch = path.match(/^\/orchestras\/([^/]+)\/suggestions$/);
+    if (orchSuggestionsMatch && method === 'GET') {
+      const status = url.searchParams.get('status') || 'pending';
+      return respond(await AppData.listSongSuggestions(env, orchSuggestionsMatch[1], status));
+    }
+    if (orchSuggestionsMatch && method === 'POST') {
+      if (currentUser.role === 'guest') return respond(json({ error: 'Guests cannot submit suggestions' }, 403));
+      const body = await parseBody(request);
+      return respond(await AppData.createSongSuggestion(env, orchSuggestionsMatch[1], currentUser, body));
+    }
+
+    const suggestReviewMatch = path.match(/^\/orchestras\/([^/]+)\/suggestions\/([^/]+)\/review$/);
+    if (suggestReviewMatch && method === 'POST') {
+      if (!AppData.canWriteData(currentUser, suggestReviewMatch[1])) return respond(json({ error: 'Permission denied' }, 403));
+      const body = await parseBody(request);
+      return respond(await AppData.reviewSongSuggestion(env, suggestReviewMatch[2], currentUser, body));
+    }
+
     // ─── PUT /users/me/orchestra — switch active orchestra ──
     if (path === '/users/me/orchestra' && method === 'PUT') {
       const body = await parseBody(request);
@@ -1741,6 +1795,31 @@ export default {
         return respond(json({ errors: results || [] }));
       } catch (_) {
         return respond(json({ errors: [] }));
+      }
+    }
+
+    // ─── POST /client-errors — Flush critical client errors to D1 ──
+    if (path === '/client-errors' && method === 'POST') {
+      if (!env.DB) return respond(json({ error: 'Database not configured' }, 500));
+      try {
+        const body = await parseBody(request);
+        const errors = Array.isArray(body?.errors) ? body.errors.slice(0, 20) : [];
+        if (errors.length === 0) return respond(json({ ok: true }));
+        for (const e of errors) {
+          const msg = String(e.msg || e.message || 'Unknown').slice(0, 500);
+          const src = String(e.source || e.cat || 'client').slice(0, 100);
+          const ua = String(e.ua || '').slice(0, 150);
+          const ver = String(e.v || '').slice(0, 20);
+          const ts = e.ts ? new Date(e.ts).toISOString() : new Date().toISOString();
+          await env.DB.prepare(
+            'INSERT INTO error_log (message, stack, path, method, ip, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          ).bind(`[CLIENT] ${msg}`, `ua=${ua} v=${ver}`, src, 'CLIENT', request.headers.get('CF-Connecting-IP') || '', ts).run();
+        }
+        // Prune old entries (keep latest 500)
+        env.DB.prepare('DELETE FROM error_log WHERE id NOT IN (SELECT id FROM error_log ORDER BY created_at DESC LIMIT 500)').run().catch(() => {});
+        return respond(json({ ok: true, accepted: errors.length }));
+      } catch (e) {
+        return respond(json({ error: 'Failed to log client errors' }, 500));
       }
     }
 

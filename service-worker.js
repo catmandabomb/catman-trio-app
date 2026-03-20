@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.26';
+const CACHE_NAME = 'catmantrio-v20.28';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -86,6 +86,14 @@ const AUDIO_PROXY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+
+  // Health check: respond with SW version so the app can detect stale workers
+  if (e.data && e.data.type === 'HEALTH_CHECK') {
+    if (e.ports && e.ports[0]) {
+      e.ports[0].postMessage({ version: CACHE_NAME.replace('catmantrio-v', ''), ok: true });
+    }
     return;
   }
 

@@ -484,7 +484,8 @@ body.is-mobile .search-refresh-btn { display: none; }
 /* Enforce 44px touch targets on coarse (touch) pointers */
 @media (any-pointer: coarse) {
   .icon-btn { min-width: 44px; min-height: 44px; }
-  .tag-filter-chip { min-height: 44px; padding-inline: 14px; }
+  .tag-filter-chip { min-height: 32px; padding-inline: 12px; }
+  .kf-chip { min-height: 32px; padding-inline: 12px; }
   .tag-chip { min-height: 44px; padding-inline: 14px; }
 }
 
@@ -899,9 +900,9 @@ body.is-mobile .search-refresh-btn { display: none; }
 #tag-filter-bar:empty::before {
   content: 'Tags…';
   display: inline-block;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
   border-radius: 100px;
   border: 1px solid transparent;
   color: var(--text-3);
@@ -910,9 +911,9 @@ body.is-mobile .search-refresh-btn { display: none; }
 
 .tag-filter-chip {
   flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
   border-radius: 100px;
   background: var(--bg-2);
   color: var(--text-3);
@@ -2135,6 +2136,26 @@ textarea.form-input {
 .asset-delete-btn:hover {
   background: rgba(255,107,107,0.25);
   box-shadow: 0 0 8px rgba(255,107,107,0.2);
+}
+
+/* Reference Links button */
+.ef-ref-links-btn {
+  width: 100%;
+  text-align: center;
+  margin: 4px 0 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.ef-ref-links-btn.has-links {
+  color: #4caf50;
+  border-color: rgba(76,175,80,0.4);
+  background: rgba(76,175,80,0.08);
+}
+.ref-links-modal {
+  max-width: 420px;
+  width: 92vw;
 }
 
 /* Link edit rows */

@@ -5,21 +5,21 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.26';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.26';
-import * as Modal from './modal.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as Sync from './sync.js?v=20.26';
-import * as WikiCharts from './wikicharts.js?v=20.26';
-import * as Drive from '../drive.js?v=20.26';
-import * as GitHub from '../github.js?v=20.26';
-import * as Player from '../player.js?v=20.26';
-import * as PDFViewer from '../pdf-viewer.js?v=20.26';
-import * as App from '../app.js?v=20.26';
-import * as Songs from './songs.js?v=20.26';
-import * as Annotations from './annotations.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.28';
+import * as Modal from './modal.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as Sync from './sync.js?v=20.28';
+import * as WikiCharts from './wikicharts.js?v=20.28';
+import * as Drive from '../drive.js?v=20.28';
+import * as GitHub from '../github.js?v=20.28';
+import * as Player from '../player.js?v=20.28';
+import * as PDFViewer from '../pdf-viewer.js?v=20.28';
+import * as App from '../app.js?v=20.28';
+import * as Songs from './songs.js?v=20.28';
+import * as Annotations from './annotations.js?v=20.28';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -294,14 +294,16 @@ function batchAddToSetlist() {
 // ─── SETLISTS LIST VIEW ──────────────────────────────────────
 
 function _autoArchiveSetlists() {
+  const archiveDays = parseInt(Sync.getOrchestraSetting('auto_archive_days', '2'), 10);
+  if (archiveDays <= 0) return; // 0 = disabled
   const now = Date.now();
-  const twoDays = 2 * 24 * 60 * 60 * 1000;
+  const threshold = archiveDays * 24 * 60 * 60 * 1000;
   let changed = false;
   const newlyArchived = [];
   _setlists.forEach(sl => {
     if (sl.gigDate && !sl.archived) {
       const gigTime = new Date(sl.gigDate).getTime();
-      if (!isNaN(gigTime) && now - gigTime > twoDays) {
+      if (!isNaN(gigTime) && now - gigTime > threshold) {
         sl.archived = true;
         changed = true;
         newlyArchived.push(sl.id);
@@ -373,12 +375,21 @@ function renderSetlists(skipNavReset) {
   _autoArchiveSetlists();
 
   const container = document.getElementById('setlists-list');
-  // Sort: soonest date first. TBD setlists at top (need attention).
+  // Sort active setlists by orchestra setting (default: newest first)
+  const sortPref = Sync.getOrchestraSetting('default_setlist_sort', 'newest');
   const _dateSortVal = (sl) => {
     if (!sl.gigDate || sl.gigDate === 'TBD') return '0000-00-00'; // TBD first
-    return sl.gigDate; // ISO date strings sort naturally
+    return sl.gigDate;
   };
-  const active = _setlists.filter(sl => !sl.archived).sort((a, b) => _dateSortVal(a).localeCompare(_dateSortVal(b)));
+  const active = _setlists.filter(sl => !sl.archived).sort((a, b) => {
+    if (sortPref === 'az') return _displayTitle(a).localeCompare(_displayTitle(b));
+    if (sortPref === 'oldest') return _dateSortVal(a).localeCompare(_dateSortVal(b));
+    // 'newest' — most recent date first, TBD at top
+    const va = _dateSortVal(a), vb = _dateSortVal(b);
+    if (va === '0000-00-00' && vb !== '0000-00-00') return -1;
+    if (vb === '0000-00-00' && va !== '0000-00-00') return 1;
+    return vb.localeCompare(va);
+  });
   const archived = _setlists.filter(sl => sl.archived).sort((a, b) => (b.gigDate || b.updatedAt || '').localeCompare(a.gigDate || a.updatedAt || ''));
 
   let html = '';
@@ -509,6 +520,12 @@ function _buildSetlistTimingHTML(songEntries) {
   html += 'Total: ' + (totalSecs > 0 ? timeStr : '?');
   if (missingCount > 0) {
     html += ' <span class="muted">(' + missingCount + ' song' + (missingCount !== 1 ? 's' : '') + ' missing duration)</span>';
+  }
+  // Set-length warning
+  const _warnEnabled = Sync.getOrchestraSetting('set_length_warning', 'false') === 'true';
+  const _warnMins = parseInt(Sync.getOrchestraSetting('set_length_warning_minutes', '90'), 10);
+  if (_warnEnabled && _warnMins > 0 && totalSecs > _warnMins * 60) {
+    html += ` <span style="color:#e57373;font-weight:600;">⚠ Over ${_warnMins}m limit</span>`;
   }
   html += '</div>';
   return html;
@@ -1323,11 +1340,14 @@ function _renderLiveMode(setlist) {
     try { const v = localStorage.getItem('ct_pref_' + key); return v !== null ? v : fallback; } catch (_) { return fallback; }
   }
 
-  // Feature: Dark/Inverted Score Mode — session override > pref default
+  // Feature: Dark/Inverted Score Mode — session override > orchestra setting > device pref
   let _darkMode = false;
   try {
     const sess = sessionStorage.getItem('ct_live_dark_mode');
-    _darkMode = sess !== null ? sess === '1' : _lmPref('lm_dark_default', '0') === '1';
+    const orchTheme = Sync.getOrchestraSetting('live_default_theme', null);
+    _darkMode = sess !== null ? sess === '1'
+      : orchTheme !== null ? orchTheme === 'dark'
+      : _lmPref('lm_dark_default', '0') === '1';
   } catch (_) {}
 
   // Feature: Half-Page Turns — session override > pref default
@@ -1337,10 +1357,11 @@ function _renderLiveMode(setlist) {
     _halfPageMode = sess !== null ? sess === '1' : _lmPref('lm_half_default', '0') === '1';
   } catch (_) {}
 
-  // Feature: Auto-Advance — session override > pref default
+  // Feature: Auto-Advance — session override > orchestra setting > device pref
   let _autoAdvance = false;
   let _autoAdvanceTimer = null;
-  let _autoAdvanceSecs = parseInt(_lmPref('lm_auto_advance_secs', '30'), 10) || 30;
+  const _orchAutoSecs = parseInt(Sync.getOrchestraSetting('live_auto_advance_secs', '0'), 10);
+  let _autoAdvanceSecs = _orchAutoSecs > 0 ? _orchAutoSecs : (parseInt(_lmPref('lm_auto_advance_secs', '30'), 10) || 30);
   let _autoAdvanceStart = 0; // timestamp for progress bar
   let _autoAdvanceRaf = null;
   try {
@@ -2050,7 +2071,8 @@ function _renderLiveMode(setlist) {
     } else if (page.type === 'wikichart') {
       // Linked WikiChart — render chord grid in Live Mode
       const wc = page.wikiChart;
-      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode, keyOverride: page.keyOverride || undefined });
+      const _orchFontSize = parseInt(Sync.getOrchestraSetting('live_font_size', '0'), 10) || undefined;
+      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode, keyOverride: page.keyOverride || undefined, fontSize: _orchFontSize });
       return Promise.resolve();
     }
     return Promise.resolve();

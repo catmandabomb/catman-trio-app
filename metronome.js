@@ -168,7 +168,16 @@ function stop() {
   _isPlaying = false;
   _currentBeat = 0;
   _onBeat = null;
-  if (_audioCtx && _audioCtx.state === 'running' && _mode !== 'worklet') _audioCtx.suspend();
+  // Close context fully to avoid stale suspended state (same fix as tuning fork)
+  if (_audioCtx) {
+    _audioCtx.close().catch(() => {});
+    _audioCtx = null;
+  }
+  // Reset worklet state so next start() re-initializes fresh
+  _workletNode = null;
+  _workletReady = false;
+  _workletInitPromise = null;
+  _mode = null;
 }
 
 function setBpm(bpm) {

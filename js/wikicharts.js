@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.26';
-import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.26';
-import * as Modal from './modal.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as Sync from './sync.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.28';
+import * as Modal from './modal.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as Sync from './sync.js?v=20.28';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -1724,7 +1724,7 @@ function _renderCreateEdit(chart, opts) {
     chart = {
       id: _generateId(),
       title: '',
-      key: '',
+      key: Sync.getOrchestraSetting('wikichart_default_key', ''),
       bpm: '',
       timeSig: '4/4',
       feel: '',
@@ -1845,26 +1845,13 @@ function _renderCreateEdit(chart, opts) {
       </div>
     `;
 
-    // Reference Links
+    // Reference Links — collapsed into a single button with overlay
     if (!editChart.referenceLinks) editChart.referenceLinks = [];
-    html += `<div class="form-field">
-      <label class="form-label">Reference Links</label>
-      <div class="wc-ref-links-edit" id="wce-ref-links">`;
-    editChart.referenceLinks.forEach((link, li) => {
-      html += `<div class="wc-ref-link-edit">
-        <input class="form-input wc-ref-link-label-input" data-li="${li}" type="text" value="${esc(link.label || '')}" placeholder="Label" maxlength="100" />
-        <input class="form-input wc-ref-link-url-input" data-li="${li}" type="url" value="${esc(link.url || '')}" placeholder="https://..." maxlength="500" />
-        <select class="form-input wc-select wc-ref-link-type-select" data-li="${li}">
-          ${['spotify', 'apple', 'youtube', 'other'].map(t => `<option value="${t}" ${link.type === t ? 'selected' : ''}>${t}</option>`).join('')}
-        </select>
-        <button class="icon-btn wc-ref-link-delete" data-li="${li}" title="Remove link"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
-      </div>`;
-    });
-    html += `</div>`;
-    if (editChart.referenceLinks.length < 5) {
-      html += `<button class="btn-ghost" id="wce-add-ref-link" style="margin-top:4px">+ Add Link</button>`;
-    }
-    html += `</div>`;
+    const _hasRefLinks = editChart.referenceLinks.some(l => l.url);
+    html += `<button class="btn-ghost ef-ref-links-btn${_hasRefLinks ? ' has-links' : ''}" id="wce-ref-links-btn" type="button">
+      <i data-lucide="${_hasRefLinks ? 'check' : 'plus'}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>
+      Reference Links
+    </button>`;
 
     // Actions
     html += `<div class="wc-edit-actions">
@@ -1925,39 +1912,74 @@ function _renderCreateEdit(chart, opts) {
     // Wire section editors (wrap rerender to sync form first)
     _wireSectionEditors(container, editChart, () => { _syncFormToModel(); _renderForm(); });
 
-    // Wire reference link editors
-    container.querySelectorAll('.wc-ref-link-label-input').forEach(input => {
-      input.addEventListener('input', () => {
-        const li = parseInt(input.dataset.li, 10);
-        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].label = input.value;
-      });
-    });
-    container.querySelectorAll('.wc-ref-link-url-input').forEach(input => {
-      input.addEventListener('input', () => {
-        const li = parseInt(input.dataset.li, 10);
-        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].url = input.value;
-      });
-    });
-    container.querySelectorAll('.wc-ref-link-type-select').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const li = parseInt(sel.dataset.li, 10);
-        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].type = sel.value;
-      });
-    });
-    container.querySelectorAll('.wc-ref-link-delete').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const li = parseInt(btn.dataset.li, 10);
-        editChart.referenceLinks.splice(li, 1);
-        _syncFormToModel();
-        _renderForm();
-      });
-    });
-    container.querySelector('#wce-add-ref-link')?.addEventListener('click', () => {
-      _syncFormToModel();
+    // Wire reference links overlay button
+    function _updateRefLinksBtn() {
+      const btn = container.querySelector('#wce-ref-links-btn');
+      if (!btn) return;
+      const has = (editChart.referenceLinks || []).some(l => l.url);
+      btn.classList.toggle('has-links', has);
+      btn.innerHTML = `<i data-lucide="${has ? 'check' : 'plus'}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i> Reference Links`;
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+    }
+
+    container.querySelector('#wce-ref-links-btn')?.addEventListener('click', () => {
       if (!editChart.referenceLinks) editChart.referenceLinks = [];
-      if (editChart.referenceLinks.length >= 5) { showToast('Maximum 5 links allowed.'); return; }
-      editChart.referenceLinks.push({ label: '', url: '', type: 'other' });
-      _renderForm();
+      function _refLinkRowHTML(link, idx) {
+        return `<div class="wc-ref-link-edit" data-rl-idx="${idx}">
+          <input class="form-input wc-ref-link-label-input" type="text" value="${esc(link.label || '')}" placeholder="Label" maxlength="100" />
+          <input class="form-input wc-ref-link-url-input" type="url" value="${esc(link.url || '')}" placeholder="https://..." maxlength="500" />
+          <select class="form-input wc-select wc-ref-link-type-select">
+            ${['spotify', 'apple', 'youtube', 'other'].map(t => `<option value="${t}" ${link.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+          <button class="icon-btn wc-ref-link-delete" title="Remove link"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+        </div>`;
+      }
+      const rowsHTML = editChart.referenceLinks.map((l, i) => _refLinkRowHTML(l, i)).join('');
+      const handle = Modal.create({
+        id: 'ref-links-overlay',
+        cls: 'ref-links-modal',
+        content: `
+          <h3 style="margin:0 0 16px;font-size:1rem;color:var(--text-primary);">Reference Links</h3>
+          <div id="rl-link-list">${rowsHTML}</div>
+          ${editChart.referenceLinks.length < 5 ? `<button class="btn-ghost" id="rl-add-link" style="margin-top:8px;">+ Add Link</button>` : ''}
+          <div style="margin-top:16px;text-align:right;">
+            <button class="btn-primary" id="rl-done" style="min-width:80px;">Done</button>
+          </div>
+        `,
+        onHide: () => {
+          editChart.referenceLinks = editChart.referenceLinks.filter(l => l.url);
+          _updateRefLinksBtn();
+        },
+      });
+      const overlay = document.getElementById('ref-links-overlay');
+      if (typeof lucide !== 'undefined' && overlay) lucide.createIcons({ nodes: [overlay] });
+
+      function wireOneRow(rowEl, linkObj) {
+        rowEl.querySelector('.wc-ref-link-label-input').addEventListener('input', e => { linkObj.label = e.target.value; });
+        rowEl.querySelector('.wc-ref-link-url-input').addEventListener('input', e => { linkObj.url = e.target.value; });
+        rowEl.querySelector('.wc-ref-link-type-select').addEventListener('change', e => { linkObj.type = e.target.value; });
+        rowEl.querySelector('.wc-ref-link-delete').addEventListener('click', () => {
+          const idx = editChart.referenceLinks.indexOf(linkObj);
+          if (idx > -1) editChart.referenceLinks.splice(idx, 1);
+          rowEl.remove();
+        });
+      }
+      overlay.querySelectorAll('.wc-ref-link-edit').forEach((el, i) => wireOneRow(el, editChart.referenceLinks[i]));
+
+      document.getElementById('rl-add-link')?.addEventListener('click', () => {
+        if (editChart.referenceLinks.length >= 5) { showToast('Maximum 5 links allowed.'); return; }
+        const blank = { label: '', url: '', type: 'other' };
+        editChart.referenceLinks.push(blank);
+        const tmp = document.createElement('div');
+        tmp.innerHTML = _refLinkRowHTML(blank, editChart.referenceLinks.length - 1);
+        const el = tmp.firstElementChild;
+        document.getElementById('rl-link-list').appendChild(el);
+        wireOneRow(el, blank);
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [el] });
+        if (editChart.referenceLinks.length >= 5) document.getElementById('rl-add-link')?.remove();
+      });
+
+      document.getElementById('rl-done')?.addEventListener('click', () => handle.hide());
     });
 
     // Wire save/cancel

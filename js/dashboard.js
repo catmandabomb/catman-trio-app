@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.26';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.26';
-import * as Modal from './modal.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as GitHub from '../github.js?v=20.26';
-import * as Drive from '../drive.js?v=20.26';
-import * as Sync from './sync.js?v=20.26';
-import * as App from '../app.js?v=20.26';
-import * as IDB from '../idb.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.28';
+import * as Modal from './modal.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as GitHub from '../github.js?v=20.28';
+import * as Drive from '../drive.js?v=20.28';
+import * as Sync from './sync.js?v=20.28';
+import * as App from '../app.js?v=20.28';
+import * as IDB from '../idb.js?v=20.28';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -393,6 +393,25 @@ function renderDashboard() {
     </div>
   `;
 
+  // Admin Settings — upload size limit (owner/admin only)
+  if (Auth.isOwnerOrAdmin()) {
+    const _currentLimit = Sync.getAdminSetting ? Sync.getAdminSetting('upload_size_limit_mb', '50') : '50';
+    const _limitVal = _currentLimit === 'none' ? 'none' : parseInt(_currentLimit, 10) || 50;
+    const limitOptions = [10,20,30,40,50,60,70,80,90,100,150,200,250].map(v =>
+      `<option value="${v}" ${_limitVal === v ? 'selected' : ''}>${v} MB</option>`
+    ).join('') + `<option value="none" ${_limitVal === 'none' ? 'selected' : ''}>No limit</option>`;
+    html += `<div class="dash-section">
+      <div class="dash-section-title"><i data-lucide="hard-drive" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Admin Settings</div>
+      <div class="settings-row" style="margin-top:8px;">
+        <div class="settings-row-label">
+          <div class="settings-label">File upload size limit</div>
+          <div class="settings-hint">Maximum file size for chart/audio uploads</div>
+        </div>
+        <select class="settings-select" id="dash-upload-limit">${limitOptions}</select>
+      </div>
+    </div>`;
+  }
+
   // User Management — link to subpage (owner only)
   if (Auth.canManageUsers()) {
     html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
@@ -584,6 +603,12 @@ function renderDashboard() {
         await Sync.savePractice('All practice lists purged.');
         renderDashboard();
       }, 'Purge All');
+  });
+
+  // Wire admin upload limit
+  document.getElementById('dash-upload-limit')?.addEventListener('change', async (e) => {
+    await Sync.saveAdminSetting('upload_size_limit_mb', e.target.value);
+    showToast(`Upload limit set to ${e.target.value === 'none' ? 'no limit' : e.target.value + ' MB'}`);
   });
 
   // Wire Tag Manager button

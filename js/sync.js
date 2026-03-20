@@ -8,15 +8,15 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.26';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.26';
-import * as GitHub from '../github.js?v=20.26';
-import * as Drive from '../drive.js?v=20.26';
-import * as Router from './router.js?v=20.26';
-import * as IDB from '../idb.js?v=20.26';
-import * as OPFS from './opfs.js?v=20.26';
-import * as Auth from '../auth.js?v=20.26';
-import * as Admin from '../admin.js?v=20.26';
+import * as Store from './store.js?v=20.28';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.28';
+import * as GitHub from '../github.js?v=20.28';
+import * as Drive from '../drive.js?v=20.28';
+import * as Router from './router.js?v=20.28';
+import * as IDB from '../idb.js?v=20.28';
+import * as OPFS from './opfs.js?v=20.28';
+import * as Auth from '../auth.js?v=20.28';
+import * as Admin from '../admin.js?v=20.28';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -1114,7 +1114,217 @@ async function switchOrchestra(orchestraId) {
   }
 }
 
+// ─── Orchestra Settings ─────────────────────────────────────
+
+/**
+ * Load orchestra settings from the Worker (or localStorage cache).
+ * @param {string} [orchestraId] - Defaults to active orchestra
+ * @returns {Promise<Object>} Key-value settings object
+ */
+async function loadOrchestraSettings(orchestraId) {
+  const orchId = orchestraId || Auth.getActiveOrchestraId?.();
+  if (!orchId) return {};
+  // Try localStorage cache first
+  try {
+    const cached = localStorage.getItem(`ct_orch_settings_${orchId}`);
+    if (cached) {
+      const settings = JSON.parse(cached);
+      Store.set('orchestraSettings', settings);
+    }
+  } catch (_) {}
+
+  if (!useCloudflare() || !Auth.getToken?.()) return Store.get('orchestraSettings') || {};
+  try {
+    const res = await _workerFetch(`/orchestras/${orchId}/settings`);
+    const settings = res.settings || {};
+    Store.set('orchestraSettings', settings);
+    try { localStorage.setItem(`ct_orch_settings_${orchId}`, JSON.stringify(settings)); } catch (_) {}
+    return settings;
+  } catch (e) {
+    console.warn('Failed to load orchestra settings:', e.message);
+    return Store.get('orchestraSettings') || {};
+  }
+}
+
+/**
+ * Save a single orchestra setting.
+ * @param {string} key
+ * @param {*} value
+ * @returns {Promise<boolean>}
+ */
+async function saveOrchestraSetting(key, value) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId) return false;
+  // Update local immediately
+  const settings = Store.get('orchestraSettings') || {};
+  settings[key] = value;
+  Store.set('orchestraSettings', settings);
+  try { localStorage.setItem(`ct_orch_settings_${orchId}`, JSON.stringify(settings)); } catch (_) {}
+
+  if (!useCloudflare() || !Auth.getToken?.()) return true;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    });
+    return true;
+  } catch (e) {
+    console.warn('Failed to save orchestra setting:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Save multiple orchestra settings at once.
+ * @param {Object} settings - Key-value pairs
+ * @returns {Promise<boolean>}
+ */
+async function saveOrchestraSettingsBatch(settings) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId) return false;
+  const current = Store.get('orchestraSettings') || {};
+  Object.assign(current, settings);
+  Store.set('orchestraSettings', current);
+  try { localStorage.setItem(`ct_orch_settings_${orchId}`, JSON.stringify(current)); } catch (_) {}
+
+  if (!useCloudflare() || !Auth.getToken?.()) return true;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/settings/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings }),
+    });
+    return true;
+  } catch (e) {
+    console.warn('Failed to save orchestra settings batch:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Load admin settings from the Worker.
+ * @returns {Promise<Object>} Key-value settings object
+ */
+async function loadAdminSettings() {
+  if (!useCloudflare() || !Auth.getToken?.()) {
+    try {
+      const cached = localStorage.getItem('ct_admin_settings');
+      return cached ? JSON.parse(cached) : {};
+    } catch (_) { return {}; }
+  }
+  try {
+    const res = await _workerFetch('/admin/settings');
+    const settings = res.settings || {};
+    try { localStorage.setItem('ct_admin_settings', JSON.stringify(settings)); } catch (_) {}
+    return settings;
+  } catch (e) {
+    console.warn('Failed to load admin settings:', e.message);
+    try {
+      const cached = localStorage.getItem('ct_admin_settings');
+      return cached ? JSON.parse(cached) : {};
+    } catch (_) { return {}; }
+  }
+}
+
+/**
+ * Save an admin setting.
+ * @param {string} key
+ * @param {*} value
+ * @returns {Promise<boolean>}
+ */
+async function saveAdminSetting(key, value) {
+  if (!useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch('/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    });
+    // Update local cache
+    try {
+      const cached = JSON.parse(localStorage.getItem('ct_admin_settings') || '{}');
+      cached[key] = value;
+      localStorage.setItem('ct_admin_settings', JSON.stringify(cached));
+    } catch (_) {}
+    return true;
+  } catch (e) {
+    console.warn('Failed to save admin setting:', e.message);
+    return false;
+  }
+}
+
+/**
+ * Get an admin setting with fallback (reads from localStorage cache).
+ * @param {string} key
+ * @param {*} fallback
+ * @returns {*}
+ */
+function getAdminSetting(key, fallback) {
+  try {
+    const cached = JSON.parse(localStorage.getItem('ct_admin_settings') || '{}');
+    return key in cached ? cached[key] : fallback;
+  } catch (_) { return fallback; }
+}
+
+/**
+ * Get an orchestra setting with fallback.
+ * @param {string} key
+ * @param {*} fallback
+ * @returns {*}
+ */
+function getOrchestraSetting(key, fallback) {
+  const settings = Store.get('orchestraSettings') || {};
+  return key in settings ? settings[key] : fallback;
+}
+
+/**
+ * Load song suggestions for the active orchestra.
+ * @param {string} [status='pending']
+ * @returns {Promise<Array>}
+ */
+async function loadSongSuggestions(status = 'pending') {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return [];
+  try {
+    const res = await _workerFetch(`/orchestras/${orchId}/suggestions?status=${status}`);
+    return res.suggestions || [];
+  } catch { return []; }
+}
+
+/**
+ * Submit a song edit suggestion (member).
+ */
+async function submitSongSuggestion(songId, fieldName, oldValue, newValue) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/suggestions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ songId, fieldName, oldValue, newValue }),
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Review (approve/reject) a song suggestion (conductr).
+ */
+async function reviewSongSuggestion(suggestionId, status) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/suggestions/${suggestionId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    return true;
+  } catch { return false; }
+}
+
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra, loadOrchestraSettings, saveOrchestraSetting, saveOrchestraSettingsBatch, getOrchestraSetting, loadAdminSettings, saveAdminSetting, getAdminSetting, loadSongSuggestions, submitSongSuggestion, reviewSongSuggestion };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal, _saveWikiChartsLocal as saveWikiChartsLocal };
