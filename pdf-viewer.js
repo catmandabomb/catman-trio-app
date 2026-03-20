@@ -22,8 +22,9 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.20';
-import { showToast } from './js/utils.js?v=20.20';
+import * as Admin from './admin.js?v=20.21';
+import { showToast } from './js/utils.js?v=20.21';
+import * as Metronome from './metronome.js?v=20.21';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -304,6 +305,9 @@ let _zpHandle    = null;  // zoom/pan handle for modal
 let _zpHandleR   = null;  // zoom/pan for right canvas in dual mode
 let _openGen     = 0;     // generation counter for rapid open/close race
 let _focusTrap   = null;  // focus trap handle for modal
+let _metronomeBpm = null; // BPM passed from practice mode (null = hide button)
+let _metronomeTimeSig = 4; // time signature beats per measure
+let _metronomeStartedByPdf = false; // true if WE started the metronome (so we stop it on close)
 
 const modal     = () => document.getElementById('modal-pdf');
 const canvasEl  = () => document.getElementById('pdf-canvas');
@@ -1108,6 +1112,22 @@ async function open(url, name, opts) {
   _ownsBlobUrl = opts?.ownsBlobUrl || false;
   const gen = ++_openGen; // track this open generation
 
+  // Metronome button: show only when BPM is provided (practice mode)
+  _metronomeBpm = opts?.bpm || null;
+  _metronomeTimeSig = opts?.timeSig || 4;
+  _metronomeStartedByPdf = false;
+  const metBtn = document.getElementById('pdf-metronome');
+  if (metBtn) {
+    if (_metronomeBpm) {
+      metBtn.classList.remove('hidden');
+      // Sync visual state: metronome may already be playing from practice widget
+      metBtn.classList.toggle('pdf-metronome-active', Metronome.isPlaying());
+    } else {
+      metBtn.classList.add('hidden');
+      metBtn.classList.remove('pdf-metronome-active');
+    }
+  }
+
   fileLabel().textContent = name || 'Chart';
   modal().classList.remove('hidden');
   // Feature 4: Focus trap for PDF modal
@@ -1150,6 +1170,12 @@ async function open(url, name, opts) {
 
 function close() {
   ++_openGen; // Invalidate any in-flight open() that resolves after close
+  // Stop metronome if we started it from the PDF viewer
+  if (_metronomeStartedByPdf && Metronome.isPlaying()) Metronome.stop();
+  _metronomeStartedByPdf = false;
+  _metronomeBpm = null;
+  const metBtn = document.getElementById('pdf-metronome');
+  if (metBtn) { metBtn.classList.add('hidden'); metBtn.classList.remove('pdf-metronome-active'); }
   modal().classList.add('hidden');
   if (_focusTrap) { _focusTrap.release(); _focusTrap = null; }
   // Evict from worker cache BEFORE revoking blob URL (worker may still reference it)
@@ -1220,6 +1246,23 @@ document.addEventListener('DOMContentLoaded', () => {
   if (zoomInBtn)  zoomInBtn.addEventListener('click', zoomIn);
   if (zoomOutBtn) zoomOutBtn.addEventListener('click', zoomOut);
   if (resetBtn)   resetBtn.addEventListener('click', () => { if (_zpHandle) _zpHandle.resetZoom(); });
+
+  // Metronome toggle in PDF viewer (practice mode only)
+  const metBtn = document.getElementById('pdf-metronome');
+  if (metBtn) {
+    metBtn.addEventListener('click', () => {
+      if (!_metronomeBpm) return;
+      if (Metronome.isPlaying()) {
+        Metronome.stop();
+        metBtn.classList.remove('pdf-metronome-active');
+        _metronomeStartedByPdf = false;
+      } else {
+        Metronome.start(_metronomeBpm, _metronomeTimeSig);
+        metBtn.classList.add('pdf-metronome-active');
+        _metronomeStartedByPdf = true;
+      }
+    });
+  }
 
   // Close on backdrop click
   modal().addEventListener('click', (e) => {

@@ -5,20 +5,20 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.20';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.20';
-import * as Modal from './modal.js?v=20.20';
-import * as Router from './router.js?v=20.20';
-import * as Admin from '../admin.js?v=20.20';
-import * as Auth from '../auth.js?v=20.20';
-import * as Sync from './sync.js?v=20.20';
-import * as WikiCharts from './wikicharts.js?v=20.20';
-import * as Drive from '../drive.js?v=20.20';
-import * as GitHub from '../github.js?v=20.20';
-import * as Player from '../player.js?v=20.20';
-import * as PDFViewer from '../pdf-viewer.js?v=20.20';
-import * as App from '../app.js?v=20.20';
-import * as Songs from './songs.js?v=20.20';
+import * as Store from './store.js?v=20.21';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.21';
+import * as Modal from './modal.js?v=20.21';
+import * as Router from './router.js?v=20.21';
+import * as Admin from '../admin.js?v=20.21';
+import * as Auth from '../auth.js?v=20.21';
+import * as Sync from './sync.js?v=20.21';
+import * as WikiCharts from './wikicharts.js?v=20.21';
+import * as Drive from '../drive.js?v=20.21';
+import * as GitHub from '../github.js?v=20.21';
+import * as Player from '../player.js?v=20.21';
+import * as PDFViewer from '../pdf-viewer.js?v=20.21';
+import * as App from '../app.js?v=20.21';
+import * as Songs from './songs.js?v=20.21';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -504,6 +504,9 @@ function renderSetlistDetail(setlist, skipNavPush) {
     ${venueNote}
     <div class="detail-subtitle">${songs.length} song${songs.length !== 1 ? 's' : ''}${songs.length > 0 ? ' <button class="btn-live-mode"><i data-lucide="monitor" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Live Mode</button>' : ''}</div>
     ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}${isAdmin ? '<button class="btn-share-packet" title="Share setlist as gig packet"><i data-lucide="package" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Packet</button>' : ''}</div>` : ''}
+    <div class="detail-actions" style="margin-top:4px;">
+      <button class="btn-show-notes" title="Show gig notes"><i data-lucide="file-text" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Show Notes${setlist.notes ? ' *' : ''}</button>
+    </div>
   </div>`;
 
   if (songs.length === 0) {
@@ -526,8 +529,9 @@ function renderSetlistDetail(setlist, skipNavPush) {
               </span>
               ${entry.notes ? `<span class="setlist-song-comment">${esc(entry.notes)}</span>` : ''}
               ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
-              ${entry.wikiChartId ? `<span class="setlist-song-comment" style="color:var(--accent);font-style:normal;"><i data-lucide="music" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"></i>WikiChart linked</span>` : ''}
+              ${entry.wikiChartId ? `<span class="setlist-song-comment" style="color:var(--accent);font-style:normal;"><i data-lucide="music" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"></i>WikiChart linked${entry.keyOverride ? ' (Key: ' + esc(entry.keyOverride) + ')' : ''}</span>` : ''}
             </div>
+            ${entry.wikiChartId && (Auth.canEditSetlists()) ? `<button class="icon-btn ft-key-btn" data-idx="${i}" aria-label="Set key override" title="Key override"><i data-lucide="key" style="width:14px;height:14px;"></i></button>` : ''}
             ${isAdmin ? `<button class="icon-btn ft-edit-btn" data-idx="${i}" aria-label="Edit freetext song" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>` : ''}
           </div>`;
       } else {
@@ -671,6 +675,22 @@ function renderSetlistDetail(setlist, skipNavPush) {
   // Wire Share as Packet button (admin/owner only)
   container.querySelector('.btn-share-packet')?.addEventListener('click', () => {
     _shareAsPacket(setlist, _songs);
+  });
+
+  // Wire Show Notes button (Feature 23B)
+  container.querySelector('.btn-show-notes')?.addEventListener('click', () => {
+    _showSetlistNotesModal(setlist);
+  });
+
+  // Wire Key Override buttons (Feature 22 — freetext entries with WikiChart)
+  container.querySelectorAll('.ft-key-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx, 10);
+      const entry = songs[idx];
+      if (!entry || !entry.freetext || !entry.wikiChartId) return;
+      _showKeyOverrideModal(entry, setlist);
+    });
   });
 }
 
@@ -1212,6 +1232,7 @@ function _renderLiveMode(setlist) {
         comment: entry.comment || '',
         _freetext: true,
         _wikiChartId: entry.wikiChartId || null,
+        _keyOverride: entry.keyOverride || null,
       };
     }
     const song = _songs.find(s => s.id === entry.id);
@@ -1267,6 +1288,12 @@ function _renderLiveMode(setlist) {
 
   // Feature: Show/hide nav buttons (prev/next chevrons)
   const _showNavButtons = _lmPref('lm_show_nav_buttons', '1') === '1';
+
+  // Feature: Show/hide individual live mode header toggles
+  const _showDarkToggle     = _lmPref('live_show_dark', '1') === '1';
+  const _showHalfToggle     = _lmPref('live_show_halfpage', '1') === '1';
+  const _showAutoAdvToggle  = _lmPref('live_show_autoadvance', '1') === '1';
+  const _showRedToggle      = _lmPref('live_show_redmode', '1') === '1';
 
   // Feature: Stage Red Mode
   let _stageRedMode = false;
@@ -1353,7 +1380,7 @@ function _renderLiveMode(setlist) {
         // Freetext song with linked WikiChart — render chord grid
         const wc = (Store.get('wikiCharts') || []).find(c => c.id === song._wikiChartId);
         if (wc) {
-          _pages.push({ type: 'wikichart', songIdx: si, song, wikiChart: wc });
+          _pages.push({ type: 'wikichart', songIdx: si, song, wikiChart: wc, keyOverride: song._keyOverride || null });
         } else {
           _pages.push({ type: 'metadata', songIdx: si, song });
         }
@@ -1425,11 +1452,11 @@ function _renderLiveMode(setlist) {
       </div>
       <div class="lm-header-row2">
         <div class="lm-tools">
-          <button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:14px;height:14px;"></i></button>
-          <button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:14px;height:14px;"></i></button>
-          <button class="lm-red-toggle${_stageRedMode ? ' active' : ''}" aria-label="Stage red (G)" aria-pressed="${_stageRedMode}" title="Stage red (G)"><i data-lucide="flashlight" style="width:14px;height:14px;"></i></button>
+          ${_showDarkToggle ? `<button class="lm-dark-toggle${_darkMode ? ' active' : ''}" aria-label="Dark mode (D)" aria-pressed="${_darkMode}" title="Dark mode (D)"><i data-lucide="${_darkMode ? 'sun' : 'moon'}" style="width:14px;height:14px;"></i></button>` : ''}
+          ${_showHalfToggle ? `<button class="lm-half-toggle${_halfPageMode ? ' active' : ''}" aria-label="Half-page turns (H)" aria-pressed="${_halfPageMode}" title="Half-page turns (H)"><i data-lucide="rows-2" style="width:14px;height:14px;"></i></button>` : ''}
+          ${_showRedToggle ? `<button class="lm-red-toggle${_stageRedMode ? ' active' : ''}" aria-label="Stage red (G)" aria-pressed="${_stageRedMode}" title="Stage red (G)"><i data-lucide="flashlight" style="width:14px;height:14px;"></i></button>` : ''}
           ${_rehearsalNotes ? `<button class="lm-notes-toggle" aria-label="Notes overlay (N)" aria-pressed="false" title="Notes overlay (N)"><i data-lucide="sticky-note" style="width:14px;height:14px;"></i></button>` : ''}
-          <button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:14px;height:14px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>
+          ${_showAutoAdvToggle ? `<button class="lm-auto-toggle" aria-label="Auto-advance (A)" aria-pressed="false" title="Auto-advance (A)"><i data-lucide="timer" style="width:14px;height:14px;"></i><span class="lm-auto-label">${_autoAdvanceSecs}s</span></button>` : ''}
         </div>
       </div>
     </div>
@@ -1953,7 +1980,7 @@ function _renderLiveMode(setlist) {
     } else if (page.type === 'wikichart') {
       // Linked WikiChart — render chord grid in Live Mode
       const wc = page.wikiChart;
-      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode });
+      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode, keyOverride: page.keyOverride || undefined });
       return Promise.resolve();
     }
     return Promise.resolve();
@@ -2906,6 +2933,115 @@ function _renderLiveMode(setlist) {
 
   _updateClock();
   _clockInterval = setInterval(_updateClock, 1000);
+}
+
+// ─── KEY OVERRIDE MODAL (Feature 22) ─────────────────────────────
+
+const KEY_OPTIONS = ['', 'C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B',
+  'Cm', 'C#m', 'Dbm', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gbm', 'Gm', 'G#m', 'Abm', 'Am', 'A#m', 'Bbm', 'Bm'];
+
+function _showKeyOverrideModal(entry, setlist) {
+  const wcs = Store.get('wikiCharts') || [];
+  const wc = wcs.find(c => c.id === entry.wikiChartId);
+  const chartKey = wc ? wc.key : '';
+
+  const optionsHtml = KEY_OPTIONS.map(k => {
+    const label = k || '-- Original' + (chartKey ? ' (' + chartKey + ')' : '') + ' --';
+    const selected = (entry.keyOverride || '') === k ? ' selected' : '';
+    return `<option value="${esc(k)}"${selected}>${esc(label)}</option>`;
+  }).join('');
+
+  const handle = Modal.create({
+    id: 'modal-key-override',
+    cls: 'key-override-modal',
+    content: `
+      <h3>Key Override</h3>
+      <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">
+        Override the display key for <strong>${esc(wc ? wc.title : 'WikiChart')}</strong> in this setlist.
+        ${chartKey ? 'Original key: <strong>' + esc(chartKey) + '</strong>' : ''}
+      </p>
+      <div class="form-field">
+        <label class="form-label" for="key-override-select">Display Key</label>
+        <select class="form-input" id="key-override-select">${optionsHtml}</select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="ko-cancel">Cancel</button>
+        <button class="btn-primary" id="ko-save">Save</button>
+      </div>`,
+  });
+  if (!handle) return;
+
+  handle.overlay.querySelector('#ko-cancel').addEventListener('click', () => handle.hide());
+  handle.overlay.querySelector('#ko-save').addEventListener('click', () => {
+    const val = handle.overlay.querySelector('#key-override-select').value;
+    entry.keyOverride = val || undefined;
+    // Update the setlist
+    _syncFromStore();
+    const freshSetlist = _setlists.find(s => s.id === setlist.id);
+    if (freshSetlist) {
+      freshSetlist._ts = Date.now();
+      freshSetlist.updatedAt = new Date().toISOString();
+      _saveSetlists();
+      handle.hide();
+      renderSetlistDetail(freshSetlist, true);
+      showToast(val ? 'Key override set to ' + val : 'Key override removed');
+    } else {
+      handle.hide();
+    }
+  });
+}
+
+// ─── SETLIST NOTES MODAL (Feature 23B) ──────────────────────────
+
+function _showSetlistNotesModal(setlist) {
+  const canEdit = Auth.canEditSetlists() && (Auth.isConductr() || Admin.isAdminModeActive());
+  const currentNotes = setlist.notes || '';
+
+  const handle = Modal.create({
+    id: 'modal-setlist-notes',
+    cls: 'setlist-notes-modal',
+    content: `
+      <h3>Gig Notes</h3>
+      <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">${esc(_displayTitle(setlist))}</p>
+      ${canEdit
+        ? `<textarea class="form-input setlist-notes-textarea" id="setlist-notes-text" rows="8" placeholder="Add notes for this gig (set times, parking, contact info, gear list...)" maxlength="5000">${esc(currentNotes)}</textarea>
+           <div class="modal-actions">
+             <button class="btn-secondary" id="sn-cancel">Cancel</button>
+             <button class="btn-primary" id="sn-save">Save</button>
+           </div>`
+        : `<div class="setlist-notes-readonly" style="white-space:pre-wrap;font-size:14px;line-height:1.6;min-height:60px;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:16px;">${currentNotes ? esc(currentNotes) : '<span style="color:var(--text-3);font-style:italic;">No notes yet.</span>'}</div>
+           <div class="modal-actions">
+             <button class="btn-primary" id="sn-ok">Ok</button>
+           </div>`
+      }`,
+  });
+  if (!handle) return;
+
+  if (canEdit) {
+    const textarea = handle.overlay.querySelector('#setlist-notes-text');
+    setTimeout(() => textarea.focus(), 60);
+
+    handle.overlay.querySelector('#sn-cancel').addEventListener('click', () => handle.hide());
+    handle.overlay.querySelector('#sn-save').addEventListener('click', () => {
+      const newNotes = textarea.value.trim();
+      // Update the setlist
+      _syncFromStore();
+      const freshSetlist = _setlists.find(s => s.id === setlist.id);
+      if (freshSetlist) {
+        freshSetlist.notes = newNotes || undefined;
+        freshSetlist._ts = Date.now();
+        freshSetlist.updatedAt = new Date().toISOString();
+        _saveSetlists();
+        handle.hide();
+        renderSetlistDetail(freshSetlist, true);
+        showToast(newNotes ? 'Notes saved' : 'Notes cleared');
+      } else {
+        handle.hide();
+      }
+    });
+  } else {
+    handle.overlay.querySelector('#sn-ok').addEventListener('click', () => handle.hide());
+  }
 }
 
 // ─── WIKICHART HELPERS FOR FREETEXT LINKING ─────────────────────

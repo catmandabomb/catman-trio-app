@@ -5,15 +5,15 @@
  * Generates 4-digit hex IDs for new songs (e.g. "3f9a").
  */
 
-import * as Modal from './js/modal.js?v=20.20';
-import * as Drive from './drive.js?v=20.20';
-import * as GitHub from './github.js?v=20.20';
-import * as Utils from './js/utils.js?v=20.20';
-import * as Auth from './auth.js?v=20.20';
+import * as Modal from './js/modal.js?v=20.21';
+import * as Drive from './drive.js?v=20.21';
+import * as GitHub from './github.js?v=20.21';
+import * as Utils from './js/utils.js?v=20.21';
+import * as Auth from './auth.js?v=20.21';
 // Lazy import to break circular dependency (admin ↔ app)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('./app.js?v=20.20');
+  if (!_App) _App = import('./app.js?v=20.21');
   return _App;
 }
 
@@ -91,6 +91,7 @@ function newSong(existingSongs) {
     duration: 0,
     tags:     [],
     notes:    '',
+    difficulty: null,
     chartOrder: [], // [{driveId, order}] ordered charts for live mode
     assets: {
       charts: [],   // [{ driveId, name }]
@@ -110,6 +111,7 @@ function newSetlist(existingSetlists) {
     songs:         [],       // [{ id, comment }]
     archived:      false,
     createdAt:     now.toISOString(),
+    notes:         '',
     updatedAt:     now.toISOString(),
   };
 }
@@ -336,6 +338,8 @@ async function showLoginModal(onSuccess, opts) {
   const confirmEmailRow = document.getElementById('login-confirm-email-row');
   const toggleModeDiv = document.getElementById('login-toggle-mode');
   const toggleBtn  = document.getElementById('btn-login-toggle');
+  const conductrLinkDiv = document.getElementById('login-conductr-link');
+  const conductrBtn = document.getElementById('btn-login-conductr');
 
   // Detect first-run setup
   let _setupMode = false;
@@ -345,12 +349,16 @@ async function showLoginModal(onSuccess, opts) {
 
   // Register mode toggle (separate from setup mode)
   let _registerMode = false;
+  let _conductrMode = false;
 
   function _applyMode() {
     // Reset error state
     error.classList.add('hidden');
     error.textContent = '';
     error.style.color = '';
+
+    // Conductr-specific fields (orchestra name)
+    let conductrFields = document.getElementById('conductr-signup-fields');
 
     if (_setupMode) {
       // Owner setup — no toggle shown
@@ -362,6 +370,31 @@ async function showLoginModal(onSuccess, opts) {
       confirmEmailRow?.classList.add('hidden');
       forgotLink?.classList.add('hidden');
       toggleModeDiv?.classList.add('hidden');
+      conductrLinkDiv?.classList.add('hidden');
+      conductrFields?.classList.add('hidden');
+    } else if (_conductrMode) {
+      // Conductr registration — create account + orchestra
+      titleEl.textContent = 'Create Orchestra';
+      subtextEl.textContent = 'Start your orchestra!';
+      confirmBtn.textContent = 'Create Orchestra';
+      confirmPwRow?.classList.remove('hidden');
+      emailRow?.classList.remove('hidden');
+      confirmEmailRow?.classList.remove('hidden');
+      forgotLink?.classList.add('hidden');
+      toggleModeDiv?.classList.remove('hidden');
+      conductrLinkDiv?.classList.add('hidden');
+      if (toggleBtn) toggleBtn.innerHTML = 'Already have an account? <b>Sign In</b>';
+      // Inject orchestra name field if not already present
+      if (!conductrFields) {
+        const frag = document.createElement('div');
+        frag.id = 'conductr-signup-fields';
+        frag.className = 'conductr-signup-fields';
+        frag.innerHTML = '<div class="github-field"><label for="login-orchestra-name">Orchestra Name</label><input type="text" id="login-orchestra-name" placeholder="e.g. Catman Trio" maxlength="60" /></div>';
+        // Insert before the error div
+        error.parentNode.insertBefore(frag, error);
+        conductrFields = frag;
+      }
+      conductrFields.classList.remove('hidden');
     } else if (_registerMode) {
       // Self-registration mode
       titleEl.textContent = 'Create Account';
@@ -372,7 +405,9 @@ async function showLoginModal(onSuccess, opts) {
       confirmEmailRow?.classList.remove('hidden');
       forgotLink?.classList.add('hidden');
       toggleModeDiv?.classList.remove('hidden');
+      conductrLinkDiv?.classList.remove('hidden');
       if (toggleBtn) toggleBtn.innerHTML = 'Already have an account? <b>Sign In</b>';
+      conductrFields?.classList.add('hidden');
     } else {
       // Normal sign-in mode
       titleEl.textContent = 'Sign In';
@@ -383,7 +418,9 @@ async function showLoginModal(onSuccess, opts) {
       confirmEmailRow?.classList.add('hidden');
       forgotLink?.classList.remove('hidden');
       toggleModeDiv?.classList.remove('hidden');
+      conductrLinkDiv?.classList.add('hidden');
       if (toggleBtn) toggleBtn.innerHTML = 'Don\'t have an account? <b>Sign Up</b>';
+      conductrFields?.classList.add('hidden');
     }
   }
 
@@ -408,13 +445,33 @@ async function showLoginModal(onSuccess, opts) {
   // Toggle handler
   const toggleClick = (e) => {
     e.preventDefault();
-    _registerMode = !_registerMode;
+    if (_conductrMode) {
+      // From conductr mode → sign in
+      _conductrMode = false;
+      _registerMode = false;
+    } else {
+      _registerMode = !_registerMode;
+    }
     // Clear field values on mode switch
     password.value = '';
     confirmPw.value = '';
     if (emailInput) emailInput.value = '';
     if (confirmEmail) confirmEmail.value = '';
     _openedAt = Date.now(); // Reset timing check for bot protection
+    _applyMode();
+    username.focus();
+  };
+
+  // Conductr signup link handler
+  const conductrClick = (e) => {
+    e.preventDefault();
+    _conductrMode = true;
+    _registerMode = false;
+    password.value = '';
+    confirmPw.value = '';
+    if (emailInput) emailInput.value = '';
+    if (confirmEmail) confirmEmail.value = '';
+    _openedAt = Date.now();
     _applyMode();
     username.focus();
   };
@@ -446,7 +503,7 @@ async function showLoginModal(onSuccess, opts) {
       return;
     }
 
-    if (_setupMode || _registerMode) {
+    if (_setupMode || _registerMode || _conductrMode) {
       // Password complexity
       const pwError = validatePassword(p);
       if (pwError) {
@@ -464,7 +521,7 @@ async function showLoginModal(onSuccess, opts) {
       }
     }
 
-    if (_registerMode) {
+    if (_registerMode || _conductrMode) {
       // Email validation
       const em = (emailInput?.value || '').trim();
       if (!em) {
@@ -509,8 +566,24 @@ async function showLoginModal(onSuccess, opts) {
       }
     }
 
+    if (_conductrMode) {
+      // Orchestra name validation
+      const orchName = document.getElementById('login-orchestra-name')?.value?.trim();
+      if (!orchName) {
+        error.textContent = 'Orchestra name is required.';
+        error.classList.remove('hidden');
+        document.getElementById('login-orchestra-name')?.focus();
+        return;
+      }
+      if (orchName.length > 60) {
+        error.textContent = 'Orchestra name must be 60 characters or less.';
+        error.classList.remove('hidden');
+        return;
+      }
+    }
+
     _submitting = true;
-    const actionLabel = (_setupMode || _registerMode) ? 'Creating account\u2026' : 'Signing in\u2026';
+    const actionLabel = (_setupMode || _registerMode || _conductrMode) ? 'Creating account\u2026' : 'Signing in\u2026';
     error.textContent = actionLabel;
     error.className = 'error-msg';
     error.style.color = 'var(--text-2)';
@@ -522,6 +595,14 @@ async function showLoginModal(onSuccess, opts) {
         const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
         const email = 'christianatremblay@gmail.com';
         result = await Auth.setupInit(u, p, displayName, email);
+      } else if (_conductrMode) {
+        const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
+        const em = emailInput.value.trim();
+        const orchName = document.getElementById('login-orchestra-name')?.value?.trim();
+        result = await Auth.registerConductr({
+          username: u, password: p, displayName, email: em,
+          orchestraName: orchName,
+        });
       } else if (_registerMode) {
         const displayName = u.charAt(0).toUpperCase() + u.slice(1).toLowerCase();
         const em = emailInput.value.trim();
@@ -534,6 +615,8 @@ async function showLoginModal(onSuccess, opts) {
         let successLabel;
         if (result.needsLogin) {
           successLabel = 'Account created! Please log in.';
+        } else if (_conductrMode) {
+          successLabel = 'Orchestra created!';
         } else if (_registerMode && result.emailSent === false) {
           successLabel = 'Account created! Verify email from your profile.';
         } else if (_setupMode || _registerMode) {
@@ -564,7 +647,7 @@ async function showLoginModal(onSuccess, opts) {
           onSuccess();
         }
       } else {
-        const failLabel = (_setupMode || _registerMode) ? 'Registration failed.' : 'Invalid credentials.';
+        const failLabel = (_setupMode || _registerMode || _conductrMode) ? 'Registration failed.' : 'Invalid credentials.';
         error.textContent = result.error || failLabel;
         error.className = 'error-msg';
         error.style.color = '';
@@ -612,6 +695,7 @@ async function showLoginModal(onSuccess, opts) {
   document.getElementById('btn-login-cancel').addEventListener('click', cancel);
   forgotBtn?.addEventListener('click', forgotClick);
   toggleBtn?.addEventListener('click', toggleClick);
+  conductrBtn?.addEventListener('click', conductrClick);
   username.addEventListener('keydown', keydown);
   password.addEventListener('keydown', keydown);
   confirmPw?.addEventListener('keydown', keydown);
@@ -624,6 +708,7 @@ async function showLoginModal(onSuccess, opts) {
     document.getElementById('btn-login-cancel').removeEventListener('click', cancel);
     forgotBtn?.removeEventListener('click', forgotClick);
     toggleBtn?.removeEventListener('click', toggleClick);
+    conductrBtn?.removeEventListener('click', conductrClick);
     username.removeEventListener('keydown', keydown);
     password.removeEventListener('keydown', keydown);
     confirmPw?.removeEventListener('keydown', keydown);
@@ -635,6 +720,8 @@ async function showLoginModal(onSuccess, opts) {
     emailRow?.classList.add('hidden');
     confirmEmailRow?.classList.add('hidden');
     toggleModeDiv?.classList.add('hidden');
+    conductrLinkDiv?.classList.add('hidden');
+    document.getElementById('conductr-signup-fields')?.classList.add('hidden');
     _loginCleanup = null;
   }
   _loginCleanup = cleanup;

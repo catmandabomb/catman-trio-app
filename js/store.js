@@ -62,7 +62,7 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.20',
+  APP_VERSION:        'v20.21',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────
@@ -76,6 +76,7 @@ const _state = {
   showViewCalled:     false,
   navStack:           [],
   isPopstateNavigation: false,
+  skipViewTransition: false,
   currentRouteParams: {},
 
   // ─── Song list state ─────────────────────────────────────
@@ -105,6 +106,13 @@ const _state = {
 
   // ─── WikiChart state ────────────────────────────────────
   activeWikiChart:    null,
+
+  // ─── Orchestra state ──────────────────────────────────
+  activeOrchestraId:    null,
+  orchestras:           [],
+  instrumentHierarchy:  null,   // { sections: [...] } cached tree
+  userInstrumentId:     null,
+  chartFilterMode:      'smart', // 'smart' | 'section' | 'all' | 'mine-only'
 
   // ─── Sync / Save state ───────────────────────────────────
   syncing:            false,

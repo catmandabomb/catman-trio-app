@@ -105,7 +105,7 @@ async function createSession(db, userId, deviceInfo) {
 async function validateSession(db, token) {
   if (!token) return null;
   const row = await db.prepare(
-    'SELECT s.*, u.id AS uid, u.username, u.display_name, u.role, u.persona_id, u.is_active, u.email_verified, u.password_changed_at FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > ? AND u.is_active = 1'
+    'SELECT s.*, u.id AS uid, u.username, u.display_name, u.role, u.persona_id, u.is_active, u.email_verified, u.password_changed_at, u.instrument_id, u.active_orchestra_id FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > ? AND u.is_active = 1'
   ).bind(token, new Date().toISOString()).first();
   if (!row) return null;
   // Enforce absolute max session lifetime (1 year from creation)
@@ -129,6 +129,8 @@ async function validateSession(db, token) {
     emailVerified: !!row.email_verified,
     passwordExpired: isPasswordExpired(row),
     lastUsed: row.last_used,
+    instrumentId: row.instrument_id || null,
+    activeOrchestraId: row.active_orchestra_id || null,
   };
 }
 
@@ -204,7 +206,7 @@ async function createUser(db, { username, displayName, email, password, role, pe
 
 async function getUser(db, userId) {
   const row = await db.prepare(
-    'SELECT id, username, display_name, email, role, persona_id, created_at, updated_at, is_active, email_verified FROM users WHERE id = ?'
+    'SELECT id, username, display_name, email, role, persona_id, created_at, updated_at, is_active, email_verified, instrument_id, active_orchestra_id FROM users WHERE id = ?'
   ).bind(userId).first();
   if (!row) return null;
   return {
@@ -212,24 +214,28 @@ async function getUser(db, userId) {
     email: row.email, role: row.role, personaId: row.persona_id,
     createdAt: row.created_at, updatedAt: row.updated_at, isActive: row.is_active,
     emailVerified: !!row.email_verified,
+    instrumentId: row.instrument_id || null,
+    activeOrchestraId: row.active_orchestra_id || null,
   };
 }
 
 async function listUsers(db) {
   const { results } = await db.prepare(
-    'SELECT id, username, display_name, email, role, persona_id, created_at, updated_at, is_active, email_verified FROM users ORDER BY created_at'
+    'SELECT id, username, display_name, email, role, persona_id, created_at, updated_at, is_active, email_verified, instrument_id, active_orchestra_id FROM users ORDER BY created_at'
   ).all();
   return results.map(row => ({
     id: row.id, username: row.username, displayName: row.display_name,
     email: row.email, role: row.role, personaId: row.persona_id,
     createdAt: row.created_at, updatedAt: row.updated_at, isActive: row.is_active,
     emailVerified: !!row.email_verified,
+    instrumentId: row.instrument_id || null,
+    activeOrchestraId: row.active_orchestra_id || null,
   }));
 }
 
 async function updateUser(db, userId, updates) {
-  const allowed = ['display_name', 'email', 'role', 'persona_id', 'is_active'];
-  const fieldMap = { displayName: 'display_name', personaId: 'persona_id', isActive: 'is_active' };
+  const allowed = ['display_name', 'email', 'role', 'persona_id', 'is_active', 'instrument_id', 'active_orchestra_id'];
+  const fieldMap = { displayName: 'display_name', personaId: 'persona_id', isActive: 'is_active', instrumentId: 'instrument_id', activeOrchestraId: 'active_orchestra_id' };
   const sets = [];
   const vals = [];
   for (const [key, val] of Object.entries(updates)) {

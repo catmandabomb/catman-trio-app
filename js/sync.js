@@ -8,14 +8,14 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.20';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.20';
-import * as GitHub from '../github.js?v=20.20';
-import * as Drive from '../drive.js?v=20.20';
-import * as Router from './router.js?v=20.20';
-import * as IDB from '../idb.js?v=20.20';
-import * as Auth from '../auth.js?v=20.20';
-import * as Admin from '../admin.js?v=20.20';
+import * as Store from './store.js?v=20.21';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.21';
+import * as GitHub from '../github.js?v=20.21';
+import * as Drive from '../drive.js?v=20.21';
+import * as Router from './router.js?v=20.21';
+import * as IDB from '../idb.js?v=20.21';
+import * as Auth from '../auth.js?v=20.21';
+import * as Admin from '../admin.js?v=20.21';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
@@ -68,7 +68,7 @@ async function _loadFromD1() {
     _workerFetch('/data/songs'),
     _workerFetch('/data/setlists'),
     _workerFetch('/data/practice'),
-    _workerFetch('/data/wikiCharts').catch(() => ({ wikiCharts: [] })),
+    _workerFetch('/data/wikicharts').catch(() => ({ wikiCharts: [] })),
   ]);
   return {
     songs: songsRes.songs || [],
@@ -86,9 +86,14 @@ async function _loadFromD1() {
  * @returns {Promise<Object>}
  */
 async function _saveToD1(type, data, deletions) {
-  const body = { [type]: data };
+  // Map type to API path (lowercase) and body key (camelCase for wikicharts)
+  const pathMap = { wikicharts: 'wikicharts' };
+  const keyMap = { wikicharts: 'wikiCharts' };
+  const apiPath = pathMap[type] || type;
+  const bodyKey = keyMap[type] || type;
+  const body = { [bodyKey]: data };
   if (deletions && deletions.length > 0) body.deletions = deletions;
-  return _workerFetch(`/data/${type}`, {
+  return _workerFetch(`/data/${apiPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -102,8 +107,12 @@ async function _saveToD1(type, data, deletions) {
 async function _handleConflict(type, localData, saveFn) {
   console.warn(`Version conflict on ${type} — re-fetching and merging`);
   try {
-    const remote = await _workerFetch(`/data/${type}`);
-    const remoteItems = remote[type] || [];
+    const pathMap = { wikicharts: 'wikicharts' };
+    const keyMap = { wikicharts: 'wikiCharts' };
+    const apiPath = pathMap[type] || type;
+    const bodyKey = keyMap[type] || type;
+    const remote = await _workerFetch(`/data/${apiPath}`);
+    const remoteItems = remote[bodyKey] || [];
     // Build lookup of remote items by ID
     const remoteMap = {};
     remoteItems.forEach(item => { remoteMap[item.id] = item; });
@@ -753,8 +762,8 @@ async function saveWikiCharts(toastMsg) {
   const wikiCharts = Store.get('wikiCharts');
   _saveWikiChartsLocal(wikiCharts);
   if (useCloudflare()) {
-    _saveToD1('wikiCharts', wikiCharts).then(() => _markSynced()).catch(e => {
-      if (e.status === 409) { _handleConflict('wikiCharts', wikiCharts, _saveWikiChartsLocal); return; }
+    _saveToD1('wikicharts', wikiCharts).then(() => _markSynced()).catch(e => {
+      if (e.status === 409) { _handleConflict('wikicharts', wikiCharts, _saveWikiChartsLocal); return; }
       console.warn('D1 save wikiCharts failed', e);
     });
     showToast(toastMsg || 'Saved.');
@@ -820,7 +829,96 @@ async function _pollForChanges() {
   }
 }
 
+// ─── Orchestra helpers ──────────────────────────────────────
+
+/**
+ * Load the user's orchestra list from the Worker.
+ * @returns {Promise<Array>}
+ */
+async function loadOrchestras() {
+  if (!useCloudflare() || !Auth.getToken?.()) return [];
+  try {
+    const res = await _workerFetch('/orchestras');
+    const orchestras = res.orchestras || [];
+    Store.set('orchestras', orchestras);
+    return orchestras;
+  } catch (e) {
+    console.warn('Failed to load orchestras:', e.message);
+    return Store.get('orchestras') || [];
+  }
+}
+
+/**
+ * Load the instrument hierarchy from the Worker.
+ * @returns {Promise<Object|null>}
+ */
+async function loadInstrumentHierarchy() {
+  if (!useCloudflare() || !Auth.getToken?.()) return null;
+  try {
+    const res = await _workerFetch('/instruments');
+    const hierarchy = { sections: res.sections || [] };
+    Store.set('instrumentHierarchy', hierarchy);
+    // Cache in localStorage for offline
+    try { localStorage.setItem('ct_instrument_hierarchy', JSON.stringify(hierarchy)); } catch (_) {}
+    return hierarchy;
+  } catch (e) {
+    console.warn('Failed to load instruments:', e.message);
+    // Try localStorage fallback
+    try {
+      const cached = localStorage.getItem('ct_instrument_hierarchy');
+      if (cached) {
+        const hierarchy = JSON.parse(cached);
+        Store.set('instrumentHierarchy', hierarchy);
+        return hierarchy;
+      }
+    } catch (_) {}
+    return null;
+  }
+}
+
+/**
+ * Switch active orchestra: update server, clear local caches, full re-sync.
+ * @param {string} orchestraId
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+async function switchOrchestra(orchestraId) {
+  try {
+    // 1. Update server
+    const result = await Auth.setActiveOrchestra(orchestraId);
+    if (!result.ok) return result;
+
+    // 2. Clear local data caches (keep auth)
+    Store.set('songs', []);
+    Store.set('setlists', []);
+    Store.set('practice', []);
+    Store.set('wikiCharts', []);
+    Store.set('activeOrchestraId', orchestraId);
+    try {
+      localStorage.removeItem('ct_songs');
+      localStorage.removeItem('ct_setlists');
+      localStorage.removeItem('ct_practice');
+      localStorage.removeItem('ct_wikicharts');
+      localStorage.removeItem('ct_sync_last');
+      localStorage.removeItem('ct_sync_fingerprints');
+    } catch (_) {}
+
+    // 3. Clear IDB
+    try { await IDB.clear?.('songs'); } catch (_) {}
+    try { await IDB.clear?.('setlists'); } catch (_) {}
+
+    // 4. Reset poll baseline
+    _lastChanges = null;
+
+    // 5. Full re-sync
+    await syncAll(true);
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Switch failed' };
+  }
+}
+
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal, _saveWikiChartsLocal as saveWikiChartsLocal };

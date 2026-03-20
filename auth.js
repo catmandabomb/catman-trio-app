@@ -7,7 +7,7 @@
  * Dependencies: GitHub (for workerUrl), Utils (for showToast)
  */
 
-import * as GitHub from './github.js?v=20.20';
+import * as GitHub from './github.js?v=20.21';
 
 // ─── State ──────────────────────────────────────────────
 
@@ -190,6 +190,35 @@ async function register(username, password, displayName, email) {
     // If server returned 201 but no token (session creation failed),
     // account was still created — user needs to log in manually
     return { ok: true, user: data.user, needsLogin: !data.token, emailSent: !!data.emailSent };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+// ─── Register Conductr (public signup + orchestra creation) ──
+
+/**
+ * Register as a Conductr, creating user + orchestra in one call.
+ * @returns {{ ok: boolean, error?: string, user?: object, orchestra?: object }}
+ */
+async function registerConductr({ username, password, displayName, email, orchestraName, orchestraDescription, genres, instrumentId }) {
+  try {
+    const resp = await _api('/auth/register-conductr', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, displayName, email, orchestraName, orchestraDescription, genres, instrumentId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      return { ok: false, error: data.error || 'Registration failed' };
+    }
+    if (data.token) {
+      _token = data.token;
+      _user = data.user;
+      _expires = data.expires;
+      _checked = true;
+      _save();
+    }
+    return { ok: true, user: data.user, orchestra: data.orchestra, needsLogin: !data.token, emailSent: !!data.emailSent };
   } catch (e) {
     return { ok: false, error: e.message || 'Network error' };
   }
@@ -445,17 +474,18 @@ function isChecked() { return _checked; }
 
 function canEditSongs() {
   if (!_user) return false;
-  return ['owner', 'admin'].includes(_user.role);
+  return ['owner', 'admin', 'conductr'].includes(_user.role);
 }
 
 function canEditSetlists() {
   if (!_user) return false;
-  return ['owner', 'admin'].includes(_user.role);
+  return ['owner', 'admin', 'conductr'].includes(_user.role);
 }
 
 function canEditPractice() {
-  // All logged-in users can manage their own practice lists
-  return !!_user;
+  // All logged-in non-guest users can manage their own practice lists
+  if (!_user) return false;
+  return _user.role !== 'guest';
 }
 
 function canManageUsers() {
@@ -464,6 +494,72 @@ function canManageUsers() {
 
 function canViewAuditLog() {
   return _user && ['owner', 'admin'].includes(_user.role);
+}
+
+function isConductr() {
+  return _user && _user.role === 'conductr';
+}
+
+function isGuest() {
+  return _user && _user.role === 'guest';
+}
+
+function isOwnerOrAdmin() {
+  return _user && ['owner', 'admin'].includes(_user.role);
+}
+
+function canManageOrchestra() {
+  if (!_user) return false;
+  return ['owner', 'admin', 'conductr'].includes(_user.role);
+}
+
+function canUploadFiles() {
+  if (!_user) return false;
+  return ['owner', 'admin', 'conductr'].includes(_user.role);
+}
+
+function getActiveOrchestraId() {
+  return _user ? _user.activeOrchestraId || null : null;
+}
+
+function getInstrumentId() {
+  return _user ? _user.instrumentId || null : null;
+}
+
+async function setActiveOrchestra(orchestraId) {
+  try {
+    const resp = await _api('/users/me/orchestra', {
+      method: 'PUT',
+      body: JSON.stringify({ orchestraId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || 'Failed' };
+    if (_user) {
+      _user.activeOrchestraId = orchestraId;
+      _save();
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
+}
+
+async function setInstrument(instrumentId) {
+  try {
+    const resp = await _api('/users/me/instrument', {
+      method: 'PUT',
+      body: JSON.stringify({ instrumentId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { ok: false, error: data.error || 'Failed' };
+    if (_user) {
+      _user.instrumentId = instrumentId;
+      _save();
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Network error' };
+  }
 }
 
 async function changeUsername(newUsername, currentPassword) {
@@ -529,4 +625,4 @@ async function api(path, options = {}) {
   }
 }
 
-export { login, logout, register, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, api };
+export { login, logout, register, registerConductr, refreshSession, checkNeedsSetup, setupInit, changePassword, changeEmail, changeUsername, deleteAccount, adminResetPassword, forgotPassword, resetPassword, verifyEmailToken, resendVerification, isEmailVerified, isPasswordExpired, listAllUsers, createNewUser, updateExistingUser, deleteExistingUser, sendEmail, listSessions, revokeSession, getToken, getUser, getRole, isLoggedIn, isChecked, canEditSongs, canEditSetlists, canEditPractice, canManageUsers, canViewAuditLog, isConductr, isGuest, isOwnerOrAdmin, canManageOrchestra, canUploadFiles, getActiveOrchestraId, getInstrumentId, setActiveOrchestra, setInstrument, api };

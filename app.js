@@ -2,23 +2,25 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.20';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.20';
-import * as Modal from './js/modal.js?v=20.20';
-import * as Router from './js/router.js?v=20.20';
-import * as Sync from './js/sync.js?v=20.20';
-import * as Drive from './drive.js?v=20.20';
-import * as GitHub from './github.js?v=20.20';
-import * as Admin from './admin.js?v=20.20';
-import * as Auth from './auth.js?v=20.20';
-import * as Player from './player.js?v=20.20';
-import * as Songs from './js/songs.js?v=20.20';
-import * as Setlists from './js/setlists.js?v=20.20';
-import * as Practice from './js/practice.js?v=20.20';
-import * as Dashboard from './js/dashboard.js?v=20.20';
-import * as Migrate from './js/migrate.js?v=20.20';
-import * as WikiCharts from './js/wikicharts.js?v=20.20';
-import * as IDB from './idb.js?v=20.20';
+import * as Store from './js/store.js?v=20.21';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.21';
+import * as Modal from './js/modal.js?v=20.21';
+import * as Router from './js/router.js?v=20.21';
+import * as Sync from './js/sync.js?v=20.21';
+import * as Drive from './drive.js?v=20.21';
+import * as GitHub from './github.js?v=20.21';
+import * as Admin from './admin.js?v=20.21';
+import * as Auth from './auth.js?v=20.21';
+import * as Player from './player.js?v=20.21';
+import * as Songs from './js/songs.js?v=20.21';
+import * as Setlists from './js/setlists.js?v=20.21';
+import * as Practice from './js/practice.js?v=20.21';
+import * as Dashboard from './js/dashboard.js?v=20.21';
+import * as Migrate from './js/migrate.js?v=20.21';
+import * as WikiCharts from './js/wikicharts.js?v=20.21';
+import * as IDB from './idb.js?v=20.21';
+import * as Orchestra from './js/orchestra.js?v=20.21';
+import * as Instruments from './js/instruments.js?v=20.21';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -373,6 +375,20 @@ let _cachedPdfSet = new Set();
     await Sync.syncAll(force);
     // Start real-time sync polling after first successful sync
     Sync.startSyncPolling();
+    // Load orchestras and instruments (non-blocking, parallel)
+    if (Auth.isLoggedIn()) {
+      Promise.all([
+        Sync.loadOrchestras().catch(() => []),
+        Sync.loadInstrumentHierarchy().catch(() => null),
+      ]).then(([orchs]) => {
+        // Set active orchestra in Store from user data
+        const user = Auth.getUser();
+        if (user?.activeOrchestraId) {
+          Store.set('activeOrchestraId', user.activeOrchestraId);
+          Store.set('userInstrumentId', user.instrumentId || null);
+        }
+      });
+    }
     // Badging API: if songs changed since last open, badge the app icon
     _updateAppBadge(_preSyncCount);
     // Refresh local state from Store after sync
@@ -432,6 +448,44 @@ let _cachedPdfSet = new Set();
   function renderSetlistEdit(setlist, isNew, backToList) { Setlists.renderSetlistEdit(setlist, isNew, backToList); }
 
   // ─── ACCOUNT MANAGEMENT ─────────────────────────────────────
+
+  function _renderOrchestraSelector(user) {
+    const orchestras = Store.get('orchestras') || [];
+    const activeId = Auth.getActiveOrchestraId();
+    const hierarchy = Store.get('instrumentHierarchy');
+    const instrumentId = Auth.getInstrumentId();
+    const instInfo = instrumentId && hierarchy ? Instruments.resolveInstrument(instrumentId, hierarchy) : null;
+
+    let html = '<div class="orchestra-selector" style="margin-top:16px;">';
+
+    // Instrument display
+    if (instInfo) {
+      html += `<div style="text-align:center;margin-bottom:12px;">
+        <span class="instrument-badge">
+          <span class="instrument-icon">${Instruments.getIcon(instInfo.iconKey)}</span>
+          ${esc(instInfo.name)}
+        </span>
+      </div>`;
+    }
+
+    // Orchestra cards
+    if (orchestras.length > 0) {
+      html += '<div class="orchestra-selector-label">Orchestra</div>';
+      for (const orch of orchestras) {
+        const isActive = orch.id === activeId;
+        html += `<div class="orchestra-mini-card${isActive ? ' active' : ''}" data-orch-switch="${orch.id}" role="button" tabindex="0" aria-label="Switch to ${esc(orch.name)}">
+          <span class="orch-mini-name">${esc(orch.name)}</span>
+          ${isActive ? '<span class="badge-gold">Active</span>' : ''}
+        </div>`;
+      }
+      if (Auth.canManageOrchestra()) {
+        html += `<button class="btn-secondary" id="acct-manage-orchestra" style="width:100%;margin-top:8px;"><i data-lucide="settings-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Manage Orchestra</button>`;
+      }
+    }
+
+    html += '</div>';
+    return html;
+  }
 
   function renderAccount() {
     _cleanupPlayers();
@@ -512,6 +566,8 @@ let _cachedPdfSet = new Set();
             : '<span class="acct-unverified">Unverified</span><button id="acct-resend-verify" class="btn-secondary acct-verify-btn">Resend Verification Email</button>'}
         </div>
 
+        ${_renderOrchestraSelector(user)}
+
         <div class="acct-section">
           <button class="acct-section-toggle" id="acct-toggle-email" aria-expanded="false"><i data-lucide="mail" style="width:16px;height:16px;"></i> Change Email <i data-lucide="chevron-down" style="width:14px;height:14px;"></i></button>
           <div class="acct-section-body" id="acct-email-body" style="display:none;">
@@ -578,6 +634,34 @@ let _cachedPdfSet = new Set();
     `;
 
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Orchestra switch handler
+    const _switchOrch = async (card) => {
+      const orchId = card.dataset.orchSwitch;
+      if (orchId === Auth.getActiveOrchestraId()) return;
+      card.style.opacity = '0.5';
+      const result = await Sync.switchOrchestra(orchId);
+      if (result.ok) {
+        showToast('Switched orchestra');
+        renderAccount();
+      } else {
+        showToast(result.error || 'Switch failed', 'error');
+        card.style.opacity = '';
+      }
+    };
+    container.querySelectorAll('[data-orch-switch]').forEach(card => {
+      card.addEventListener('click', () => _switchOrch(card));
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _switchOrch(card); } });
+    });
+    container.querySelector('#acct-manage-orchestra')?.addEventListener('click', () => {
+      const activeId = Auth.getActiveOrchestraId();
+      if (activeId) {
+        Store.set('currentRouteParams', { orchestraId: activeId });
+        Router.navigateToRoute({ view: 'orchestra-detail', orchestraId: activeId });
+      } else {
+        Router.navigateToRoute({ view: 'orchestra' });
+      }
+    });
 
     // Section toggle handlers
     container.querySelector('#acct-toggle-email')?.addEventListener('click', () => {
@@ -848,6 +932,10 @@ let _cachedPdfSet = new Set();
     const lmAutoHideDelay   = _getPref('lm_auto_hide_delay', '4');
     const lmAutoAdvanceDefault = _getPref('lm_auto_advance_secs', '30');
     const lmShowNavButtons  = _getPref('lm_show_nav_buttons', '1') === '1';
+    const lmShowDark        = _getPref('live_show_dark', '1') === '1';
+    const lmShowHalfpage    = _getPref('live_show_halfpage', '1') === '1';
+    const lmShowAutoadvance = _getPref('live_show_autoadvance', '1') === '1';
+    const lmShowRedmode     = _getPref('live_show_redmode', '1') === '1';
     const lmStageRedMode    = _getPref('lm_stage_red', '0') === '1';
     const lmRehearsalNotes  = _getPref('lm_rehearsal_notes', '0') === '1';
     const pracTfPitch       = _getPref('tf_default_pitch', '0');
@@ -931,6 +1019,50 @@ let _cachedPdfSet = new Set();
 
           <div class="settings-row">
             <div class="settings-row-label">
+              <div class="settings-label">Show dark mode toggle</div>
+              <div class="settings-hint">Dark/inverted button in live mode header</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-show-dark" ${lmShowDark ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show half page turns toggle</div>
+              <div class="settings-hint">Half-page mode button in live mode header</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-show-halfpage" ${lmShowHalfpage ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show auto advance toggle</div>
+              <div class="settings-hint">Auto-advance timer button in live mode header</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-show-autoadvance" ${lmShowAutoadvance ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show red mode toggle</div>
+              <div class="settings-hint">Stage red button in live mode header</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-show-redmode" ${lmShowRedmode ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
               <div class="settings-label">Stage red mode</div>
               <div class="settings-hint">Deep red tint — preserves night vision on dark stages</div>
             </div>
@@ -970,6 +1102,64 @@ let _cachedPdfSet = new Set();
               <option value="5" ${pracTfPitch === '5' ? 'selected' : ''}>A432</option>
               <option value="6" ${pracTfPitch === '6' ? 'selected' : ''}>A415 (Baroque)</option>
             </select>
+          </div>
+        </div>
+
+        <!-- WIKICHARTS -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="file-music" style="width:16px;height:16px;"></i> WikiCharts</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Default font size</div>
+              <div class="settings-hint">Chart text size (14-32px)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="pref-wc-fontsize" min="14" max="32" value="${_getPref('wc_fontsize', '18')}" class="wc-slider" style="width:80px;accent-color:var(--accent);">
+              <span class="settings-hint" id="pref-wc-fontsize-val" style="min-width:28px;text-align:right;">${_getPref('wc_fontsize', '18')}px</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Auto-scroll speed</div>
+              <div class="settings-hint">Speed multiplier for teleprompter</div>
+            </div>
+            <select class="settings-select" id="pref-wc-scroll-speed">
+              ${['0.5', '0.75', '1', '1.25', '1.5', '2'].map(v => `<option value="${v}" ${_getPref('wc_scroll_speed', '1') === v ? 'selected' : ''}>${v}x</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Metronome volume</div>
+              <div class="settings-hint">Click volume (0-100%)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="pref-wc-metro-vol" min="0" max="100" value="${_getPref('wc_metro_vol', '50')}" style="width:80px;accent-color:var(--accent);">
+              <span class="settings-hint" id="pref-wc-metro-vol-val" style="min-width:28px;text-align:right;">${_getPref('wc_metro_vol', '50')}%</span>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Metronome sound</div>
+              <div class="settings-hint">Click tone type</div>
+            </div>
+            <select class="settings-select" id="pref-wc-metro-sound">
+              ${[['click','Click'],['woodblock','Woodblock'],['hihat','Hi-hat']].map(([v,l]) => `<option value="${v}" ${_getPref('wc_metro_sound', 'click') === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show section colors</div>
+              <div class="settings-hint">Colored borders on chart sections</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-wc-section-colors" ${_getPref('wc_section_colors', '1') === '1' ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
           </div>
         </div>
 
@@ -1096,6 +1286,10 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-dark-default', 'lm_dark_default');
     wire('pref-lm-half-default', 'lm_half_default');
     wire('pref-lm-show-nav', 'lm_show_nav_buttons');
+    wire('pref-lm-show-dark', 'live_show_dark');
+    wire('pref-lm-show-halfpage', 'live_show_halfpage');
+    wire('pref-lm-show-autoadvance', 'live_show_autoadvance');
+    wire('pref-lm-show-redmode', 'live_show_redmode');
     wire('pref-lm-stage-red', 'lm_stage_red');
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
     wire('pref-notif-sync-conflict', 'notif_sync_conflict');
@@ -1132,6 +1326,31 @@ let _cachedPdfSet = new Set();
     wireSelect('pref-tf-pitch', 'tf_default_pitch');
     wireSelect('pref-date-format', 'date_format');
     wireSelect('pref-list-density', 'list_density');
+
+    // WikiCharts settings
+    wireSelect('pref-wc-scroll-speed', 'wc_scroll_speed');
+    wireSelect('pref-wc-metro-sound', 'wc_metro_sound');
+    wire('pref-wc-section-colors', 'wc_section_colors');
+
+    // WikiCharts font size slider
+    const wcFontSlider = container.querySelector('#pref-wc-fontsize');
+    if (wcFontSlider) {
+      wcFontSlider.addEventListener('input', () => {
+        _setPref('wc_fontsize', wcFontSlider.value);
+        const label = container.querySelector('#pref-wc-fontsize-val');
+        if (label) label.textContent = wcFontSlider.value + 'px';
+      });
+    }
+
+    // WikiCharts metronome volume slider
+    const wcVolSlider = container.querySelector('#pref-wc-metro-vol');
+    if (wcVolSlider) {
+      wcVolSlider.addEventListener('input', () => {
+        _setPref('wc_metro_vol', wcVolSlider.value);
+        const label = container.querySelector('#pref-wc-metro-vol-val');
+        if (label) label.textContent = wcVolSlider.value + '%';
+      });
+    }
 
     // PDF cache size estimation
     _estimatePdfCacheSize(container);

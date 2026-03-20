@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.20';
-import * as Player from '../player.js?v=20.20';
-import * as Metronome from '../metronome.js?v=20.20';
+import * as Store from './store.js?v=20.21';
+import * as Player from '../player.js?v=20.21';
+import * as Metronome from '../metronome.js?v=20.21';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.20');
+  if (!_App) _App = import('../app.js?v=20.21');
   return _App;
 }
 
@@ -67,6 +67,8 @@ function viewToHash(viewName, params) {
     case 'settings': return '#settings';
     case 'wikicharts': return '#wikicharts';
     case 'wikichart-detail': return params?.wikiChartId ? `#wikichart/${params.wikiChartId}` : '#wikicharts';
+    case 'orchestra': return '#orchestra';
+    case 'orchestra-detail': return params?.orchestraId ? `#orchestra/${params.orchestraId}` : '#orchestra';
     default: return '#';
   }
 }
@@ -102,6 +104,7 @@ function resolveHash(hash) {
     case 'wikichart': return { view: 'wikichart-detail', wikiChartId: parts[1] };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
+    case 'orchestra': return parts[1] ? { view: 'orchestra-detail', orchestraId: parts[1] } : { view: 'orchestra' };
     default: return { view: 'list' };
   }
 }

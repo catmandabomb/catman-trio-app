@@ -81,10 +81,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.20" as="style">
+  <link rel="preload" href="app.css?v=20.21" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.20">
-  <link rel="stylesheet" href="app.css?v=20.20" />
+  <link rel="modulepreload" href="app.js?v=20.21">
+  <link rel="stylesheet" href="app.css?v=20.21" />
 
   <script src="lib/pdf.min.js"></script>
   <script src="lib/Sortable.min.js"></script>
@@ -162,6 +162,9 @@
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
         </div>
+        <button id="btn-sort-toggle" class="icon-btn search-refresh-btn" title="Sort: A-Z" aria-label="Change sort order">
+          <i data-lucide="arrow-down-a-z"></i>
+        </button>
         <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
           <i data-lucide="refresh-cw"></i>
         </button>
@@ -294,6 +297,11 @@
       <div id="wikichart-detail-content" style="padding:20px 16px"></div>
     </div>
 
+    <!-- ORCHESTRA VIEW -->
+    <div id="view-orchestra" class="view">
+      <div id="orchestra-content" style="padding:20px 16px"></div>
+    </div>
+
   </main>
 
   <!-- LOGIN MODAL -->
@@ -334,6 +342,11 @@
           Don't have an account? <b>Sign Up</b>
         </a>
       </div>
+      <div id="login-conductr-link" class="hidden" style="text-align:center;margin:-4px 0 8px;">
+        <a href="#" id="btn-login-conductr" class="text-link" style="font-size:13px;color:var(--gold);">
+          Starting a band? <b>Create an Orchestra</b>
+        </a>
+      </div>
       <div class="modal-actions">
         <button id="btn-login-cancel" class="btn-secondary" title="Cancel">Cancel</button>
         <button id="btn-login-confirm" class="btn-primary" title="Sign in">Sign In</button>
@@ -367,6 +380,9 @@
             <i data-lucide="chevron-right"></i>
           </button>
         </div>
+        <button id="pdf-metronome" class="icon-btn hidden" aria-label="Toggle metronome" title="Toggle metronome">
+          <i data-lucide="timer"></i>
+        </button>
         <button id="pdf-close" class="icon-btn" aria-label="Close PDF" title="Close PDF">
           <i data-lucide="x"></i>
         </button>
@@ -444,6 +460,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.20"></script>
+  <script type="module" src="app.js?v=20.21"></script>
 </body>
 </html>

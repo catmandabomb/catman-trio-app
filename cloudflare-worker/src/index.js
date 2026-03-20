@@ -6,6 +6,7 @@
  *   GET     /health       — Health check (no auth)
  *   POST    /auth/login   — Login (public)
  *   POST    /auth/register — Self-registration for new members (public)
+ *   POST    /auth/register-conductr — Conductr + orchestra creation (public)
  *   POST    /setup/init   — Create first owner account (public, one-time)
  *   POST    /auth/logout  — Invalidate session (session auth)
  *   GET     /auth/me      — Current user info (session auth)
@@ -16,8 +17,14 @@
  *   GET/POST/PUT/DELETE /users/* — User management (owner only)
  *   GET/POST /data/songs       — D1 songs CRUD (auth, write=admin/owner)
  *   GET/POST /data/setlists    — D1 setlists CRUD (auth, write=admin/owner)
- *   GET/POST /data/practice    — D1 practice CRUD (auth, write=any)
- *   POST    /files/upload      — R2 file upload (admin/owner)
+ *   GET/POST /data/practice    — D1 practice CRUD (auth, write=non-guest)
+ *   GET/POST /data/wikicharts  — D1 wiki charts CRUD (auth, write=non-guest)
+ *   GET/POST /orchestras       — Orchestra CRUD (auth)
+ *   GET/POST/DELETE /orchestras/:id/members — Orchestra membership (conductr/owner/admin)
+ *   GET     /instruments       — Instrument hierarchy (auth)
+ *   PUT     /users/me/orchestra  — Switch active orchestra (auth)
+ *   PUT     /users/me/instrument — Set instrument (auth)
+ *   POST    /files/upload      — R2 file upload (conductr/admin/owner)
  *   GET     /files/:id         — R2 file download (auth)
  *   DELETE  /files/:id         — R2 file delete (admin/owner)
  *   GET     /files?songId=     — List files (auth)
@@ -330,6 +337,7 @@ export default {
     // Only burn KV ops on login/register/reset/setup to stay within free tier.
     // Authenticated requests are gated by D1 session tokens already.
     const _isSensitivePath = path === '/auth/login' || path === '/auth/register'
+      || path === '/auth/register-conductr'
       || path === '/auth/forgot-password' || path === '/auth/reset-password'
       || path === '/setup/init';
     if (_isSensitivePath) {
@@ -471,6 +479,8 @@ export default {
           personaId: user.persona_id,
           emailVerified: !!user.email_verified,
           passwordExpired: isPasswordExpired(user),
+          instrumentId: user.instrument_id || null,
+          activeOrchestraId: user.active_orchestra_id || null,
         },
       }));
     }
@@ -600,6 +610,108 @@ export default {
           emailVerified: false,
           passwordExpired: false,
         },
+        emailSent,
+      }, 201));
+    }
+
+    // ─── PUBLIC: POST /auth/register-conductr (conductr + orchestra creation) ──
+    if (path === '/auth/register-conductr' && method === 'POST') {
+      if (!env.DB) return cors(json({ error: 'Database not configured' }, 500));
+      const body = await parseBody(request);
+      if (!body || !body.username || !body.password || !body.email || !body.orchestraName) {
+        return cors(json({ error: 'Username, password, email, and orchestraName required' }, 400));
+      }
+      if (body.username.length > 25 || body.password.length > 128 || body.email.length > 200) {
+        return cors(json({ error: 'Invalid input length' }, 400));
+      }
+      if (body.orchestraName.length > 60) {
+        return cors(json({ error: 'Orchestra name must be 60 characters or less' }, 400));
+      }
+      body.username = body.username.trim();
+      if (body.username.length < 2) return cors(json({ error: 'Username must be at least 2 characters' }, 400));
+      if (!/^[a-zA-Z0-9_]+$/.test(body.username)) return cors(json({ error: 'Username may only contain letters, numbers, and underscores' }, 400));
+      const regPwErr = validatePasswordComplexity(body.password);
+      if (regPwErr) return cors(json({ error: regPwErr }, 400));
+      const email = body.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return cors(json({ error: 'Invalid email format' }, 400));
+      if (email.endsWith('@placeholder.local')) return cors(json({ error: 'A valid email address is required' }, 400));
+      // Check username + email + orchestra name uniqueness
+      const existingUser = await getUserByUsername(env.DB, body.username);
+      if (existingUser) return cors(json({ error: 'Username already taken' }, 409));
+      const emailExists = await env.DB.prepare('SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1').bind(email).first();
+      if (emailExists) return cors(json({ error: 'Email already in use' }, 409));
+      const orchExists = await env.DB.prepare('SELECT id FROM orchestras WHERE LOWER(name) = ? LIMIT 1').bind(body.orchestraName.trim().toLowerCase()).first();
+      if (orchExists) return cors(json({ error: 'An orchestra with this name already exists' }, 409));
+      // Validate instrumentId if provided
+      if (body.instrumentId) {
+        const validInstr = await env.DB.prepare('SELECT id FROM instrument_specifics WHERE id = ?').bind(body.instrumentId).first();
+        if (!validInstr) return cors(json({ error: 'Invalid instrumentId' }, 400));
+      }
+      // Create user + orchestra + membership atomically
+      const displayName = (body.displayName || body.username).trim();
+      let user;
+      try {
+        user = await createUser(env.DB, { username: body.username, displayName, email, password: body.password, role: 'conductr' });
+      } catch (e) {
+        const msg = e.message || '';
+        if (msg.includes('UNIQUE') || msg.includes('already exists')) return cors(json({ error: 'Username or email already in use' }, 409));
+        return cors(json({ error: 'Registration failed' }, 400));
+      }
+      // Generate orchestra ID and create in batch
+      const orchIdBytes = new Uint8Array(8);
+      crypto.getRandomValues(orchIdBytes);
+      const orchId = Array.from(orchIdBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      const now = new Date().toISOString();
+      try {
+        await env.DB.batch([
+          env.DB.prepare('INSERT INTO orchestras (id, name, description, genres, conductr_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .bind(orchId, body.orchestraName.trim(), body.orchestraDescription || '', JSON.stringify(body.genres || []), user.id, now, now),
+          env.DB.prepare('INSERT INTO orchestra_members (orchestra_id, user_id, is_visible, joined_at) VALUES (?, ?, 1, ?)')
+            .bind(orchId, user.id, now),
+          env.DB.prepare('UPDATE users SET active_orchestra_id = ?, instrument_id = ?, updated_at = ? WHERE id = ?')
+            .bind(orchId, body.instrumentId || null, now, user.id),
+        ]);
+      } catch (e) {
+        // Rollback: delete the user we just created
+        try { await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run(); } catch (_) {}
+        return cors(json({ error: 'Orchestra creation failed' }, 500));
+      }
+      // Send verification email
+      let emailSent = false;
+      if (env.RESEND_API_KEY) {
+        try {
+          const verifyToken = await createEmailVerifyToken(env.DB, user.id);
+          const appUrl = _safeAppUrl(env);
+          const verifyLink = `${appUrl}#verify-email?token=${verifyToken}`;
+          const fromAddr = env.EMAIL_FROM || 'Catman Trio <onboarding@resend.dev>';
+          const emailResp = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: fromAddr, to: [email],
+              subject: 'Welcome to Catman Trio — Verify your email',
+              html: `<p>Hi ${_escHtml(displayName)},</p>
+                <p>Your orchestra <strong>${_escHtml(body.orchestraName.trim())}</strong> has been created! Click below to verify your email:</p>
+                <p><a href="${verifyLink}" style="display:inline-block;padding:10px 24px;background:#d4b478;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;">Verify Email</a></p>
+                <p style="color:#888;font-size:12px;">Catman Trio App</p>`,
+            }),
+          });
+          emailSent = emailResp.ok;
+          if (emailSent) _trackEmailSend(env);
+        } catch (_) {}
+      }
+      // Create session
+      const deviceInfo = request.headers.get('User-Agent') || null;
+      let session;
+      try {
+        session = await createSession(env.DB, user.id, deviceInfo);
+      } catch (_) {
+        return cors(json({ ok: true, message: 'Account created — please log in', user: { id: user.id, username: user.username, displayName, role: 'conductr' } }, 201));
+      }
+      return cors(json({
+        token: session.token, expires: session.expires,
+        user: { id: user.id, username: user.username, displayName, role: 'conductr', personaId: null, emailVerified: false, passwordExpired: false, activeOrchestraId: orchId, instrumentId: body.instrumentId || null },
+        orchestra: { id: orchId, name: body.orchestraName.trim() },
         emailSent,
       }, 201));
     }
@@ -882,6 +994,8 @@ export default {
         personaId: currentUser.personaId,
         emailVerified: !!currentUser.emailVerified,
         passwordExpired: !!currentUser.passwordExpired,
+        instrumentId: currentUser.instrumentId || null,
+        activeOrchestraId: currentUser.activeOrchestraId || null,
       } }));
     }
 
@@ -1034,7 +1148,7 @@ export default {
       return respond(json({ ok: true, message: 'Username updated' }));
     }
 
-    // ─── DELETE /users/me — Self-delete account (non-owner only) ──
+    // ─── DELETE /users/me — Self-delete account (non-owner/non-conductr only) ──
     if (path === '/users/me' && method === 'DELETE') {
       if (authMethod !== 'session' || !env.DB) {
         return respond(json({ error: 'Session auth required' }, 400));
@@ -1042,8 +1156,17 @@ export default {
       if (currentUser.role === 'owner') {
         return respond(json({ error: 'Owner account cannot be deleted' }, 403));
       }
+      // Block conductr deletion — must transfer leadership first
+      if (currentUser.role === 'conductr') {
+        const conductedOrch = await env.DB.prepare('SELECT name FROM orchestras WHERE conductr_id = ? LIMIT 1').bind(currentUser.userId).first();
+        if (conductedOrch) {
+          return respond(json({ error: `Cannot delete account while leading orchestra "${conductedOrch.name}". Transfer leadership first.` }, 422));
+        }
+      }
       // Delete all sessions for this user
       await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(currentUser.userId).run();
+      // Remove from all orchestra memberships
+      await env.DB.prepare('DELETE FROM orchestra_members WHERE user_id = ?').bind(currentUser.userId).run();
       // Delete the user record
       await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(currentUser.userId).run();
       return respond(json({ ok: true, message: 'Account deleted' }));
@@ -1217,54 +1340,78 @@ export default {
       }
     }
 
-    // ─── /data/* — D1-backed app data (replaces GitHub) ─────
+    // ─── /data/* — D1-backed app data (orchestra-scoped) ─────
 
-    // GET /data/songs — list all songs
+    // Resolve orchestra context from user's active_orchestra_id
+    const _orchId = currentUser.activeOrchestraId || null;
+
+    // GET /data/songs — list songs (scoped to active orchestra)
     if (path === '/data/songs' && method === 'GET') {
-      return respond(await AppData.listSongs(env));
+      return respond(await AppData.listSongs(env, _orchId));
     }
     // POST /data/songs — save songs (upsert + deletions)
     if (path === '/data/songs' && method === 'POST') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
-        return respond(json({ error: 'Admin access required' }, 403));
+      if (!AppData.canWriteData(currentUser, _orchId)) {
+        return respond(json({ error: 'Write access required' }, 403));
       }
-      return respond(await AppData.saveSongs(request, env));
+      return respond(await AppData.saveSongs(request, env, _orchId));
     }
 
-    // GET /data/setlists — list all setlists
+    // GET /data/setlists — list setlists (scoped)
     if (path === '/data/setlists' && method === 'GET') {
-      return respond(await AppData.listSetlists(env));
+      return respond(await AppData.listSetlists(env, _orchId));
     }
     // POST /data/setlists — save setlists
     if (path === '/data/setlists' && method === 'POST') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
-        return respond(json({ error: 'Admin access required' }, 403));
+      if (!AppData.canWriteData(currentUser, _orchId)) {
+        return respond(json({ error: 'Write access required' }, 403));
       }
-      return respond(await AppData.saveSetlists(request, env));
+      return respond(await AppData.saveSetlists(request, env, _orchId));
     }
 
-    // GET /data/practice — list practice lists
+    // GET /data/practice — list practice lists (scoped)
     if (path === '/data/practice' && method === 'GET') {
-      return respond(await AppData.listPractice(env));
+      return respond(await AppData.listPractice(env, _orchId));
     }
-    // POST /data/practice — save practice lists (any authenticated user, owns their lists)
+    // POST /data/practice — save practice lists (any authenticated non-guest user)
     if (path === '/data/practice' && method === 'POST') {
-      return respond(await AppData.savePractice(request, env, currentUser));
+      if (currentUser.role === 'guest') {
+        return respond(json({ error: 'Guests cannot create practice lists' }, 403));
+      }
+      if (!_orchId && !['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'No active orchestra — join or switch to an orchestra first' }, 403));
+      }
+      return respond(await AppData.savePractice(request, env, currentUser, _orchId));
     }
 
-    // GET /data/changes — lightweight timestamp check for polling sync
+    // GET /data/wikicharts — list wiki charts (scoped)
+    if (path === '/data/wikicharts' && method === 'GET') {
+      return respond(await AppData.listWikiCharts(env, _orchId));
+    }
+    // POST /data/wikicharts — save wiki charts
+    if (path === '/data/wikicharts' && method === 'POST') {
+      if (currentUser.role === 'guest') {
+        return respond(json({ error: 'Guests cannot create wiki charts' }, 403));
+      }
+      if (!_orchId && !['owner', 'admin'].includes(currentUser.role)) {
+        return respond(json({ error: 'No active orchestra — join or switch to an orchestra first' }, 403));
+      }
+      return respond(await AppData.saveWikiCharts(request, env, currentUser, _orchId));
+    }
+
+    // GET /data/changes — lightweight timestamp check for polling sync (scoped)
     if (path === '/data/changes' && method === 'GET') {
-      return respond(await AppData.getChangeTimestamps(env));
+      return respond(await AppData.getChangeTimestamps(env, _orchId));
     }
 
     // ─── /files/* — R2-backed file storage (replaces Drive) ─────
 
     // POST /files/upload — upload a file to R2
     if (path === '/files/upload' && method === 'POST') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
-        return respond(json({ error: 'Admin access required' }, 403));
+      if (!AppData.canWriteData(currentUser, _orchId)) {
+        return respond(json({ error: 'Write access required' }, 403));
       }
-      return respond(await AppData.uploadFile(request, env, currentUser));
+      return respond(await AppData.uploadFile(request, env, currentUser, _orchId));
     }
     // GET /files/:id — download a file from R2
     const fileDownloadMatch = path.match(/^\/files\/([a-f0-9]{16})$/);
@@ -1273,15 +1420,102 @@ export default {
     }
     // DELETE /files/:id — delete a file from R2
     if (fileDownloadMatch && method === 'DELETE') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
-        return respond(json({ error: 'Admin access required' }, 403));
+      if (!AppData.canWriteData(currentUser, _orchId)) {
+        return respond(json({ error: 'Write access required' }, 403));
       }
-      return respond(await AppData.deleteFile(env, fileDownloadMatch[1]));
+      return respond(await AppData.deleteFile(env, fileDownloadMatch[1], _orchId, currentUser));
     }
     // GET /files?songId=xxx — list files for a song
     if (path === '/files' && method === 'GET') {
       const songId = new URL(request.url).searchParams.get('songId') || '';
-      return respond(await AppData.listFiles(env, songId));
+      return respond(await AppData.listFiles(env, songId, _orchId));
+    }
+
+    // ─── /orchestras/* — Orchestra management ──────────
+
+    // GET /orchestras — list user's orchestras
+    if (path === '/orchestras' && method === 'GET') {
+      return respond(await AppData.listOrchestras(env, currentUser));
+    }
+
+    // POST /orchestras — create a new orchestra
+    if (path === '/orchestras' && method === 'POST') {
+      if (!['owner', 'admin', 'conductr'].includes(currentUser.role)) {
+        return respond(json({ error: 'Permission denied' }, 403));
+      }
+      const body = await parseBody(request);
+      return respond(await AppData.createOrchestra(env, currentUser, body));
+    }
+
+    // Routes with orchestra ID
+    const orchIdMatch = path.match(/^\/orchestras\/([a-f0-9]{16})$/);
+    if (orchIdMatch) {
+      const orchestraId = orchIdMatch[1];
+      if (method === 'GET') {
+        return respond(await AppData.getOrchestra(env, orchestraId, currentUser));
+      }
+      if (method === 'PUT' || method === 'POST') {
+        if (!['owner', 'admin', 'conductr'].includes(currentUser.role)) {
+          return respond(json({ error: 'Permission denied' }, 403));
+        }
+        const body = await parseBody(request);
+        return respond(await AppData.updateOrchestra(env, orchestraId, currentUser, body));
+      }
+    }
+
+    // GET /orchestras/:id/members — list members
+    const orchMembersMatch = path.match(/^\/orchestras\/([a-f0-9]{16})\/members$/);
+    if (orchMembersMatch && method === 'GET') {
+      return respond(await AppData.listOrchestraMembers(env, orchMembersMatch[1], currentUser));
+    }
+    // POST /orchestras/:id/members — add member
+    if (orchMembersMatch && method === 'POST') {
+      if (!['owner', 'admin', 'conductr'].includes(currentUser.role)) {
+        return respond(json({ error: 'Permission denied' }, 403));
+      }
+      const body = await parseBody(request);
+      return respond(await AppData.addOrchestraMember(env, orchMembersMatch[1], currentUser, body));
+    }
+
+    // DELETE /orchestras/:id/members/:userId — remove member
+    const orchMemberDeleteMatch = path.match(/^\/orchestras\/([a-f0-9]{16})\/members\/([a-f0-9]{16})$/);
+    if (orchMemberDeleteMatch && method === 'DELETE') {
+      return respond(await AppData.removeOrchestraMember(env, orchMemberDeleteMatch[1], orchMemberDeleteMatch[2], currentUser));
+    }
+
+    // ─── /instruments — Instrument hierarchy ─────────
+
+    // GET /instruments — full hierarchy (global + orchestra-specific)
+    if (path === '/instruments' && method === 'GET') {
+      return respond(await AppData.getInstrumentHierarchy(env, _orchId));
+    }
+
+    // ─── PUT /users/me/orchestra — switch active orchestra ──
+    if (path === '/users/me/orchestra' && method === 'PUT') {
+      const body = await parseBody(request);
+      if (!body || !body.orchestraId) return respond(json({ error: 'orchestraId required' }, 400));
+      return respond(await AppData.switchActiveOrchestra(env, currentUser, body.orchestraId));
+    }
+
+    // ─── PUT /users/me/instrument — set instrument ──
+    if (path === '/users/me/instrument' && method === 'PUT') {
+      const body = await parseBody(request);
+      if (!body) return respond(json({ error: 'Body required' }, 400));
+      if (body.instrumentId) {
+        const valid = await env.DB.prepare('SELECT id FROM instrument_specifics WHERE id = ?').bind(body.instrumentId).first();
+        if (!valid) return respond(json({ error: 'Invalid instrumentId' }, 400));
+      }
+      await env.DB.prepare('UPDATE users SET instrument_id = ?, updated_at = ? WHERE id = ?')
+        .bind(body.instrumentId || null, new Date().toISOString(), currentUser.userId).run();
+      return respond(json({ ok: true, instrumentId: body.instrumentId || null }));
+    }
+
+    // ─── POST /orchestras/backfill — assign unscoped data (owner only) ──
+    if (path === '/orchestras/backfill' && method === 'POST') {
+      if (currentUser.role !== 'owner') return respond(json({ error: 'Owner only' }, 403));
+      const body = await parseBody(request);
+      if (!body || !body.orchestraId) return respond(json({ error: 'orchestraId required' }, 400));
+      return respond(await AppData.backfillOrchestra(env, body.orchestraId));
     }
 
     // ─── /migration/* — migration state (owner only) ─────
@@ -1311,7 +1545,7 @@ export default {
 
     // POST /gig/share — create or replace a shared packet
     if (path === '/gig/share' && method === 'POST') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
+      if (!['owner', 'admin', 'conductr'].includes(currentUser.role)) {
         return respond(json({ error: 'Admin access required' }, 403));
       }
       const result = await GigPackets.handleShare(request, env, currentUser);
@@ -1321,7 +1555,7 @@ export default {
     // DELETE /gig/share/:setlistId — unshare a packet
     const unshareMatch = path.match(/^\/gig\/share\/(.+)$/);
     if (unshareMatch && method === 'DELETE') {
-      if (!['owner', 'admin'].includes(currentUser.role)) {
+      if (!['owner', 'admin', 'conductr'].includes(currentUser.role)) {
         return respond(json({ error: 'Admin access required' }, 403));
       }
       const result = await GigPackets.handleUnshare(env, decodeURIComponent(unshareMatch[1]));

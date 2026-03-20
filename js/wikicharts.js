@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.20';
-import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.20';
-import * as Modal from './modal.js?v=20.20';
-import * as Router from './router.js?v=20.20';
-import * as Admin from '../admin.js?v=20.20';
-import * as Auth from '../auth.js?v=20.20';
-import * as Sync from './sync.js?v=20.20';
+import * as Store from './store.js?v=20.21';
+import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.21';
+import * as Modal from './modal.js?v=20.21';
+import * as Router from './router.js?v=20.21';
+import * as Admin from '../admin.js?v=20.21';
+import * as Auth from '../auth.js?v=20.21';
+import * as Sync from './sync.js?v=20.21';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -96,11 +96,43 @@ const CHORD_DIAGRAMS = {
 let _wikiCharts = [];
 let _activeWikiChart = null;
 let _scrollRaf = null;
-let _scrollSpeed = 1;
+let _scrollSpeed = (() => { try { return parseFloat(localStorage.getItem('ct_pref_wc_scroll_speed')) || 1; } catch (_) { return 1; } })();
 let _scrolling = false;
 
-// Persist transpose/capo/nashville state across back-forward nav for same chart
-let _detailState = { chartId: null, transposeSemitones: 0, capoFret: 0, showNashville: false };
+// Persist transpose/nashville state across back-forward nav for same chart
+let _detailState = { chartId: null, transposeSemitones: 0, showNashville: false };
+
+// Feature 17: Condensed view toggle
+let _condensedView = (() => { try { return localStorage.getItem('ct_pref_wc_condensed') === 'true'; } catch (_) { return false; } })();
+
+// Feature 24: Slash notation toggle
+let _showSlashes = (() => { try { return localStorage.getItem('ct_pref_wc_slashes') === 'true'; } catch (_) { return false; } })();
+
+// Feature 21: Section highlighting (IntersectionObserver)
+let _sectionObserver = null;
+
+// Feature 21: Metronome state
+let _metronomeActive = false;
+let _metronomeAudioCtx = null;
+let _metronomeNextTime = 0;
+let _metronomeTimerId = null;
+let _metronomeBeatCount = 0;
+
+// Playback engine state
+let _playbackActive = false;
+let _playbackAudioCtx = null;
+let _playbackTimerId = null;
+let _playbackNextTime = 0;
+let _playbackBarIndex = 0;
+let _playbackBars = [];       // resolved flat bar sequence from form resolution
+let _playbackSectionMap = []; // maps each bar in _playbackBars to { sectionIdx, barIdx }
+let _playbackChart = null;
+let _playbackLastVoicing = null;
+let _playbackMuteMetro = (() => { try { return localStorage.getItem('ct_pref_wc_playback_mute_metro') === 'true'; } catch (_) { return false; } })();
+let _playbackRenderCallback = null; // re-render detail view
+
+// Section loop state
+let _loopSectionIdx = -1; // -1 = no loop active
 
 // ─── ID generation ──────────────────────────────────────────
 
@@ -201,17 +233,7 @@ function _chordToNashville(chord, keyRoot) {
   return prefix + suffix;
 }
 
-function _capoKey(originalKey, capoFret) {
-  if (!originalKey || capoFret <= 0) return originalKey;
-  const parsed = _parseChordRoot(originalKey);
-  if (!parsed) return originalKey;
-  const idx = _rootToIndex(parsed.root);
-  if (idx < 0) return originalKey;
-  const useFlats = FLAT_KEYS.has(originalKey);
-  // Capo up means shapes go DOWN by capoFret semitones
-  const newIdx = ((idx - capoFret) % 12 + 12) % 12;
-  return _indexToRoot(newIdx, useFlats) + parsed.suffix;
-}
+// _capoKey() — PARKED. See CLAUDE/parked-capo-code.js for full implementation.
 
 // ─── Diatonic chord suggestions ─────────────────────────────
 
@@ -320,6 +342,66 @@ function _exportAscii(chart) {
   }
 
   if (chart.notes) {
+    lines.push('Notes: ' + chart.notes);
+  }
+  return lines.join('\n');
+}
+
+// ─── ChordPro export ────────────────────────────────────────
+
+function _exportChordPro(chart) {
+  const lines = [];
+  lines.push(`{title: ${chart.title || 'Untitled'}}`);
+  if (chart.key) lines.push(`{key: ${chart.key}}`);
+  if (chart.bpm) lines.push(`{tempo: ${chart.bpm}}`);
+  if (chart.timeSig) lines.push(`{time: ${chart.timeSig}}`);
+  if (chart.feel) lines.push(`{comment: ${chart.feel}}`);
+  lines.push('');
+
+  for (const section of (chart.sections || [])) {
+    const label = section.label || section.type;
+    lines.push(`{comment: ${label}${section.repeat > 1 ? ' x' + section.repeat : ''}}`);
+    // Group bars into rows of 4
+    const bars = section.bars || [];
+    for (let i = 0; i < bars.length; i += 4) {
+      const group = bars.slice(i, i + 4).map(b => {
+        const ch = b.chord && b.chord !== '/' ? b.chord : '';
+        return ch ? `[${ch}]` : '[]';
+      });
+      lines.push(group.join(' '));
+    }
+    lines.push('');
+  }
+
+  if (chart.notes) {
+    lines.push(`{comment: Notes: ${chart.notes}}`);
+  }
+  return lines.join('\n');
+}
+
+// ─── Condensed text export ──────────────────────────────────
+
+function _exportCondensed(chart) {
+  const lines = [];
+  lines.push(chart.title || 'Untitled');
+  const meta = [];
+  if (chart.key) meta.push('Key: ' + chart.key);
+  if (chart.bpm) meta.push('BPM: ' + chart.bpm);
+  if (chart.timeSig) meta.push(chart.timeSig);
+  if (chart.feel) meta.push(chart.feel);
+  if (meta.length) lines.push(meta.join(' | '));
+  lines.push('');
+
+  for (const section of (chart.sections || [])) {
+    const label = section.label || section.type;
+    const bars = section.bars || [];
+    const chords = bars.map(b => (b.chord && b.chord !== '/') ? b.chord : '/').join(' | ');
+    const repeat = section.repeat > 1 ? ', x' + section.repeat : '';
+    lines.push(`${label}: ${chords} (${bars.length} bar${bars.length !== 1 ? 's' : ''}${repeat})`);
+  }
+
+  if (chart.notes) {
+    lines.push('');
     lines.push('Notes: ' + chart.notes);
   }
   return lines.join('\n');
@@ -508,11 +590,10 @@ function renderWikiChartDetail(chart, opts) {
 
   // State — restore from module cache if same chart, else reset
   if (_detailState.chartId !== chart.id) {
-    _detailState = { chartId: chart.id, transposeSemitones: 0, capoFret: 0, showNashville: false };
+    _detailState = { chartId: chart.id, transposeSemitones: 0, showNashville: false };
   }
   let transposeSemitones = _detailState.transposeSemitones;
   let showNashville = _detailState.showNashville;
-  let capoFret = _detailState.capoFret;
   let fontSize = parseInt(localStorage.getItem('ct_pref_wc_fontsize') || '18', 10);
 
   // Inject topbar actions synchronously (matches setlists/practice pattern)
@@ -525,7 +606,14 @@ function renderWikiChartDetail(chart, opts) {
     if (_canEdit(chart)) {
       btns += `<button id="wc-btn-edit" class="icon-btn" aria-label="Edit" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>`;
     }
-    btns += `<button id="wc-btn-copy" class="icon-btn" aria-label="Copy to clipboard" title="Copy"><i data-lucide="clipboard-copy" style="width:16px;height:16px;"></i></button>`;
+    btns += `<span class="wc-export-wrap" style="position:relative;display:inline-block;">
+      <button id="wc-btn-export" class="icon-btn" aria-label="Export" title="Export"><i data-lucide="download" style="width:16px;height:16px;"></i></button>
+      <div id="wc-export-menu" class="wc-export-menu hidden">
+        <button class="wc-export-opt" data-fmt="ascii">ASCII (grid)</button>
+        <button class="wc-export-opt" data-fmt="chordpro">ChordPro</button>
+        <button class="wc-export-opt" data-fmt="condensed">Condensed text</button>
+      </div>
+    </span>`;
     btns += `<button id="wc-btn-duplicate" class="icon-btn" aria-label="Duplicate" title="Duplicate"><i data-lucide="copy" style="width:16px;height:16px;"></i></button>`;
     if (_canEdit(chart) && chart.versions && chart.versions.length) {
       btns += `<button id="wc-btn-history" class="icon-btn" aria-label="History" title="Version history"><i data-lucide="history" style="width:16px;height:16px;"></i></button>`;
@@ -535,7 +623,24 @@ function renderWikiChartDetail(chart, opts) {
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
 
     actionsWrap.querySelector('#wc-btn-edit')?.addEventListener('click', () => _renderCreateEdit(chart));
-    actionsWrap.querySelector('#wc-btn-copy')?.addEventListener('click', () => _copyToClipboard(chart, transposeSemitones));
+    // Export menu toggle
+    actionsWrap.querySelector('#wc-btn-export')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = actionsWrap.querySelector('#wc-export-menu');
+      if (menu) menu.classList.toggle('hidden');
+    });
+    actionsWrap.querySelectorAll('.wc-export-opt').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fmt = btn.dataset.fmt;
+        actionsWrap.querySelector('#wc-export-menu')?.classList.add('hidden');
+        _exportToClipboard(chart, transposeSemitones, fmt);
+      });
+    });
+    // Close export menu on outside click
+    document.addEventListener('click', () => {
+      actionsWrap.querySelector('#wc-export-menu')?.classList.add('hidden');
+    }, { once: false });
     actionsWrap.querySelector('#wc-btn-duplicate')?.addEventListener('click', () => _duplicateChart(chart));
     actionsWrap.querySelector('#wc-btn-history')?.addEventListener('click', () => _showVersionHistory(chart));
   }
@@ -543,8 +648,6 @@ function renderWikiChartDetail(chart, opts) {
   function _render() {
     const useFlats = FLAT_KEYS.has(chart.key || 'C');
     const displayKey = transposeSemitones !== 0 ? _transposeChord(chart.key, transposeSemitones, useFlats) : chart.key;
-    const capoShapes = capoFret > 0 ? _capoKey(displayKey || chart.key, capoFret) : '';
-
     let html = `<div class="wc-detail" style="--wc-font-size: ${fontSize}px">`;
 
     // Header
@@ -552,7 +655,6 @@ function renderWikiChartDetail(chart, opts) {
     html += `<h2 class="wc-title">${esc(chart.title || 'Untitled')}</h2>`;
     const meta = [];
     if (displayKey) meta.push('<span class="wc-key">Key: ' + esc(displayKey) + '</span>');
-    if (capoShapes) meta.push('<span class="wc-capo">Capo ' + capoFret + ' (shapes in ' + esc(capoShapes) + ')</span>');
     if (chart.bpm) meta.push(esc(chart.bpm) + ' BPM');
     if (chart.timeSig) meta.push(esc(chart.timeSig));
     if (chart.feel) meta.push(esc(chart.feel));
@@ -567,61 +669,156 @@ function renderWikiChartDetail(chart, opts) {
       <span class="wc-transpose-label">${transposeSemitones === 0 ? 'Original' : (transposeSemitones > 0 ? '+' : '') + transposeSemitones}</span>
       <button class="btn-ghost wc-ctrl-btn" id="wc-transpose-up" title="Transpose up">+1</button>
     </div>`;
-    html += `<div class="wc-capo-ctrl">
-      <label class="wc-ctrl-label">Capo</label>
-      <select id="wc-capo-select" class="wc-select">
-        <option value="0" ${capoFret === 0 ? 'selected' : ''}>None</option>
-        ${[1,2,3,4,5,6,7,8,9].map(f => `<option value="${f}" ${capoFret === f ? 'selected' : ''}>${f}</option>`).join('')}
-      </select>
-    </div>`;
     html += `<button class="btn-ghost wc-ctrl-btn ${showNashville ? 'active' : ''}" id="wc-nashville" title="Nashville numbers">Nash.</button>`;
     html += `<div class="wc-font-ctrl">
       <label class="wc-ctrl-label">Font</label>
       <input type="range" id="wc-font-slider" min="14" max="32" value="${fontSize}" class="wc-slider" />
     </div>`;
+    // Condensed view toggle (Feature 17)
+    html += `<button class="btn-ghost wc-ctrl-btn ${_condensedView ? 'active' : ''}" id="wc-condensed" title="Condensed view">Compact</button>`;
+    // Slash notation toggle (Feature 24)
+    html += `<button class="btn-ghost wc-ctrl-btn ${_showSlashes ? 'active' : ''}" id="wc-slashes" title="Show beat slashes">Slashes</button>`;
     // Auto-scroll
     html += `<button class="btn-ghost wc-ctrl-btn" id="wc-autoscroll" title="Auto-scroll teleprompter">
       <i data-lucide="${_scrolling ? 'pause' : 'play'}" style="width:14px;height:14px;"></i>
     </button>`;
+    // Metronome (Feature 21)
+    html += `<button class="btn-ghost wc-ctrl-btn ${_metronomeActive ? 'active' : ''}" id="wc-metronome" title="Metronome">
+      <span class="wc-metro-icon"><i data-lucide="timer" style="width:14px;height:14px;"></i></span>
+      <span class="wc-metro-dot" id="wc-metro-dot"></span>
+    </button>`;
+    // Playback engine controls
+    html += `<span class="wc-playback-group">`;
+    html += `<button class="btn-ghost wc-ctrl-btn wc-playback-btn ${_playbackActive ? 'active' : ''}" id="wc-playback" title="${_playbackActive ? 'Stop playback' : 'Play chords'}">
+      <i data-lucide="${_playbackActive ? 'stop-circle' : 'play-circle'}" style="width:14px;height:14px;"></i>
+    </button>`;
+    if (_playbackActive) {
+      html += `<button class="btn-ghost wc-ctrl-btn wc-mute-metro ${_playbackMuteMetro ? 'active' : ''}" id="wc-mute-metro" title="${_playbackMuteMetro ? 'Unmute metronome' : 'Mute metronome'}">
+        <i data-lucide="${_playbackMuteMetro ? 'volume-x' : 'volume-2'}" style="width:14px;height:14px;"></i>
+      </button>`;
+    }
+    html += `</span>`;
     html += `</div>`;
 
     // Sections grid
+    const _showSectionColors = (() => { try { return localStorage.getItem('ct_pref_wc_section_colors') !== '0'; } catch (_) { return true; } })();
     html += `<div class="wc-sections" id="wc-sections-container">`;
-    for (const section of (chart.sections || [])) {
+    const _allSections = chart.sections || [];
+    for (let _si = 0; _si < _allSections.length; _si++) {
+      const section = _allSections[_si];
       const displaySection = transposeSemitones !== 0 ? _transposeSection(section, transposeSemitones, useFlats) : section;
-      const color = SECTION_COLORS[section.type] || 'var(--wc-verse)';
-      html += `<div class="wc-section" style="border-left-color: ${color}">`;
-      html += `<div class="wc-section-header">
-        <span class="wc-section-type" style="color: ${color}">${esc(section.label || section.type)}</span>
-        ${section.repeat > 1 ? `<span class="wc-section-repeat">×${section.repeat}</span>` : ''}
-      </div>`;
+      const color = _showSectionColors ? (SECTION_COLORS[section.type] || 'var(--wc-verse)') : 'var(--border)';
+      const hasEndings = section.endings && section.endings.length > 0;
+      const hasRepeat = section.repeat > 1;
+      const isLooping = _loopSectionIdx === _si;
 
-      // Bars grid
-      html += `<div class="wc-bars">`;
-      for (let bi = 0; bi < (displaySection.bars || []).length; bi++) {
-        const bar = displaySection.bars[bi];
-        let chordDisplay = bar.chord || '';
-        if (showNashville && chart.key) {
-          const keyRoot = _parseChordRoot(chart.key)?.root || chart.key;
-          chordDisplay = _chordToNashville(bar.chord, keyRoot);
+      if (_condensedView) {
+        // ─── Condensed: one-liner per section ───
+        const bars = displaySection.bars || [];
+        const chords = bars.map(b => {
+          let ch = b.chord || '/';
+          if (showNashville && chart.key) {
+            const keyRoot = _parseChordRoot(chart.key)?.root || chart.key;
+            ch = _chordToNashville(b.chord, keyRoot);
+          }
+          return ch;
+        });
+        const label = section.label || section.type;
+        const repeat = hasRepeat ? `, x${section.repeat}` : '';
+        html += `<div class="wc-section wc-section-condensed ${isLooping ? 'wc-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
+        html += `<span class="wc-section-type wc-condensed-label" style="color: ${color}">${esc(label)}:</span> `;
+        html += `<span class="wc-condensed-chords">${chords.map(c => esc(c)).join(' | ')}</span>`;
+        html += `<span class="wc-condensed-meta">(${bars.length} bar${bars.length !== 1 ? 's' : ''}${repeat})</span>`;
+        html += `</div>`;
+      } else {
+        // ─── Expanded: full grid (default) ───
+        html += `<div class="wc-section ${hasEndings ? 'wc-section-with-endings' : ''} ${isLooping ? 'wc-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
+        html += `<div class="wc-section-header">
+          <span class="wc-section-type" style="color: ${color}">${esc(section.label || section.type)}</span>
+          ${hasRepeat ? `<span class="wc-section-repeat">×${section.repeat}</span>` : ''}
+          <button class="wc-loop-btn ${isLooping ? 'active' : ''}" data-si="${_si}" title="${isLooping ? 'Stop loop' : 'Loop this section'}" aria-label="${isLooping ? 'Stop loop' : 'Loop this section'}">
+            <i data-lucide="repeat" style="width:13px;height:13px;"></i>
+          </button>
+        </div>`;
+
+        // Repeat start sign (if section repeats)
+        if (hasRepeat) {
+          html += `<div class="wc-repeat-start" aria-hidden="true"><span class="wc-repeat-line-thick"></span><span class="wc-repeat-line-thin"></span><span class="wc-repeat-dots"><span></span><span></span></span></div>`;
         }
-        // Check for cues on this bar
-        const cue = (section.cues || []).find(c => c.barIdx === bi);
-        html += `<div class="wc-bar ${cue ? 'has-cue' : ''}" data-chord="${esc(bar.chord || '')}" title="Click for chord diagram">`;
-        html += `<span class="wc-chord">${esc(chordDisplay)}</span>`;
-        if (cue) {
-          html += `<span class="wc-cue" style="${cue.color ? 'background:' + cue.color : ''}">${esc(cue.text)}</span>`;
+
+        // Ending brackets (rendered above the bars grid)
+        if (hasEndings) {
+          html += `<div class="wc-endings-container">`;
+          const barCount = (displaySection.bars || []).length;
+          for (const ending of section.endings) {
+            const startPct = ((ending.barStart - 1) / barCount) * 100;
+            const widthPct = ((ending.barEnd - ending.barStart + 1) / barCount) * 100;
+            html += `<div class="wc-ending-bracket ending-${ending.number}" style="left:${startPct}%;width:${widthPct}%">
+              <span class="wc-ending-label">${ending.number}.</span>
+            </div>`;
+          }
+          html += `</div>`;
+        }
+
+        // Bars grid
+        html += `<div class="wc-bars">`;
+        for (let bi = 0; bi < (displaySection.bars || []).length; bi++) {
+          const bar = displaySection.bars[bi];
+          let chordDisplay = bar.chord || '';
+          if (showNashville && chart.key) {
+            const keyRoot = _parseChordRoot(chart.key)?.root || chart.key;
+            chordDisplay = _chordToNashville(bar.chord, keyRoot);
+          }
+          // Slash notation (Feature 24)
+          let slashHtml = '';
+          if (_showSlashes) {
+            const beats = bar.beats || 4;
+            const slashes = beats > 1 ? ' <span class="wc-slashes">' + '/ '.repeat(beats - 1).trim() + '</span>' : '';
+            slashHtml = slashes;
+          }
+          // Check for cues on this bar
+          const cue = (section.cues || []).find(c => c.barIdx === bi);
+          html += `<div class="wc-bar ${cue ? 'has-cue' : ''}" data-chord="${esc(bar.chord || '')}" title="Click for chord diagram">`;
+          html += `<span class="wc-chord">${esc(chordDisplay)}${slashHtml}</span>`;
+          if (cue) {
+            html += `<span class="wc-cue" style="${cue.color ? 'background:' + cue.color : ''}">${esc(cue.text)}</span>`;
+          }
+          html += `</div>`;
         }
         html += `</div>`;
+
+        // Repeat end sign
+        if (hasRepeat) {
+          html += `<div class="wc-repeat-end" aria-hidden="true"><span class="wc-repeat-dots"><span></span><span></span></span><span class="wc-repeat-line-thin"></span><span class="wc-repeat-line-thick"></span></div>`;
+        }
+
+        html += `</div>`;
       }
-      html += `</div>`;
-      html += `</div>`;
     }
     html += `</div>`;
 
     // Notes
     if (chart.notes) {
       html += `<div class="wc-notes"><strong>Notes:</strong> ${esc(chart.notes)}</div>`;
+    }
+
+    // Reference Links
+    if (chart.referenceLinks && chart.referenceLinks.length) {
+      html += `<div class="wc-ref-links">`;
+      html += `<div class="wc-ref-links-toggle" id="wc-ref-toggle">
+        <span>Reference Links (${chart.referenceLinks.length})</span>
+        <i data-lucide="chevron-down" style="width:16px;height:16px;"></i>
+      </div>`;
+      html += `<div class="wc-ref-links-list">`;
+      for (const link of chart.referenceLinks) {
+        const iconName = link.type === 'youtube' ? 'play-circle' : link.type === 'spotify' ? 'music' : link.type === 'apple' ? 'smartphone' : 'link';
+        html += `<div class="wc-ref-link-row">
+          <span class="wc-ref-link-icon ${esc(link.type || 'other')}"><i data-lucide="${iconName}" style="width:16px;height:16px;"></i></span>
+          <span class="wc-ref-link-label"><a href="${esc(link.url || '#')}" target="_blank" rel="noopener noreferrer">${esc(link.label || link.url || 'Link')}</a></span>
+          <span class="wc-ref-link-type">${esc(link.type || 'other')}</span>
+        </div>`;
+      }
+      html += `</div></div>`;
     }
 
     // Delete button
@@ -636,8 +833,17 @@ function renderWikiChartDetail(chart, opts) {
     // Wire controls
     container.querySelector('#wc-transpose-down')?.addEventListener('click', () => { transposeSemitones--; _detailState.transposeSemitones = transposeSemitones; _render(); });
     container.querySelector('#wc-transpose-up')?.addEventListener('click', () => { transposeSemitones++; _detailState.transposeSemitones = transposeSemitones; _render(); });
-    container.querySelector('#wc-capo-select')?.addEventListener('change', (e) => { capoFret = parseInt(e.target.value, 10) || 0; _detailState.capoFret = capoFret; _render(); });
     container.querySelector('#wc-nashville')?.addEventListener('click', () => { showNashville = !showNashville; _detailState.showNashville = showNashville; _render(); });
+    container.querySelector('#wc-condensed')?.addEventListener('click', () => {
+      _condensedView = !_condensedView;
+      try { localStorage.setItem('ct_pref_wc_condensed', String(_condensedView)); } catch (_) {}
+      _render();
+    });
+    container.querySelector('#wc-slashes')?.addEventListener('click', () => {
+      _showSlashes = !_showSlashes;
+      try { localStorage.setItem('ct_pref_wc_slashes', String(_showSlashes)); } catch (_) {}
+      _render();
+    });
     container.querySelector('#wc-font-slider')?.addEventListener('input', (e) => {
       fontSize = parseInt(e.target.value, 10) || 18;
       const detail = container.querySelector('.wc-detail');
@@ -650,7 +856,40 @@ function renderWikiChartDetail(chart, opts) {
       else _stopAutoScroll();
       _render();
     });
+    container.querySelector('#wc-metronome')?.addEventListener('click', () => {
+      if (_metronomeActive) _stopMetronome();
+      else _startMetronome(chart);
+      _render();
+    });
+    container.querySelector('#wc-playback')?.addEventListener('click', () => {
+      if (_playbackActive) { _stopPlayback(); _stopMetronome(); }
+      else _startPlayback(chart, _render);
+      _render();
+    });
+    container.querySelector('#wc-mute-metro')?.addEventListener('click', () => {
+      _playbackMuteMetro = !_playbackMuteMetro;
+      try { localStorage.setItem('ct_pref_wc_playback_mute_metro', String(_playbackMuteMetro)); } catch (_) {}
+      // Restart playback to apply change
+      if (_playbackActive) {
+        _stopPlayback();
+        _startPlayback(chart, _render);
+      }
+      _render();
+    });
+    // Wire loop buttons
+    container.querySelectorAll('.wc-loop-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const si = parseInt(btn.dataset.si, 10);
+        _toggleLoopSection(si, chart, _render);
+      });
+    });
     container.querySelector('#wc-btn-delete')?.addEventListener('click', () => _deleteChart(chart));
+
+    // Wire reference links toggle
+    container.querySelector('#wc-ref-toggle')?.addEventListener('click', (e) => {
+      e.currentTarget.classList.toggle('open');
+    });
 
     // Wire chord diagram popups
     container.querySelectorAll('.wc-bar[data-chord]').forEach(barEl => {
@@ -671,9 +910,14 @@ function renderWikiChartDetail(chart, opts) {
 function _startAutoScroll(chart) {
   _stopAutoScroll();
   _scrolling = true;
+  // Re-read speed multiplier from settings
+  try { _scrollSpeed = parseFloat(localStorage.getItem('ct_pref_wc_scroll_speed')) || 1; } catch (_) { _scrollSpeed = 1; }
   const bpm = parseInt(chart.bpm, 10) || 120;
   // Pixels per frame at 60fps, scaled by BPM
   const baseSpeed = (bpm / 120) * 1.5;
+
+  // Start section highlighting observer
+  _startSectionObserver();
 
   function step() {
     if (!_scrolling) return;
@@ -690,6 +934,524 @@ function _startAutoScroll(chart) {
 function _stopAutoScroll() {
   _scrolling = false;
   if (_scrollRaf) { cancelAnimationFrame(_scrollRaf); _scrollRaf = null; }
+  _stopSectionObserver();
+}
+
+// ─── Section highlighting (IntersectionObserver) ─────────────
+
+function _startSectionObserver() {
+  _stopSectionObserver();
+  const sectionsContainer = document.getElementById('wc-sections-container');
+  if (!sectionsContainer) return;
+  const viewEl = sectionsContainer.closest('.view');
+  if (!viewEl) return;
+
+  const ratios = new Map();
+
+  _sectionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      ratios.set(entry.target, entry.intersectionRatio);
+    }
+    // Find the section with highest visibility
+    let best = null;
+    let bestRatio = 0;
+    for (const [el, ratio] of ratios) {
+      if (ratio > bestRatio) { bestRatio = ratio; best = el; }
+    }
+    // Apply active class
+    sectionsContainer.querySelectorAll('.wc-section, .wc-section-condensed').forEach(el => {
+      el.classList.toggle('wc-section-active', el === best && bestRatio > 0);
+    });
+  }, {
+    root: viewEl,
+    threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+  });
+
+  sectionsContainer.querySelectorAll('.wc-section, .wc-section-condensed').forEach(el => {
+    _sectionObserver.observe(el);
+  });
+}
+
+function _stopSectionObserver() {
+  if (_sectionObserver) {
+    _sectionObserver.disconnect();
+    _sectionObserver = null;
+  }
+  // Remove all active highlights
+  document.querySelectorAll('.wc-section-active').forEach(el => el.classList.remove('wc-section-active'));
+}
+
+// ─── Metronome (Web Audio API) ───────────────────────────────
+
+function _getMetroVolume() {
+  try { return (parseInt(localStorage.getItem('ct_pref_wc_metro_vol') || '50', 10)) / 100; } catch (_) { return 0.5; }
+}
+
+function _getMetroSound() {
+  try { return localStorage.getItem('ct_pref_wc_metro_sound') || 'click'; } catch (_) { return 'click'; }
+}
+
+function _playClick(audioCtx, time, isAccent) {
+  const vol = _getMetroVolume();
+  const sound = _getMetroSound();
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  // Different sounds
+  if (sound === 'woodblock') {
+    osc.frequency.value = isAccent ? 1200 : 900;
+    osc.type = 'triangle';
+  } else if (sound === 'hihat') {
+    // White-noise-like via detuned square wave
+    osc.frequency.value = isAccent ? 6000 : 5000;
+    osc.type = 'square';
+  } else {
+    // Default click
+    osc.frequency.value = isAccent ? 1200 : 1000;
+    osc.type = 'sine';
+  }
+
+  const peakVol = vol * (isAccent ? 0.4 : 0.3);
+  gain.gain.setValueAtTime(peakVol, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+  osc.start(time);
+  osc.stop(time + 0.05);
+}
+
+function _startMetronome(chart) {
+  _stopMetronome();
+  _metronomeActive = true;
+
+  const bpm = parseInt(chart.bpm, 10) || 120;
+  const timeSig = chart.timeSig || '4/4';
+  const beatsPerMeasure = parseInt(timeSig.split('/')[0], 10) || 4;
+  const interval = 60 / bpm; // seconds per beat
+
+  // Create or resume AudioContext
+  if (!_metronomeAudioCtx || _metronomeAudioCtx.state === 'closed') {
+    _metronomeAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_metronomeAudioCtx.state === 'suspended') {
+    _metronomeAudioCtx.resume();
+  }
+
+  _metronomeBeatCount = 0;
+  _metronomeNextTime = _metronomeAudioCtx.currentTime + 0.05; // slight initial delay
+
+  // Scheduler: look-ahead 100ms, schedule 50ms ahead
+  function scheduler() {
+    while (_metronomeNextTime < _metronomeAudioCtx.currentTime + 0.1) {
+      const isAccent = (_metronomeBeatCount % beatsPerMeasure) === 0;
+      _playClick(_metronomeAudioCtx, _metronomeNextTime, isAccent);
+
+      // Schedule visual beat flash
+      const beatTime = _metronomeNextTime;
+      const delay = (beatTime - _metronomeAudioCtx.currentTime) * 1000;
+      setTimeout(() => {
+        const dot = document.getElementById('wc-metro-dot');
+        if (dot) {
+          dot.classList.add('flash');
+          setTimeout(() => dot.classList.remove('flash'), 80);
+        }
+      }, Math.max(0, delay));
+
+      _metronomeBeatCount++;
+      _metronomeNextTime += interval;
+    }
+  }
+
+  _metronomeTimerId = setInterval(scheduler, 25);
+  scheduler(); // kick off immediately
+}
+
+function _stopMetronome() {
+  _metronomeActive = false;
+  if (_metronomeTimerId) {
+    clearInterval(_metronomeTimerId);
+    _metronomeTimerId = null;
+  }
+  _metronomeBeatCount = 0;
+  // Remove visual flash
+  const dot = document.getElementById('wc-metro-dot');
+  if (dot) dot.classList.remove('flash');
+}
+
+// ─── Piano Chord Playback Engine ────────────────────────────
+
+// MIDI note to frequency
+function _midiToFreq(midi) { return 440 * Math.pow(2, (midi - 69) / 12); }
+
+// Root note name to MIDI number (octave 4 = middle C region)
+const _ROOT_MIDI = { 'C': 60, 'C#': 61, 'Db': 61, 'D': 62, 'D#': 63, 'Eb': 63, 'E': 64, 'Fb': 64, 'F': 65, 'F#': 66, 'Gb': 66, 'G': 67, 'G#': 68, 'Ab': 68, 'A': 69, 'A#': 70, 'Bb': 70, 'B': 71, 'Cb': 71, 'E#': 65, 'B#': 60 };
+
+// Chord quality to intervals (semitones from root)
+const _CHORD_INTERVALS = {
+  '':       [0,4,7],       // major
+  'm':      [0,3,7],       // minor
+  '7':      [0,4,7,10],    // dominant 7
+  'maj7':   [0,4,7,11],    // major 7
+  'm7':     [0,3,7,10],    // minor 7
+  'dim':    [0,3,6],       // diminished
+  'dim7':   [0,3,6,9],     // diminished 7
+  'aug':    [0,4,8],        // augmented
+  'sus4':   [0,5,7],       // sus4
+  'sus2':   [0,2,7],       // sus2
+  '6':      [0,4,7,9],     // major 6
+  'm6':     [0,3,7,9],     // minor 6
+  '9':      [0,4,7,10,14], // dominant 9
+  'add9':   [0,4,7,14],    // add9
+  'm9':     [0,3,7,10,14], // minor 9
+  'maj9':   [0,4,7,11,14], // major 9
+  '7b5':    [0,4,6,10],    // dominant 7 flat 5
+  'm7b5':   [0,3,6,10],    // half-diminished
+  'aug7':   [0,4,8,10],    // augmented 7
+  '7#9':    [0,4,7,10,15], // dominant 7 sharp 9
+  '7b9':    [0,4,7,10,13], // dominant 7 flat 9
+  '11':     [0,4,7,10,14,17], // dominant 11
+  '13':     [0,4,7,10,14,21], // dominant 13
+  'sus':    [0,5,7],       // alias for sus4
+  'min':    [0,3,7],       // alias for m
+  'min7':   [0,3,7,10],    // alias for m7
+};
+
+/**
+ * Parse a chord symbol into root MIDI + intervals.
+ * Returns { rootMidi, intervals } or null.
+ */
+function _chordToMidi(chordSymbol) {
+  if (!chordSymbol || chordSymbol === '/' || chordSymbol === '%' || chordSymbol === 'N.C.') return null;
+  // Handle slash chords — use the main chord, ignore bass note for voicing
+  const slashIdx = chordSymbol.indexOf('/');
+  const mainChord = slashIdx > 0 ? chordSymbol.slice(0, slashIdx) : chordSymbol;
+  const parsed = _parseChordRoot(mainChord);
+  if (!parsed) return null;
+  const rootMidi = _ROOT_MIDI[parsed.root];
+  if (rootMidi === undefined) return null;
+
+  // Match the quality suffix, trying longest match first
+  let quality = '';
+  let suffix = parsed.suffix;
+  // Normalize: remove parentheses
+  suffix = suffix.replace(/[()]/g, '');
+  // Try exact match first, then progressively shorter
+  const sortedKeys = Object.keys(_CHORD_INTERVALS).sort((a, b) => b.length - a.length);
+  for (const key of sortedKeys) {
+    if (key && suffix.startsWith(key)) { quality = key; break; }
+  }
+  // If suffix is not empty and no quality matched, use the full suffix as-is if available
+  if (!quality && suffix && _CHORD_INTERVALS[suffix]) quality = suffix;
+
+  const intervals = _CHORD_INTERVALS[quality] || _CHORD_INTERVALS[''];
+  return { rootMidi, intervals };
+}
+
+/**
+ * Build a voicing (array of MIDI notes) for a chord, applying voice leading
+ * from the previous voicing to minimize movement.
+ */
+function _buildVoicing(chordSymbol, prevVoicing) {
+  const parsed = _chordToMidi(chordSymbol);
+  if (!parsed) return prevVoicing || [60, 64, 67]; // fallback to C major
+  const { rootMidi, intervals } = parsed;
+
+  // Build root-position voicing
+  const rootPos = intervals.map(i => rootMidi + i);
+
+  if (!prevVoicing || prevVoicing.length === 0) {
+    // First chord — center around middle C area
+    return rootPos;
+  }
+
+  // Voice leading: try all inversions and pick the one closest to prevVoicing
+  const noteCount = rootPos.length;
+  const prevCenter = prevVoicing.reduce((a, b) => a + b, 0) / prevVoicing.length;
+  let bestVoicing = rootPos;
+  let bestDist = Infinity;
+
+  // Generate inversions by rotating and octave-shifting
+  for (let inv = 0; inv < noteCount; inv++) {
+    // Build this inversion
+    const voicing = [];
+    for (let j = 0; j < noteCount; j++) {
+      let note = rootPos[(j + inv) % noteCount];
+      // Shift up if needed to maintain ascending order
+      while (voicing.length > 0 && note <= voicing[voicing.length - 1]) note += 12;
+      voicing.push(note);
+    }
+    // Try in different octave positions
+    for (let octShift = -1; octShift <= 1; octShift++) {
+      const shifted = voicing.map(n => n + octShift * 12);
+      const center = shifted.reduce((a, b) => a + b, 0) / shifted.length;
+      const dist = Math.abs(center - prevCenter);
+      // Prefer voicings in a comfortable range (48-84 = C3 to C6)
+      const inRange = shifted.every(n => n >= 48 && n <= 84);
+      const penalty = inRange ? 0 : 24;
+      if (dist + penalty < bestDist) {
+        bestDist = dist + penalty;
+        bestVoicing = shifted;
+      }
+    }
+  }
+  return bestVoicing;
+}
+
+/**
+ * Play a piano-like chord using Web Audio API.
+ * Uses layered oscillators with ADSR envelope for a warm piano tone.
+ */
+function _playChord(audioCtx, voicing, time, duration, velocity = 0.5) {
+  // Layer 2 slightly detuned oscillators per note for chorus richness
+  const detuneCents = [0, 6]; // main + slightly sharp
+  const attackTime = 0.01;
+  const decayTime = 0.15;
+  const sustainLevel = 0.35 * velocity;
+  const releaseTime = Math.min(0.3, duration * 0.3);
+
+  for (const midi of voicing) {
+    const freq = _midiToFreq(midi);
+    for (const detune of detuneCents) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      // Piano-like: triangle wave through low-pass filter
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+
+      // Low-pass filter for warmth
+      filter.type = 'lowpass';
+      filter.frequency.value = Math.min(freq * 4, 8000);
+      filter.Q.value = 0.7;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      // ADSR envelope
+      const peakGain = (velocity * 0.15) / (voicing.length * detuneCents.length);
+      gain.gain.setValueAtTime(0, time);
+      gain.gain.linearRampToValueAtTime(peakGain, time + attackTime);
+      gain.gain.exponentialRampToValueAtTime(
+        Math.max(peakGain * sustainLevel, 0.0001),
+        time + attackTime + decayTime
+      );
+      // Sustain until release
+      const releaseStart = time + duration - releaseTime;
+      if (releaseStart > time + attackTime + decayTime) {
+        gain.gain.setValueAtTime(Math.max(peakGain * sustainLevel, 0.0001), releaseStart);
+      }
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+      osc.start(time);
+      osc.stop(time + duration + 0.05);
+    }
+  }
+}
+
+/**
+ * Resolve chart form into a flat sequence of bars, handling repeats + endings.
+ * Returns { bars: [{chord, sectionIdx, barIdx}], sectionMap: [...] }
+ */
+function _resolveForm(chart, loopSectionIdx = -1) {
+  const resolved = [];
+  const sections = chart.sections || [];
+
+  // If looping a specific section, only process that section
+  const sectionsToProcess = loopSectionIdx >= 0 && sections[loopSectionIdx]
+    ? [{ section: sections[loopSectionIdx], idx: loopSectionIdx }]
+    : sections.map((s, i) => ({ section: s, idx: i }));
+
+  for (const { section, idx } of sectionsToProcess) {
+    const bars = section.bars || [];
+    const repeatCount = Math.max(1, section.repeat || 1);
+    const endings = section.endings || [];
+    const ending1 = endings.find(e => e.number === 1);
+    const ending2 = endings.find(e => e.number === 2);
+
+    for (let rep = 0; rep < repeatCount; rep++) {
+      const isLastRepeat = rep === repeatCount - 1;
+
+      for (let bi = 0; bi < bars.length; bi++) {
+        const barNum = bi + 1; // 1-based for ending comparison
+
+        // Skip 1st ending bars on last repeat (use 2nd ending instead)
+        if (isLastRepeat && ending1 && ending2 && barNum >= ending1.barStart && barNum <= ending1.barEnd) {
+          continue;
+        }
+        // Skip 2nd ending bars on non-last repeats
+        if (!isLastRepeat && ending2 && barNum >= ending2.barStart && barNum <= ending2.barEnd) {
+          continue;
+        }
+
+        resolved.push({
+          chord: bars[bi].chord,
+          beats: bars[bi].beats || 4,
+          sectionIdx: idx,
+          barIdx: bi,
+        });
+      }
+    }
+  }
+
+  return resolved;
+}
+
+/**
+ * Start chord playback through the chart.
+ */
+function _startPlayback(chart, renderCallback) {
+  _stopPlayback();
+  _playbackActive = true;
+  _playbackChart = chart;
+  _playbackRenderCallback = renderCallback;
+
+  const bpm = parseInt(chart.bpm, 10) || 120;
+  const timeSig = chart.timeSig || '4/4';
+  const beatsPerMeasure = parseInt(timeSig.split('/')[0], 10) || 4;
+  const barDuration = (60 / bpm) * beatsPerMeasure; // seconds per bar
+
+  // Resolve form
+  _playbackBars = _resolveForm(chart, _loopSectionIdx);
+  if (_playbackBars.length === 0) { _stopPlayback(); return; }
+
+  _playbackBarIndex = 0;
+  _playbackLastVoicing = null;
+
+  // Create or resume AudioContext
+  if (!_playbackAudioCtx || _playbackAudioCtx.state === 'closed') {
+    _playbackAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_playbackAudioCtx.state === 'suspended') {
+    _playbackAudioCtx.resume();
+  }
+
+  // Also start metronome clicks if not muted
+  if (!_playbackMuteMetro) {
+    if (!_metronomeAudioCtx || _metronomeAudioCtx.state === 'closed') {
+      _metronomeAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_metronomeAudioCtx.state === 'suspended') {
+      _metronomeAudioCtx.resume();
+    }
+  }
+
+  _playbackNextTime = _playbackAudioCtx.currentTime + 0.05;
+  let _metroBeatNext = _playbackNextTime;
+  let _metroBeatCount = 0;
+  const beatInterval = 60 / bpm;
+
+  function scheduler() {
+    if (!_playbackActive) return;
+
+    // Schedule chord bars
+    while (_playbackBarIndex < _playbackBars.length && _playbackNextTime < _playbackAudioCtx.currentTime + 0.2) {
+      const bar = _playbackBars[_playbackBarIndex];
+
+      // Build voicing with voice leading
+      const voicing = _buildVoicing(bar.chord, _playbackLastVoicing);
+      if (bar.chord && bar.chord !== '/' && bar.chord !== '%' && bar.chord !== 'N.C.') {
+        _playChord(_playbackAudioCtx, voicing, _playbackNextTime, barDuration * 0.95);
+        _playbackLastVoicing = voicing;
+      }
+
+      // Schedule visual playhead update
+      const barTime = _playbackNextTime;
+      const barIdx = bar.barIdx;
+      const sectionIdx = bar.sectionIdx;
+      const delay = (barTime - _playbackAudioCtx.currentTime) * 1000;
+      setTimeout(() => {
+        _updatePlayhead(sectionIdx, barIdx);
+      }, Math.max(0, delay));
+
+      _playbackBarIndex++;
+      _playbackNextTime += barDuration;
+    }
+
+    // Schedule metronome clicks alongside playback
+    if (!_playbackMuteMetro && _metronomeAudioCtx) {
+      while (_metroBeatNext < _playbackAudioCtx.currentTime + 0.2) {
+        if (_metroBeatNext >= _playbackAudioCtx.currentTime - 0.01) {
+          const isAccent = (_metroBeatCount % beatsPerMeasure) === 0;
+          _playClick(_metronomeAudioCtx, _metroBeatNext, isAccent);
+        }
+        _metroBeatCount++;
+        _metroBeatNext += beatInterval;
+      }
+    }
+
+    // Check if playback complete
+    if (_playbackBarIndex >= _playbackBars.length) {
+      if (_loopSectionIdx >= 0) {
+        // Loop: reset bar index
+        _playbackBarIndex = 0;
+        _playbackBars = _resolveForm(chart, _loopSectionIdx);
+      } else {
+        // End of chart — schedule stop after last bar finishes
+        const endTime = _playbackNextTime;
+        const stopDelay = (endTime - _playbackAudioCtx.currentTime) * 1000;
+        setTimeout(() => {
+          _stopPlayback();
+          if (_playbackRenderCallback) _playbackRenderCallback();
+        }, Math.max(0, stopDelay));
+        clearInterval(_playbackTimerId);
+        _playbackTimerId = null;
+        return;
+      }
+    }
+  }
+
+  _playbackTimerId = setInterval(scheduler, 25);
+  scheduler();
+}
+
+function _stopPlayback() {
+  _playbackActive = false;
+  if (_playbackTimerId) {
+    clearInterval(_playbackTimerId);
+    _playbackTimerId = null;
+  }
+  _playbackBarIndex = 0;
+  _playbackBars = [];
+  _playbackLastVoicing = null;
+  _clearPlayhead();
+}
+
+function _updatePlayhead(sectionIdx, barIdx) {
+  _clearPlayhead();
+  const container = document.getElementById('wc-sections-container');
+  if (!container) return;
+  const sections = container.querySelectorAll('.wc-section:not(.wc-section-condensed)');
+  if (sections[sectionIdx]) {
+    const bars = sections[sectionIdx].querySelectorAll('.wc-bar');
+    if (bars[barIdx]) {
+      bars[barIdx].classList.add('wc-bar-playing');
+      // Scroll into view if needed
+      bars[barIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+}
+
+function _clearPlayhead() {
+  document.querySelectorAll('.wc-bar-playing').forEach(el => el.classList.remove('wc-bar-playing'));
+}
+
+function _toggleLoopSection(sectionIdx, chart, renderCallback) {
+  if (_loopSectionIdx === sectionIdx) {
+    // Exit loop
+    _loopSectionIdx = -1;
+    if (_playbackActive) {
+      _stopPlayback();
+    }
+  } else {
+    // Enter loop on this section
+    _loopSectionIdx = sectionIdx;
+    // Start (or restart) playback in loop mode
+    _startPlayback(chart, renderCallback);
+  }
+  if (renderCallback) renderCallback();
 }
 
 // ─── Chord diagram popup ────────────────────────────────────
@@ -782,7 +1544,7 @@ function _renderChordSVG(name, diagram) {
 
 // ─── Clipboard export ───────────────────────────────────────
 
-async function _copyToClipboard(chart, transposeSemitones) {
+async function _exportToClipboard(chart, transposeSemitones, fmt) {
   let exportChart = chart;
   if (transposeSemitones !== 0) {
     const useFlats = FLAT_KEYS.has(chart.key || 'C');
@@ -792,12 +1554,16 @@ async function _copyToClipboard(chart, transposeSemitones) {
       sections: (chart.sections || []).map(s => _transposeSection(s, transposeSemitones, useFlats)),
     };
   }
-  const text = _exportAscii(exportChart);
+  const formatLabels = { ascii: 'ASCII', chordpro: 'ChordPro', condensed: 'Condensed' };
+  let text;
+  if (fmt === 'chordpro') text = _exportChordPro(exportChart);
+  else if (fmt === 'condensed') text = _exportCondensed(exportChart);
+  else text = _exportAscii(exportChart);
+
   try {
     await navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard.');
+    showToast(`${formatLabels[fmt] || 'Chart'} copied to clipboard.`);
   } catch (_) {
-    // Fallback
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.cssText = 'position:fixed;left:-9999px';
@@ -805,8 +1571,13 @@ async function _copyToClipboard(chart, transposeSemitones) {
     ta.select();
     document.execCommand('copy');
     ta.remove();
-    showToast('Copied to clipboard.');
+    showToast(`${formatLabels[fmt] || 'Chart'} copied to clipboard.`);
   }
+}
+
+// Keep legacy alias for any external callers
+async function _copyToClipboard(chart, transposeSemitones) {
+  return _exportToClipboard(chart, transposeSemitones, 'ascii');
 }
 
 // ─── Duplicate ──────────────────────────────────────────────
@@ -925,6 +1696,7 @@ function _renderCreateEdit(chart, opts) {
       sections: [],
       structureTag: '',
       notes: '',
+      referenceLinks: [],
       versions: [],
       createdBy: user ? user.id : 'unknown',
       createdAt: new Date().toISOString(),
@@ -1038,6 +1810,27 @@ function _renderCreateEdit(chart, opts) {
       </div>
     `;
 
+    // Reference Links
+    if (!editChart.referenceLinks) editChart.referenceLinks = [];
+    html += `<div class="form-field">
+      <label class="form-label">Reference Links</label>
+      <div class="wc-ref-links-edit" id="wce-ref-links">`;
+    editChart.referenceLinks.forEach((link, li) => {
+      html += `<div class="wc-ref-link-edit">
+        <input class="form-input wc-ref-link-label-input" data-li="${li}" type="text" value="${esc(link.label || '')}" placeholder="Label" maxlength="100" />
+        <input class="form-input wc-ref-link-url-input" data-li="${li}" type="url" value="${esc(link.url || '')}" placeholder="https://..." maxlength="500" />
+        <select class="form-input wc-select wc-ref-link-type-select" data-li="${li}">
+          ${['spotify', 'apple', 'youtube', 'other'].map(t => `<option value="${t}" ${link.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <button class="icon-btn wc-ref-link-delete" data-li="${li}" title="Remove link"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+      </div>`;
+    });
+    html += `</div>`;
+    if (editChart.referenceLinks.length < 5) {
+      html += `<button class="btn-ghost" id="wce-add-ref-link" style="margin-top:4px">+ Add Link</button>`;
+    }
+    html += `</div>`;
+
     // Actions
     html += `<div class="wc-edit-actions">
       <button class="btn-secondary" id="wce-cancel">Cancel</button>
@@ -1096,6 +1889,41 @@ function _renderCreateEdit(chart, opts) {
 
     // Wire section editors (wrap rerender to sync form first)
     _wireSectionEditors(container, editChart, () => { _syncFormToModel(); _renderForm(); });
+
+    // Wire reference link editors
+    container.querySelectorAll('.wc-ref-link-label-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const li = parseInt(input.dataset.li, 10);
+        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].label = input.value;
+      });
+    });
+    container.querySelectorAll('.wc-ref-link-url-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const li = parseInt(input.dataset.li, 10);
+        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].url = input.value;
+      });
+    });
+    container.querySelectorAll('.wc-ref-link-type-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const li = parseInt(sel.dataset.li, 10);
+        if (editChart.referenceLinks[li]) editChart.referenceLinks[li].type = sel.value;
+      });
+    });
+    container.querySelectorAll('.wc-ref-link-delete').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const li = parseInt(btn.dataset.li, 10);
+        editChart.referenceLinks.splice(li, 1);
+        _syncFormToModel();
+        _renderForm();
+      });
+    });
+    container.querySelector('#wce-add-ref-link')?.addEventListener('click', () => {
+      _syncFormToModel();
+      if (!editChart.referenceLinks) editChart.referenceLinks = [];
+      if (editChart.referenceLinks.length >= 5) { showToast('Maximum 5 links allowed.'); return; }
+      editChart.referenceLinks.push({ label: '', url: '', type: 'other' });
+      _renderForm();
+    });
 
     // Wire save/cancel
     container.querySelector('#wce-cancel')?.addEventListener('click', () => {
@@ -1176,6 +2004,30 @@ function _renderSectionEditor(section, si) {
       </div>`;
     });
     html += `</div>`;
+  }
+
+  // Endings (1st / 2nd)
+  const endings = section.endings || [];
+  if (endings.length) {
+    html += `<div class="wc-endings-edit">`;
+    endings.forEach((ending, ei) => {
+      const barMax = (section.bars || []).length;
+      html += `<div class="wc-ending-edit">
+        <span class="wc-ending-edit-label">${ending.number === 1 ? '1st' : '2nd'}:</span>
+        <label class="wc-ctrl-label">from bar</label>
+        <input class="form-input wc-ending-start" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barStart || 1}" min="1" max="${barMax}" />
+        <label class="wc-ctrl-label">to bar</label>
+        <input class="form-input wc-ending-end" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barEnd || barMax}" min="1" max="${barMax}" />
+        <button class="icon-btn wc-ending-delete" data-si="${si}" data-ei="${ei}" title="Remove ending"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  if (endings.length < 2) {
+    const nextNum = endings.length === 0 ? 1 : (endings.some(e => e.number === 1) ? 2 : 1);
+    html += `<div class="wc-bar-actions" style="margin-top:4px">
+      <button class="btn-ghost wc-add-ending" data-si="${si}" data-num="${nextNum}">+ ${nextNum === 1 ? '1st' : '2nd'} Ending</button>
+    </div>`;
   }
 
   html += `</div>`;
@@ -1303,6 +2155,63 @@ function _wireSectionEditors(container, editChart, rerender) {
       const ci = parseInt(btn.dataset.ci, 10);
       if (editChart.sections[si]?.cues) {
         editChart.sections[si].cues.splice(ci, 1);
+        rerender();
+      }
+    });
+  });
+
+  // Ending start bar
+  container.querySelectorAll('.wc-ending-start').forEach(input => {
+    input.addEventListener('input', () => {
+      const si = parseInt(input.dataset.si, 10);
+      const ei = parseInt(input.dataset.ei, 10);
+      const val = parseInt(input.value, 10);
+      if (editChart.sections[si]?.endings?.[ei] && val > 0) {
+        editChart.sections[si].endings[ei].barStart = val;
+      }
+    });
+  });
+
+  // Ending end bar
+  container.querySelectorAll('.wc-ending-end').forEach(input => {
+    input.addEventListener('input', () => {
+      const si = parseInt(input.dataset.si, 10);
+      const ei = parseInt(input.dataset.ei, 10);
+      const val = parseInt(input.value, 10);
+      if (editChart.sections[si]?.endings?.[ei] && val > 0) {
+        editChart.sections[si].endings[ei].barEnd = val;
+      }
+    });
+  });
+
+  // Delete ending
+  container.querySelectorAll('.wc-ending-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const si = parseInt(btn.dataset.si, 10);
+      const ei = parseInt(btn.dataset.ei, 10);
+      if (editChart.sections[si]?.endings) {
+        editChart.sections[si].endings.splice(ei, 1);
+        rerender();
+      }
+    });
+  });
+
+  // Add ending
+  container.querySelectorAll('.wc-add-ending').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const si = parseInt(btn.dataset.si, 10);
+      const num = parseInt(btn.dataset.num, 10);
+      if (editChart.sections[si]) {
+        if (!editChart.sections[si].endings) editChart.sections[si].endings = [];
+        if (editChart.sections[si].endings.length >= 2) return;
+        const barCount = (editChart.sections[si].bars || []).length;
+        editChart.sections[si].endings.push({
+          number: num,
+          barStart: Math.max(1, barCount - 1),
+          barEnd: barCount,
+        });
+        // Sort so 1st always comes before 2nd
+        editChart.sections[si].endings.sort((a, b) => a.number - b.number);
         rerender();
       }
     });
@@ -1480,9 +2389,12 @@ Router.register('wikichart-detail', (route) => {
   renderWikiChartsList();
 });
 
-// ─── Cleanup hook (stop auto-scroll when navigating away) ───
+// ─── Cleanup hook (stop auto-scroll + metronome when navigating away) ───
 Router.registerHook('cleanupWikiCharts', () => {
   _stopAutoScroll();
+  _stopMetronome();
+  _stopPlayback();
+  _loopSectionIdx = -1;
 });
 
 // ─── Public API ─────────────────────────────────────────────

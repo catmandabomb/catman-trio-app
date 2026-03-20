@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.20';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.20';
-import * as Modal from './modal.js?v=20.20';
-import * as Router from './router.js?v=20.20';
-import * as Admin from '../admin.js?v=20.20';
-import * as Auth from '../auth.js?v=20.20';
-import * as Sync from './sync.js?v=20.20';
-import * as Drive from '../drive.js?v=20.20';
-import * as GitHub from '../github.js?v=20.20';
-import * as Player from '../player.js?v=20.20';
-import * as PDFViewer from '../pdf-viewer.js?v=20.20';
-import * as Metronome from '../metronome.js?v=20.20';
-import * as App from '../app.js?v=20.20';
-import * as Setlists from './setlists.js?v=20.20';
-import * as Practice from './practice.js?v=20.20';
-import * as Dashboard from './dashboard.js?v=20.20';
-import * as IDB from '../idb.js?v=20.20';
+import * as Store from './store.js?v=20.21';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.21';
+import * as Modal from './modal.js?v=20.21';
+import * as Router from './router.js?v=20.21';
+import * as Admin from '../admin.js?v=20.21';
+import * as Auth from '../auth.js?v=20.21';
+import * as Sync from './sync.js?v=20.21';
+import * as Drive from '../drive.js?v=20.21';
+import * as GitHub from '../github.js?v=20.21';
+import * as Player from '../player.js?v=20.21';
+import * as PDFViewer from '../pdf-viewer.js?v=20.21';
+import * as Metronome from '../metronome.js?v=20.21';
+import * as App from '../app.js?v=20.21';
+import * as Setlists from './setlists.js?v=20.21';
+import * as Practice from './practice.js?v=20.21';
+import * as Dashboard from './dashboard.js?v=20.21';
+import * as IDB from '../idb.js?v=20.21';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -50,10 +50,14 @@ let _lastListFingerprint = '';
 let _lastTagBarFP = '';
 let _lastKeyBarFP = '';
 
+// ─── Sort mode ────────────────────────────────────────────
+let _sortMode = 'title'; // 'title' | 'difficulty'
+
 // ─── Memoized filtering helpers ───────────────────────────
 // Invalidated when songs data changes (tracked by _songsTs)
 let _songsTs = 0;
 let _cachedSortedSongs = null;
+let _cachedSortMode = 'title';
 let _cachedAllTags = null;
 let _cachedAllKeys = null;
 
@@ -70,8 +74,9 @@ function _getSongsTs() {
 
 function _invalidateCache() {
   const ts = _getSongsTs();
-  if (ts !== _songsTs) {
+  if (ts !== _songsTs || _cachedSortMode !== _sortMode) {
     _songsTs = ts;
+    _cachedSortMode = _sortMode;
     _cachedSortedSongs = null;
     _cachedAllTags = null;
     _cachedAllKeys = null;
@@ -81,7 +86,18 @@ function _invalidateCache() {
 function _sortedSongs() {
   _invalidateCache();
   if (!_cachedSortedSongs) {
-    _cachedSortedSongs = [...Store.get('songs')].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    const songs = [...Store.get('songs')];
+    if (_sortMode === 'difficulty') {
+      songs.sort((a, b) => {
+        const da = a.difficulty || 0;
+        const db = b.difficulty || 0;
+        if (db !== da) return db - da; // highest difficulty first
+        return (a.title || '').localeCompare(b.title || '');
+      });
+    } else {
+      songs.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    }
+    _cachedSortedSongs = songs;
   }
   return _cachedSortedSongs;
 }
@@ -219,6 +235,27 @@ function renderList(force) {
   const scBtn = document.getElementById('search-clear');
   if (scBtn) scBtn.classList.toggle('hidden', !hasActiveFilters);
 
+  // Sort toggle button
+  const sortBtn = document.getElementById('btn-sort-toggle');
+  if (sortBtn) {
+    sortBtn.title = _sortMode === 'difficulty' ? 'Sort: Difficulty' : 'Sort: A-Z';
+    // Update icon based on mode
+    const sortIcon = sortBtn.querySelector('i[data-lucide]');
+    if (sortIcon) {
+      sortIcon.setAttribute('data-lucide', _sortMode === 'difficulty' ? 'gauge' : 'arrow-down-a-z');
+      if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [sortBtn] });
+    }
+    if (!sortBtn.dataset.wired) {
+      sortBtn.dataset.wired = '1';
+      sortBtn.addEventListener('click', () => {
+        _sortMode = _sortMode === 'title' ? 'difficulty' : 'title';
+        _cachedSortedSongs = null;
+        _lastListFingerprint = '';
+        renderList(true);
+      });
+    }
+  }
+
   // Key filter bar
   const allK = allKeys();
   const pinnedKeys = activeKeys.filter(k => allK.includes(k));
@@ -312,7 +349,7 @@ function renderList(force) {
 
   // Card fingerprint: determines if content needs updating
   function _cardFP(song) {
-    return (song._ts || 0) + '|' + (editMode ? '1' : '0') + '|' + (selectionMode ? '1' : '0') + '|' + (searchText || '');
+    return (song._ts || 0) + '|' + (editMode ? '1' : '0') + '|' + (selectionMode ? '1' : '0') + '|' + (searchText || '') + '|' + (song.difficulty || 0);
   }
 
   filtered.forEach((song, i) => {
@@ -453,11 +490,13 @@ function _songCardHTML(song) {
   const bpmHtml = bpmStr ? `<span class="song-card-bpm">${bpmStr}</span>` : '';
 
   const editIcon = Admin.isEditMode() ? '<button class="song-card-edit-btn" aria-label="Edit song"><i data-lucide="pencil"></i></button>' : '';
+  const diffBadge = song.difficulty ? `<span class="song-difficulty-badge" data-diff="${song.difficulty}" title="Difficulty ${song.difficulty}/5">${song.difficulty}</span>` : '';
 
   return `
     <div class="song-card-title-row"><span class="song-card-title">${highlight(song.title, q) || '<em style="color:var(--text-3)">Untitled</em>'}</span>${editIcon}</div>
     ${song.subtitle ? `<span class="song-card-subtitle">${highlight(song.subtitle, q)}</span>` : ''}
     <div class="song-card-meta">
+      ${diffBadge}
       <span class="song-card-key">${highlight(song.key, q)}</span>
       ${bpmHtml}
     </div>
@@ -981,6 +1020,7 @@ function _buildDetailHTML(song) {
         ${song.key ? `<div class="detail-meta-item"><span class="detail-meta-label">Key</span><span class="detail-meta-value">${esc(song.key)}</span></div>` : ''}
         ${song.bpm ? `<div class="detail-meta-item"><span class="detail-meta-label">BPM</span><span class="detail-meta-value">${esc(String(song.bpm))}</span></div>` : ''}
         ${song.timeSig ? `<div class="detail-meta-item"><span class="detail-meta-label">Time</span><span class="detail-meta-value">${esc(song.timeSig)}</span></div>` : ''}
+        ${song.difficulty ? `<div class="detail-meta-item"><span class="detail-meta-label">Difficulty</span><span class="detail-meta-value"><span class="song-difficulty-badge" data-diff="${song.difficulty}">${song.difficulty}</span></span></div>` : ''}
       </div>
     </div>
     `;
@@ -1188,6 +1228,13 @@ function _buildEditHTML(song, isNew) {
           <input class="form-input" id="ef-timesig" type="text" value="${esc(song.timeSig||'')}" placeholder="4/4" />
         </div>
       </div>
+      <div class="form-field">
+        <label class="form-label">Difficulty</label>
+        <div class="difficulty-picker" id="ef-difficulty">
+          ${[1,2,3,4,5].map(n => `<button type="button" class="difficulty-picker-btn${song.difficulty === n ? ' active' : ''}" data-diff="${n}">${n}</button>`).join('')}
+          <button type="button" class="difficulty-picker-clear" id="ef-diff-clear">Clear</button>
+        </div>
+      </div>
     </div>
 
     <div class="edit-section">
@@ -1269,6 +1316,25 @@ function _wireEditForm() {
   _editDirtyTracker = createDirtyTracker();
   const editContainer = document.getElementById('edit-content');
   if (editContainer) trackFormInputs(editContainer, _editDirtyTracker);
+
+  // Difficulty picker
+  const diffPicker = document.getElementById('ef-difficulty');
+  if (diffPicker) {
+    diffPicker.querySelectorAll('.difficulty-picker-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = parseInt(btn.dataset.diff);
+        song.difficulty = (song.difficulty === val) ? null : val;
+        diffPicker.querySelectorAll('.difficulty-picker-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.diff) === song.difficulty));
+        if (_editDirtyTracker) _editDirtyTracker.markDirty();
+      });
+    });
+    const diffClear = document.getElementById('ef-diff-clear');
+    if (diffClear) diffClear.addEventListener('click', () => {
+      song.difficulty = null;
+      diffPicker.querySelectorAll('.difficulty-picker-btn').forEach(b => b.classList.remove('active'));
+      if (_editDirtyTracker) _editDirtyTracker.markDirty();
+    });
+  }
 
   // Duplicate detection on title input
   const titleInput = document.getElementById('ef-title');
