@@ -8,14 +8,14 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.19';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.19';
-import * as GitHub from '../github.js?v=20.19';
-import * as Drive from '../drive.js?v=20.19';
-import * as Router from './router.js?v=20.19';
-import * as IDB from '../idb.js?v=20.19';
-import * as Auth from '../auth.js?v=20.19';
-import * as Admin from '../admin.js?v=20.19';
+import * as Store from './store.js?v=20.20';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.20';
+import * as GitHub from '../github.js?v=20.20';
+import * as Drive from '../drive.js?v=20.20';
+import * as Router from './router.js?v=20.20';
+import * as IDB from '../idb.js?v=20.20';
+import * as Auth from '../auth.js?v=20.20';
+import * as Admin from '../admin.js?v=20.20';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't

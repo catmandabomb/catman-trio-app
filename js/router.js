@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.19';
-import * as Player from '../player.js?v=20.19';
-import * as Metronome from '../metronome.js?v=20.19';
+import * as Store from './store.js?v=20.20';
+import * as Player from '../player.js?v=20.20';
+import * as Metronome from '../metronome.js?v=20.20';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.19');
+  if (!_App) _App = import('../app.js?v=20.20');
   return _App;
 }
 

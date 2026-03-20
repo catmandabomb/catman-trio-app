@@ -2,23 +2,23 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.19';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.19';
-import * as Modal from './js/modal.js?v=20.19';
-import * as Router from './js/router.js?v=20.19';
-import * as Sync from './js/sync.js?v=20.19';
-import * as Drive from './drive.js?v=20.19';
-import * as GitHub from './github.js?v=20.19';
-import * as Admin from './admin.js?v=20.19';
-import * as Auth from './auth.js?v=20.19';
-import * as Player from './player.js?v=20.19';
-import * as Songs from './js/songs.js?v=20.19';
-import * as Setlists from './js/setlists.js?v=20.19';
-import * as Practice from './js/practice.js?v=20.19';
-import * as Dashboard from './js/dashboard.js?v=20.19';
-import * as Migrate from './js/migrate.js?v=20.19';
-import * as WikiCharts from './js/wikicharts.js?v=20.19';
-import * as IDB from './idb.js?v=20.19';
+import * as Store from './js/store.js?v=20.20';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.20';
+import * as Modal from './js/modal.js?v=20.20';
+import * as Router from './js/router.js?v=20.20';
+import * as Sync from './js/sync.js?v=20.20';
+import * as Drive from './drive.js?v=20.20';
+import * as GitHub from './github.js?v=20.20';
+import * as Admin from './admin.js?v=20.20';
+import * as Auth from './auth.js?v=20.20';
+import * as Player from './player.js?v=20.20';
+import * as Songs from './js/songs.js?v=20.20';
+import * as Setlists from './js/setlists.js?v=20.20';
+import * as Practice from './js/practice.js?v=20.20';
+import * as Dashboard from './js/dashboard.js?v=20.20';
+import * as Migrate from './js/migrate.js?v=20.20';
+import * as WikiCharts from './js/wikicharts.js?v=20.20';
+import * as IDB from './idb.js?v=20.20';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -835,6 +835,7 @@ let _cachedPdfSet = new Set();
   function renderSettings() {
     if (!Auth.isLoggedIn()) { showToast('Sign in to access settings'); Songs.renderList(); return; }
     Router.pushNav(() => renderAccount());
+    Store.set('skipViewTransition', true);
     Router.showView('settings');
     Router.setTopbar('Settings', true);
 

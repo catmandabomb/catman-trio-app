@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.19';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.19';
-import * as Modal from './modal.js?v=20.19';
-import * as Router from './router.js?v=20.19';
-import * as Sync from './sync.js?v=20.19';
-import * as Drive from '../drive.js?v=20.19';
-import * as GitHub from '../github.js?v=20.19';
-import * as Admin from '../admin.js?v=20.19';
-import * as Auth from '../auth.js?v=20.19';
-import * as Player from '../player.js?v=20.19';
-import * as Metronome from '../metronome.js?v=20.19';
-import * as PDFViewer from '../pdf-viewer.js?v=20.19';
-import * as App from '../app.js?v=20.19';
+import * as Store from './store.js?v=20.20';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.20';
+import * as Modal from './modal.js?v=20.20';
+import * as Router from './router.js?v=20.20';
+import * as Sync from './sync.js?v=20.20';
+import * as Drive from '../drive.js?v=20.20';
+import * as GitHub from '../github.js?v=20.20';
+import * as Admin from '../admin.js?v=20.20';
+import * as Auth from '../auth.js?v=20.20';
+import * as Player from '../player.js?v=20.20';
+import * as Metronome from '../metronome.js?v=20.20';
+import * as PDFViewer from '../pdf-viewer.js?v=20.20';
+import * as App from '../app.js?v=20.20';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -765,7 +765,8 @@ function _renderPracticeListEdit(practiceList, isNew) {
   _editPracticeList = deepClone(practiceList);
   _editPracticeListIsNew = isNew;
 
-  _pushNav(() => renderPracticeListDetail(practiceList));
+  // New list: back goes to practice list; existing list: back goes to list detail
+  _pushNav(isNew ? () => renderPractice(true) : () => renderPracticeListDetail(practiceList));
   _showView('practice-edit');
   _setTopbar(isNew ? 'New Practice List' : 'Edit Practice List', true);
 

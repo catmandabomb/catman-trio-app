@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.19';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.19';
-import * as Modal from './modal.js?v=20.19';
-import * as Router from './router.js?v=20.19';
-import * as Admin from '../admin.js?v=20.19';
-import * as Auth from '../auth.js?v=20.19';
-import * as GitHub from '../github.js?v=20.19';
-import * as Drive from '../drive.js?v=20.19';
-import * as Sync from './sync.js?v=20.19';
-import * as App from '../app.js?v=20.19';
-import * as IDB from '../idb.js?v=20.19';
+import * as Store from './store.js?v=20.20';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.20';
+import * as Modal from './modal.js?v=20.20';
+import * as Router from './router.js?v=20.20';
+import * as Admin from '../admin.js?v=20.20';
+import * as Auth from '../auth.js?v=20.20';
+import * as GitHub from '../github.js?v=20.20';
+import * as Drive from '../drive.js?v=20.20';
+import * as Sync from './sync.js?v=20.20';
+import * as App from '../app.js?v=20.20';
+import * as IDB from '../idb.js?v=20.20';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -1289,8 +1289,9 @@ async function _runFileMigration(token) {
 
 // ─── Tag Manager (subpage) ──────────────────────────────
 
-function renderTagManager() {
-  Router.pushNav(() => renderDashboard());
+function renderTagManager(skipNavPush) {
+  if (!skipNavPush) Router.pushNav(() => renderDashboard());
+  Store.set('skipViewTransition', true);
   Router.showView('dashboard');
   Router.setTopbar('Tag Manager', true);
   document.querySelector('#dash-topbar-actions')?.remove();
@@ -1354,7 +1355,7 @@ function renderTagManager() {
 
       async function doRename() {
         const newTag = input.value.trim();
-        if (!newTag || newTag === oldTag) { renderTagManager(); return; }
+        if (!newTag || newTag === oldTag) { renderTagManager(true); return; }
         const currentSongs = Store.get('songs');
         let changed = 0;
         currentSongs.forEach(s => {
@@ -1372,13 +1373,13 @@ function renderTagManager() {
           await Sync.saveSongs();
           showToast('Renamed "' + oldTag + '" to "' + newTag + '" in ' + changed + ' song' + (changed !== 1 ? 's' : ''));
         }
-        renderTagManager();
+        renderTagManager(true);
       }
 
       confirmBtn.addEventListener('click', doRename);
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') doRename();
-        if (e.key === 'Escape') renderTagManager();
+        if (e.key === 'Escape') renderTagManager(true);
       });
     });
   });
@@ -1404,7 +1405,7 @@ function renderTagManager() {
           await Sync.saveSongs();
           showToast('Removed "' + tag + '" from ' + changed + ' song' + (changed !== 1 ? 's' : ''));
         }
-        renderTagManager();
+        renderTagManager(true);
       });
     });
   });
@@ -1412,12 +1413,13 @@ function renderTagManager() {
 
 // ─── User Management (subpage) ─────────────────────────────
 
-async function renderUserManagement() {
+async function renderUserManagement(skipNavPush) {
   if (!Auth.canManageUsers()) {
     showToast('Access denied');
     return;
   }
-  Router.pushNav(() => renderDashboard());
+  if (!skipNavPush) Router.pushNav(() => renderDashboard());
+  Store.set('skipViewTransition', true);
   Router.showView('dashboard');
   Router.setTopbar('User Management', true);
   document.querySelector('#dash-topbar-actions')?.remove();
@@ -1498,7 +1500,7 @@ async function renderUserManagement() {
           try {
             await Auth.deleteExistingUser(userId);
             showToast(`User "${username}" deleted`);
-            renderUserManagement();
+            renderUserManagement(true);
           } catch (e) {
             showToast('Delete failed: ' + (e.message || 'unknown error'));
           }
@@ -1605,7 +1607,7 @@ function _showAddUserModal() {
       await Auth.createNewUser({ username, password, displayName, email, role });
       handle.hide();
       showToast(`User "${username}" created`);
-      renderUserManagement();
+      renderUserManagement(true);
     } catch (e) {
       showToast('Create failed: ' + (e.message || 'unknown error'));
       btn.disabled = false;
@@ -1695,7 +1697,7 @@ async function _showEditUserModal(userId) {
       await Auth.updateExistingUser(userId, updates);
       handle.hide();
       showToast('User updated');
-      renderUserManagement();
+      renderUserManagement(true);
     } catch (e) {
       showToast('Update failed: ' + (e.message || 'unknown error'));
       btn.disabled = false;
