@@ -1545,6 +1545,86 @@ export default {
       return respond(await AppData.reviewSongSuggestion(env, suggestReviewMatch[2], currentUser, body));
     }
 
+    // ─── /orchestras/:id/messages — Member-to-conductr messaging ──
+
+    const orchMessagesMatch = path.match(/^\/orchestras\/([^/]+)\/messages$/);
+    if (orchMessagesMatch) {
+      const orchId = orchMessagesMatch[1];
+      // Verify membership (guests blocked)
+      if (currentUser.role === 'guest') return respond(json({ error: 'Guests cannot access messages' }, 403));
+
+      if (method === 'GET') {
+        const filters = {
+          status: url.searchParams.get('status') || 'open',
+          category: url.searchParams.get('category') || 'all',
+          countOnly: url.searchParams.get('count_only') === 'true',
+        };
+        return respond(await AppData.listMessages(env, orchId, currentUser, filters));
+      }
+      if (method === 'POST') {
+        const body = await parseBody(request);
+        const result = await AppData.createMessage(env, orchId, currentUser, body);
+
+        // Push notification to conductr (best-effort)
+        if (result.status === 201) {
+          try {
+            const orch = await env.DB.prepare('SELECT conductr_id FROM orchestras WHERE id = ?').bind(orchId).first();
+            if (orch?.conductr_id && orch.conductr_id !== currentUser.userId) {
+              const subs = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?').bind(orch.conductr_id).all();
+              const payload = JSON.stringify({ title: `Message from ${currentUser.username}`, body: (body.subject || '').substring(0, 100), icon: '/img/icon-192.png', tag: 'msg-new', url: '/#messages' });
+              for (const sub of (subs.results || [])) {
+                _sendWebPush(env, { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload).catch(() => {});
+              }
+            }
+          } catch (_) {}
+        }
+        return respond(result);
+      }
+    }
+
+    // GET /orchestras/:id/messages/:msgId — get thread
+    const orchMsgDetailMatch = path.match(/^\/orchestras\/([^/]+)\/messages\/([^/]+)$/);
+    if (orchMsgDetailMatch && method === 'GET') {
+      if (currentUser.role === 'guest') return respond(json({ error: 'Permission denied' }, 403));
+      return respond(await AppData.getMessageThread(env, orchMsgDetailMatch[1], orchMsgDetailMatch[2], currentUser));
+    }
+    // DELETE /orchestras/:id/messages/:msgId
+    if (orchMsgDetailMatch && method === 'DELETE') {
+      if (!AppData.canWriteData(currentUser, orchMsgDetailMatch[1])) return respond(json({ error: 'Permission denied' }, 403));
+      return respond(await AppData.deleteMessage(env, orchMsgDetailMatch[1], orchMsgDetailMatch[2], currentUser));
+    }
+
+    // POST /orchestras/:id/messages/:msgId/reply
+    const orchMsgReplyMatch = path.match(/^\/orchestras\/([^/]+)\/messages\/([^/]+)\/reply$/);
+    if (orchMsgReplyMatch && method === 'POST') {
+      if (currentUser.role === 'guest') return respond(json({ error: 'Permission denied' }, 403));
+      const body = await parseBody(request);
+      const result = await AppData.replyToMessage(env, orchMsgReplyMatch[1], orchMsgReplyMatch[2], currentUser, body);
+
+      // Push notification to original sender (best-effort)
+      if (result.status === 201) {
+        try {
+          const parent = await env.DB.prepare('SELECT sender_id FROM orchestra_messages WHERE id = ?').bind(orchMsgReplyMatch[2]).first();
+          if (parent?.sender_id && parent.sender_id !== currentUser.userId) {
+            const subs = await env.DB.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?').bind(parent.sender_id).all();
+            const payload = JSON.stringify({ title: `Reply from ${currentUser.username}`, body: (body.body || '').substring(0, 100), icon: '/img/icon-192.png', tag: 'msg-reply', url: '/#messages' });
+            for (const sub of (subs.results || [])) {
+              _sendWebPush(env, { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload).catch(() => {});
+            }
+          }
+        } catch (_) {}
+      }
+      return respond(result);
+    }
+
+    // POST /orchestras/:id/messages/:msgId/status
+    const orchMsgStatusMatch = path.match(/^\/orchestras\/([^/]+)\/messages\/([^/]+)\/status$/);
+    if (orchMsgStatusMatch && method === 'POST') {
+      if (!AppData.canWriteData(currentUser, orchMsgStatusMatch[1])) return respond(json({ error: 'Permission denied' }, 403));
+      const body = await parseBody(request);
+      return respond(await AppData.updateMessageStatus(env, orchMsgStatusMatch[1], orchMsgStatusMatch[2], currentUser, body));
+    }
+
     // ─── PUT /users/me/orchestra — switch active orchestra ──
     if (path === '/users/me/orchestra' && method === 'PUT') {
       const body = await parseBody(request);

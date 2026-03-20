@@ -29,6 +29,7 @@ const testFiles = [
   './modal.test.js',
   './songs.test.js',
   './practice.test.js',
+  './messages.test.js',
 ];
 
 for (const f of testFiles) {

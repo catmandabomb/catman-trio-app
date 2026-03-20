@@ -2,25 +2,26 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.28';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.28';
-import * as Modal from './js/modal.js?v=20.28';
-import * as Router from './js/router.js?v=20.28';
-import * as Sync from './js/sync.js?v=20.28';
-import * as Drive from './drive.js?v=20.28';
-import * as GitHub from './github.js?v=20.28';
-import * as Admin from './admin.js?v=20.28';
-import * as Auth from './auth.js?v=20.28';
-import * as Player from './player.js?v=20.28';
-import * as Songs from './js/songs.js?v=20.28';
-import * as Setlists from './js/setlists.js?v=20.28';
-import * as Practice from './js/practice.js?v=20.28';
-import * as Dashboard from './js/dashboard.js?v=20.28';
-import * as Migrate from './js/migrate.js?v=20.28';
-import * as WikiCharts from './js/wikicharts.js?v=20.28';
-import * as IDB from './idb.js?v=20.28';
-import * as Orchestra from './js/orchestra.js?v=20.28';
-import * as Instruments from './js/instruments.js?v=20.28';
+import * as Store from './js/store.js?v=20.29';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.29';
+import * as Modal from './js/modal.js?v=20.29';
+import * as Router from './js/router.js?v=20.29';
+import * as Sync from './js/sync.js?v=20.29';
+import * as Drive from './drive.js?v=20.29';
+import * as GitHub from './github.js?v=20.29';
+import * as Admin from './admin.js?v=20.29';
+import * as Auth from './auth.js?v=20.29';
+import * as Player from './player.js?v=20.29';
+import * as Songs from './js/songs.js?v=20.29';
+import * as Setlists from './js/setlists.js?v=20.29';
+import * as Practice from './js/practice.js?v=20.29';
+import * as Dashboard from './js/dashboard.js?v=20.29';
+import * as Migrate from './js/migrate.js?v=20.29';
+import * as WikiCharts from './js/wikicharts.js?v=20.29';
+import * as IDB from './idb.js?v=20.29';
+import * as Orchestra from './js/orchestra.js?v=20.29';
+import * as Instruments from './js/instruments.js?v=20.29';
+import * as Messages from './js/messages.js?v=20.29';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -81,6 +82,7 @@ let _cachedPdfSet = new Set();
     const practiceBtn = document.getElementById('btn-practice');
     const wikichartsBtn = document.getElementById('btn-wikicharts');
     const loggedIn = Auth.isLoggedIn();
+    const messagesBtn = document.getElementById('btn-messages');
 
     // Toggle body classes for CSS-driven auth gating
     document.body.classList.toggle('authed', loggedIn);
@@ -98,10 +100,14 @@ let _cachedPdfSet = new Set();
       setlistsBtn?.classList.remove('disabled-nav');
       practiceBtn?.classList.remove('disabled-nav');
       wikichartsBtn?.classList.remove('disabled-nav');
+      // Messages: visible only for non-guest logged-in users
+      const role = Auth.getRole?.() || 'guest';
+      messagesBtn?.classList.toggle('hidden', role === 'guest');
     } else {
       if (btn) { btn.innerHTML = '<i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
       addBtn?.classList.add('hidden');
       accountBtn?.classList.add('hidden');
+      messagesBtn?.classList.add('hidden');
       // Keep buttons visible but styled as disabled for unauth users
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
@@ -394,6 +400,8 @@ let _cachedPdfSet = new Set();
         // Apply orchestra-level chart filter default
         const orchFilterDefault = Sync.getOrchestraSetting('chart_filter_default', null);
         if (orchFilterDefault) Store.set('chartFilterMode', orchFilterDefault);
+        // Start unread message badge polling
+        Messages.startUnreadPolling();
       });
     }
     // Badging API: if songs changed since last open, badge the app icon
@@ -3123,6 +3131,22 @@ let _cachedPdfSet = new Set();
       if (!_checkEmailVerified('WikiCharts')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
       renderWikiCharts();
+    });
+
+    // Messages button (auth-gated, no guest)
+    document.getElementById('btn-messages').addEventListener('click', () => {
+      if (!Auth.isLoggedIn()) {
+        showToast('Log in to view messages');
+        return;
+      }
+      const role = Auth.getRole?.() || 'guest';
+      if (role === 'guest') {
+        showToast('Messages are not available for guests');
+        return;
+      }
+      if (!_checkEmailVerified('Messages')) return;
+      if (Store.get('selectionMode')) _exitSelectionMode();
+      Messages.renderMessages();
     });
 
     // (Admin Dashboard button removed — "Admin" button now goes directly to dashboard)

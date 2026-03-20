@@ -13,10 +13,12 @@ function viewToHash(viewName, params) {
     case 'setlists': return '#setlists';
     case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
     case 'practice': return '#practice';
-    case 'practice-detail': return '#practice';
+    case 'practice-detail': return params?.practiceListId ? `#practice/${params.practiceListId}` : '#practice';
+    case 'practice-edit': return params?.practiceListId ? `#practice/${params.practiceListId}` : '#practice';
     case 'dashboard': return '#dashboard';
     case 'account': return '#account';
     case 'settings': return '#settings';
+    case 'messages': return '#messages';
     case 'wikicharts': return '#wikicharts';
     case 'wikichart-detail': return params?.wikiChartId ? `#wikichart/${params.wikiChartId}` : '#wikicharts';
     case 'orchestra': return '#orchestra';
@@ -41,7 +43,9 @@ function resolveHash(hash) {
     case 'song': return { view: 'detail', songId: parts[1] };
     case 'setlists': return { view: 'setlists' };
     case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
-    case 'practice': return { view: 'practice' };
+    case 'practice':
+      return parts[1] ? { view: 'practice-detail', practiceListId: parts[1] } : { view: 'practice' };
+    case 'messages': return { view: 'messages' };
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
@@ -198,9 +202,18 @@ describe('Router — resolveHash edge cases', () => {
     assert.equal(r.view, 'list');
   });
 
-  it('practice sub-routes all resolve to practice', () => {
+  it('practice with no ID resolves to practice', () => {
     assert.equal(resolveHash('#practice').view, 'practice');
-    // practice-detail and practice-edit are not hash-routed (in-app nav only)
+  });
+
+  it('#practice/:id resolves to practice-detail with practiceListId', () => {
+    const route = resolveHash('#practice/pl_abc123');
+    assert.equal(route.view, 'practice-detail');
+    assert.equal(route.practiceListId, 'pl_abc123');
+  });
+
+  it('#messages resolves to messages', () => {
+    assert.equal(resolveHash('#messages').view, 'messages');
   });
 });
 
@@ -234,8 +247,20 @@ describe('Router — viewToHash', () => {
     assert.equal(viewToHash('practice'), '#practice');
   });
 
-  it('practice-detail also maps to #practice (no distinct hash)', () => {
+  it('practice-detail with ID maps to #practice/:id', () => {
+    assert.equal(viewToHash('practice-detail', { practiceListId: 'pl_abc' }), '#practice/pl_abc');
+  });
+
+  it('practice-detail without ID maps to #practice', () => {
     assert.equal(viewToHash('practice-detail'), '#practice');
+  });
+
+  it('practice-edit with ID maps to #practice/:id', () => {
+    assert.equal(viewToHash('practice-edit', { practiceListId: 'pl_xyz' }), '#practice/pl_xyz');
+  });
+
+  it('messages maps to #messages', () => {
+    assert.equal(viewToHash('messages'), '#messages');
   });
 
   it('wikichart-detail with ID maps correctly', () => {
@@ -309,6 +334,17 @@ describe('Router — viewToHash/resolveHash roundtrip', () => {
 
   it('practice roundtrips', () => {
     assert.equal(resolveHash(viewToHash('practice')).view, 'practice');
+  });
+
+  it('practice-detail with ID roundtrips', () => {
+    const hash = viewToHash('practice-detail', { practiceListId: 'pl_abc' });
+    const route = resolveHash(hash);
+    assert.equal(route.view, 'practice-detail');
+    assert.equal(route.practiceListId, 'pl_abc');
+  });
+
+  it('messages roundtrips', () => {
+    assert.equal(resolveHash(viewToHash('messages')).view, 'messages');
   });
 });
 

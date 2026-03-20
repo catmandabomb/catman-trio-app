@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.28';
-import * as Player from '../player.js?v=20.28';
-import * as Metronome from '../metronome.js?v=20.28';
+import * as Store from './store.js?v=20.29';
+import * as Player from '../player.js?v=20.29';
+import * as Metronome from '../metronome.js?v=20.29';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.28');
+  if (!_App) _App = import('../app.js?v=20.29');
   return _App;
 }
 
@@ -64,8 +64,10 @@ function viewToHash(viewName, params) {
     case 'setlists': return '#setlists';
     case 'setlist-detail': return params?.setlistId ? `#setlist/${params.setlistId}` : '#setlists';
     case 'practice': return '#practice';
-    case 'practice-detail': return '#practice';
+    case 'practice-detail': return params?.practiceListId ? `#practice/${params.practiceListId}` : '#practice';
+    case 'practice-edit': return params?.practiceListId ? `#practice/${params.practiceListId}` : '#practice';
     case 'dashboard': return '#dashboard';
+    case 'messages': return '#messages';
     case 'account': return '#account';
     case 'settings': return '#settings';
     case 'wikicharts': return '#wikicharts';
@@ -99,7 +101,8 @@ function resolveHash(hash) {
     case 'setlists': return { view: 'setlists' };
     case 'setlist': return { view: 'setlist-detail', setlistId: parts[1] };
     case 'practice':
-      return { view: 'practice' };
+      return parts[1] ? { view: 'practice-detail', practiceListId: parts[1] } : { view: 'practice' };
+    case 'messages': return { view: 'messages' };
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
@@ -170,7 +173,7 @@ function showView(name) {
       // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
-      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions, #wikicharts-topbar-actions, #wikichart-detail-topbar-actions').forEach(el => el.remove());
+      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions, #wikicharts-topbar-actions, #wikichart-detail-topbar-actions, #messages-topbar-actions').forEach(el => el.remove());
       // Tuning fork wrap: only remove when NOT entering practice-detail (it injects its own)
       if (name !== 'practice-detail') document.getElementById('tuning-fork-wrap')?.remove();
       _viewEls.forEach(v => v.classList.remove('active'));
@@ -227,6 +230,8 @@ function showView(name) {
       document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
     } else if (name === 'wikicharts' || name === 'wikichart-detail') {
       document.getElementById('btn-wikicharts')?.setAttribute('aria-current', 'page');
+    } else if (name === 'messages') {
+      document.getElementById('btn-messages')?.setAttribute('aria-current', 'page');
     }
     // Topbar refresh always hidden (PTR on main list handles refresh; desktop has search-refresh-btn)
     document.getElementById('btn-topbar-refresh')?.classList.add('hidden');

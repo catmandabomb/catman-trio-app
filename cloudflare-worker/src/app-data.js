@@ -960,6 +960,190 @@ export async function reviewSongSuggestion(env, suggestionId, currentUser, body)
   return json({ ok: true, applied: body.status === 'approved' });
 }
 
+// ─── Orchestra Messages ─────────────────────────────────
+
+/**
+ * List messages for an orchestra.
+ * Conductr/admin/owner see all; member sees own only.
+ */
+export async function listMessages(env, orchestraId, currentUser, filters = {}) {
+  const { status, category, countOnly } = filters;
+  const isPrivileged = ['owner', 'admin'].includes(currentUser.role) ||
+    (currentUser.role === 'conductr' && currentUser.activeOrchestraId === orchestraId);
+
+  // Count-only mode for unread badge
+  if (countOnly) {
+    let q, bind;
+    if (isPrivileged) {
+      q = 'SELECT COUNT(*) as cnt FROM orchestra_messages WHERE orchestra_id = ? AND parent_id IS NULL AND status = ?';
+      bind = [orchestraId, 'open'];
+    } else {
+      q = 'SELECT COUNT(*) as cnt FROM orchestra_messages WHERE orchestra_id = ? AND parent_id IS NULL AND sender_id != ? AND status = ? AND is_read = 0';
+      bind = [orchestraId, currentUser.userId, 'open'];
+    }
+    const row = await env.DB.prepare(q).bind(...bind).first();
+    return json({ count: row?.cnt || 0 });
+  }
+
+  let conditions = ['orchestra_id = ?', 'parent_id IS NULL'];
+  let bind = [orchestraId];
+
+  // Members only see their own threads
+  if (!isPrivileged) {
+    conditions.push('sender_id = ?');
+    bind.push(currentUser.userId);
+  }
+
+  if (status && status !== 'all') {
+    conditions.push('status = ?');
+    bind.push(status);
+  }
+  if (category && category !== 'all') {
+    conditions.push('category = ?');
+    bind.push(category);
+  }
+
+  const where = conditions.join(' AND ');
+  const { results } = await env.DB.prepare(
+    `SELECT id, orchestra_id, sender_id, sender_username, subject, body, category, status, parent_id, is_read, created_at FROM orchestra_messages WHERE ${where} ORDER BY created_at DESC`
+  ).bind(...bind).all();
+
+  // For each top-level message, get reply count
+  const messages = results || [];
+  if (messages.length > 0) {
+    const ids = messages.map(m => m.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const { results: counts } = await env.DB.prepare(
+      `SELECT parent_id, COUNT(*) as cnt FROM orchestra_messages WHERE parent_id IN (${placeholders}) GROUP BY parent_id`
+    ).bind(...ids).all();
+    const countMap = {};
+    (counts || []).forEach(c => { countMap[c.parent_id] = c.cnt; });
+    messages.forEach(m => { m.reply_count = countMap[m.id] || 0; });
+  }
+
+  return json({ messages });
+}
+
+/**
+ * Create a new top-level message.
+ */
+export async function createMessage(env, orchestraId, currentUser, body) {
+  if (!body || !body.subject?.trim() || !body.body?.trim()) {
+    return json({ error: 'subject and body required' }, 400);
+  }
+  const validCategories = ['general', 'song_request', 'schedule', 'feedback', 'other'];
+  const category = validCategories.includes(body.category) ? body.category : 'general';
+
+  const id = _generateId();
+  await env.DB.prepare(`
+    INSERT INTO orchestra_messages (id, orchestra_id, sender_id, sender_username, subject, body, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, orchestraId, currentUser.userId, currentUser.username, body.subject.trim().substring(0, 200), body.body.trim().substring(0, 2000), category).run();
+
+  return json({ ok: true, id }, 201);
+}
+
+/**
+ * Reply to an existing message thread.
+ */
+export async function replyToMessage(env, orchestraId, messageId, currentUser, body) {
+  if (!body || !body.body?.trim()) {
+    return json({ error: 'body required' }, 400);
+  }
+
+  // Verify parent exists and belongs to same orchestra
+  const parent = await env.DB.prepare(
+    'SELECT id, orchestra_id, sender_id FROM orchestra_messages WHERE id = ? AND parent_id IS NULL'
+  ).bind(messageId).first();
+  if (!parent) return json({ error: 'Message not found' }, 404);
+  if (parent.orchestra_id !== orchestraId) return json({ error: 'Orchestra mismatch' }, 403);
+
+  // Members can only reply to their own threads
+  const isPrivileged = ['owner', 'admin'].includes(currentUser.role) ||
+    (currentUser.role === 'conductr' && currentUser.activeOrchestraId === orchestraId);
+  if (!isPrivileged && parent.sender_id !== currentUser.userId) {
+    return json({ error: 'Permission denied' }, 403);
+  }
+
+  const id = _generateId();
+  await env.DB.prepare(`
+    INSERT INTO orchestra_messages (id, orchestra_id, sender_id, sender_username, subject, body, category, parent_id)
+    VALUES (?, ?, ?, ?, '', ?, 'general', ?)
+  `).bind(id, orchestraId, currentUser.userId, currentUser.username, body.body.trim().substring(0, 2000), messageId).run();
+
+  // Reopen the thread if it was resolved/archived
+  await env.DB.prepare(
+    "UPDATE orchestra_messages SET status = 'open', is_read = 0 WHERE id = ? AND status IN ('resolved', 'archived')"
+  ).bind(messageId).run();
+
+  return json({ ok: true, id }, 201);
+}
+
+/**
+ * Update message status (conductr/admin/owner only).
+ */
+export async function updateMessageStatus(env, orchestraId, messageId, currentUser, body) {
+  const validStatuses = ['open', 'read', 'resolved', 'archived'];
+  if (!body || !validStatuses.includes(body.status)) {
+    return json({ error: 'status must be one of: ' + validStatuses.join(', ') }, 400);
+  }
+
+  const msg = await env.DB.prepare(
+    'SELECT id, orchestra_id FROM orchestra_messages WHERE id = ? AND parent_id IS NULL'
+  ).bind(messageId).first();
+  if (!msg) return json({ error: 'Message not found' }, 404);
+  if (msg.orchestra_id !== orchestraId) return json({ error: 'Orchestra mismatch' }, 403);
+
+  await env.DB.prepare(
+    'UPDATE orchestra_messages SET status = ?, is_read = 1 WHERE id = ?'
+  ).bind(body.status, messageId).run();
+
+  return json({ ok: true });
+}
+
+/**
+ * Delete a message and all its replies.
+ */
+export async function deleteMessage(env, orchestraId, messageId, currentUser) {
+  const msg = await env.DB.prepare(
+    'SELECT id, orchestra_id FROM orchestra_messages WHERE id = ? AND parent_id IS NULL'
+  ).bind(messageId).first();
+  if (!msg) return json({ error: 'Message not found' }, 404);
+  if (msg.orchestra_id !== orchestraId) return json({ error: 'Orchestra mismatch' }, 403);
+
+  // Delete replies first, then parent
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM orchestra_messages WHERE parent_id = ?').bind(messageId),
+    env.DB.prepare('DELETE FROM orchestra_messages WHERE id = ?').bind(messageId),
+  ]);
+
+  return json({ ok: true });
+}
+
+/**
+ * Get a single message thread (parent + replies).
+ */
+export async function getMessageThread(env, orchestraId, messageId, currentUser) {
+  const msg = await env.DB.prepare(
+    'SELECT * FROM orchestra_messages WHERE id = ? AND parent_id IS NULL'
+  ).bind(messageId).first();
+  if (!msg) return json({ error: 'Message not found' }, 404);
+  if (msg.orchestra_id !== orchestraId) return json({ error: 'Orchestra mismatch' }, 403);
+
+  // Members can only see their own threads
+  const isPrivileged = ['owner', 'admin'].includes(currentUser.role) ||
+    (currentUser.role === 'conductr' && currentUser.activeOrchestraId === orchestraId);
+  if (!isPrivileged && msg.sender_id !== currentUser.userId) {
+    return json({ error: 'Permission denied' }, 403);
+  }
+
+  const { results: replies } = await env.DB.prepare(
+    'SELECT * FROM orchestra_messages WHERE parent_id = ? ORDER BY created_at ASC'
+  ).bind(messageId).all();
+
+  return json({ message: msg, replies: replies || [] });
+}
+
 // ─── Migration ──────────────────────────────────────────
 
 export async function getMigrationState(env) {

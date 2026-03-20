@@ -8,15 +8,15 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.28';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.28';
-import * as GitHub from '../github.js?v=20.28';
-import * as Drive from '../drive.js?v=20.28';
-import * as Router from './router.js?v=20.28';
-import * as IDB from '../idb.js?v=20.28';
-import * as OPFS from './opfs.js?v=20.28';
-import * as Auth from '../auth.js?v=20.28';
-import * as Admin from '../admin.js?v=20.28';
+import * as Store from './store.js?v=20.29';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.29';
+import * as GitHub from '../github.js?v=20.29';
+import * as Drive from '../drive.js?v=20.29';
+import * as Router from './router.js?v=20.29';
+import * as IDB from '../idb.js?v=20.29';
+import * as OPFS from './opfs.js?v=20.29';
+import * as Auth from '../auth.js?v=20.29';
+import * as Admin from '../admin.js?v=20.29';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -1324,7 +1324,112 @@ async function reviewSongSuggestion(suggestionId, status) {
   } catch { return false; }
 }
 
+// ─── Orchestra Messages ─────────────────────────────────
+
+/**
+ * Load messages for the active orchestra.
+ * @param {Object} [filters] - { status, category }
+ * @returns {Promise<Array>}
+ */
+async function loadMessages(filters = {}) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return [];
+  try {
+    const params = new URLSearchParams();
+    if (filters.status) params.set('status', filters.status);
+    if (filters.category) params.set('category', filters.category);
+    const res = await _workerFetch(`/orchestras/${orchId}/messages?${params}`);
+    return res.messages || [];
+  } catch { return []; }
+}
+
+/**
+ * Get unread message count for the active orchestra.
+ * @returns {Promise<number>}
+ */
+async function getUnreadMessageCount() {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return 0;
+  try {
+    const res = await _workerFetch(`/orchestras/${orchId}/messages?status=open&count_only=true`);
+    return res.count || 0;
+  } catch { return 0; }
+}
+
+/**
+ * Get a message thread (parent + replies).
+ */
+async function getMessageThread(messageId) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return null;
+  try {
+    return await _workerFetch(`/orchestras/${orchId}/messages/${messageId}`);
+  } catch { return null; }
+}
+
+/**
+ * Send a new message.
+ */
+async function sendMessage(subject, body, category = 'general') {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, body, category }),
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Reply to a message thread.
+ */
+async function replyToMessage(messageId, body) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Update message status (conductr/admin/owner).
+ */
+async function updateMessageStatus(messageId, status) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Delete a message thread (conductr/admin/owner).
+ */
+async function deleteMessage(messageId) {
+  const orchId = Auth.getActiveOrchestraId?.();
+  if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  try {
+    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}`, {
+      method: 'DELETE',
+    });
+    return true;
+  } catch { return false; }
+}
+
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra, loadOrchestraSettings, saveOrchestraSetting, saveOrchestraSettingsBatch, getOrchestraSetting, loadAdminSettings, saveAdminSetting, getAdminSetting, loadSongSuggestions, submitSongSuggestion, reviewSongSuggestion };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra, loadOrchestraSettings, saveOrchestraSetting, saveOrchestraSettingsBatch, getOrchestraSetting, loadAdminSettings, saveAdminSetting, getAdminSetting, loadSongSuggestions, submitSongSuggestion, reviewSongSuggestion, loadMessages, getUnreadMessageCount, getMessageThread, sendMessage, replyToMessage, updateMessageStatus, deleteMessage };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal, _saveWikiChartsLocal as saveWikiChartsLocal };

@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.28';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.28';
-import * as Modal from './modal.js?v=20.28';
-import * as Router from './router.js?v=20.28';
-import * as Sync from './sync.js?v=20.28';
-import * as Drive from '../drive.js?v=20.28';
-import * as GitHub from '../github.js?v=20.28';
-import * as Admin from '../admin.js?v=20.28';
-import * as Auth from '../auth.js?v=20.28';
-import * as Player from '../player.js?v=20.28';
-import * as Metronome from '../metronome.js?v=20.28';
-import * as PDFViewer from '../pdf-viewer.js?v=20.28';
-import * as App from '../app.js?v=20.28';
+import * as Store from './store.js?v=20.29';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.29';
+import * as Modal from './modal.js?v=20.29';
+import * as Router from './router.js?v=20.29';
+import * as Sync from './sync.js?v=20.29';
+import * as Drive from '../drive.js?v=20.29';
+import * as GitHub from '../github.js?v=20.29';
+import * as Admin from '../admin.js?v=20.29';
+import * as Auth from '../auth.js?v=20.29';
+import * as Player from '../player.js?v=20.29';
+import * as Metronome from '../metronome.js?v=20.29';
+import * as PDFViewer from '../pdf-viewer.js?v=20.29';
+import * as App from '../app.js?v=20.29';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -580,6 +580,7 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
   Player.stopAll();
   _activePracticeList = practiceList;
   Store.set('activePracticeList', practiceList);
+  _setRouteParams({ practiceListId: practiceList.id });
   if (!skipNavPush) _pushNav(() => renderPractice());
   _showView('practice-edit');
   _setTopbar(practiceList.name || 'Practice List', true);
@@ -1332,6 +1333,24 @@ function _exitPracticeMode() {
   _practiceList = null;
   _navigateBack();
 }
+
+// ─── Route registrations ──────────────────────────────────
+
+Router.register('practice', () => {
+  renderPractice();
+});
+
+Router.register('practice-detail', (route) => {
+  // Deep-link to a specific practice list by ID
+  _syncFromStore();
+  const pl = _practice.find(l => l.id === route.practiceListId);
+  if (pl) {
+    renderPracticeListDetail(pl);
+  } else {
+    // List not found (maybe not synced yet) — show practice list
+    renderPractice();
+  }
+});
 
 // ─── Cleanup hook ─────────────────────────────────────────
 Router.registerHook('cleanupPractice', () => {
