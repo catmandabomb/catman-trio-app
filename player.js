@@ -104,7 +104,7 @@ async function _registerAudioProxy(blob) {
  * @param {string}      [opts.songTitle] — song title for lock screen / Media Session
  * @param {string}      [opts.songId]  — song ID for persisting audio preferences
  */
-function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
+function create(container, { name, blobUrl, songTitle, loopMode, songId, persistSpeed }) {
   if (!container) throw new Error('Player.create: container is null');
   const audio = document.createElement('audio');
   audio.preload = 'auto';
@@ -318,9 +318,9 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
   const speedBtn = el.querySelector('.audio-speed-btn');
 
   // Per-player speed (independent per audio file)
-  // 2C: Restore saved speed for this song if available
+  // 2C: Restore saved speed for this song if available (practice mode only)
   let _playerSpeed = 1;
-  if (songId) {
+  if (songId && persistSpeed) {
     try {
       const saved = parseFloat(localStorage.getItem(`ct_audio_speed_${songId}`));
       if (!isNaN(saved) && saved > 0 && saved <= 1 && _speedSteps.includes(saved)) _playerSpeed = saved;
@@ -335,10 +335,10 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId }) {
     _rampRaf = requestAnimationFrame(() => _rampRate(targetAudio, from, to, step + 1, steps));
   }
 
-  // 2C: debounce speed persistence to avoid localStorage thrash
+  // 2C: debounce speed persistence to avoid localStorage thrash (practice mode only)
   let _speedSaveTimer = null;
   function _persistSpeed(speed) {
-    if (!songId) return;
+    if (!songId || !persistSpeed) return;
     if (_speedSaveTimer) clearTimeout(_speedSaveTimer);
     _speedSaveTimer = setTimeout(() => {
       try {

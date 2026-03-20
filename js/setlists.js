@@ -1246,6 +1246,10 @@ function _renderLiveMode(setlist) {
   _revokeBlobCache();
   Player.stopAll();
 
+  // Track song IDs for "last played" logging on exit
+  const _lmSongIds = songs.map(s => s.id).filter(Boolean);
+  const _lmSetlistId = setlist.id;
+
   let _startTime = null; // null until user starts the timer
   let _clockInterval = null;
   let _zpHandle = null; // zoom/pan handle for chart canvas
@@ -2486,6 +2490,14 @@ function _renderLiveMode(setlist) {
   // -- Exit Live Mode --
   function _exitLiveMode() {
     if (!_liveModeActive) return;
+    // Log "last played" for all songs in this setlist
+    try {
+      const now = new Date().toISOString();
+      const log = JSON.parse(localStorage.getItem('ct_last_played') || '{}');
+      for (const id of _lmSongIds) { log[id] = now; }
+      if (_lmSetlistId) log[`setlist:${_lmSetlistId}`] = now;
+      localStorage.setItem('ct_last_played', JSON.stringify(log));
+    } catch (_) {}
     _liveModeActive = false;
     Store.set('liveModeActive', false);
     _exitLiveModeRef = null;

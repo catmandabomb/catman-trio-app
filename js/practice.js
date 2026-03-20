@@ -1093,7 +1093,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
         const url = (isIOS() && !Sync.useCloudflare()) ? Drive.getDirectUrl(driveId) : await App.getBlobUrl(driveId);
         if (!url) throw new Error('No audio URL');
         el.innerHTML = '';
-        Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true, songId: driveId });
+        Player.create(el, { name: el.dataset.name || 'Audio', blobUrl: url, songTitle: el.dataset.songTitle || '', loopMode: true, songId: driveId, persistSpeed: true });
       } catch (err) { console.error('Practice audio load failed:', driveId, err); el.innerHTML = `<p class="muted" style="font-size:13px;padding:8px 0">Failed to load audio.</p>`; }
     });
 

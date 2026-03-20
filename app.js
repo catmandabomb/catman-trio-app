@@ -1225,6 +1225,24 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
+        ${Auth.canEditSongs() ? `
+        <!-- CONDUCTR TOOLS (owner/admin/conductr only) -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="wand-sparkles" style="width:16px;height:16px;"></i> Conductr Tools</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Setlist Insights</div>
+              <div class="settings-hint">Last played dates, duplicate warnings, key flow indicators</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-setlist-insights" ${_getPref('setlist_insights', '1') === '1' ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+        ` : ''}
+
         <!-- DATA & STORAGE -->
         <div class="settings-section">
           <div class="settings-section-title"><i data-lucide="hard-drive" style="width:16px;height:16px;"></i> Data & Storage</div>
@@ -1293,6 +1311,9 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-stage-red', 'lm_stage_red');
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
     wire('pref-notif-sync-conflict', 'notif_sync_conflict');
+
+    // Conductr Tools toggles (only wired if section is present)
+    wire('pref-setlist-insights', 'setlist_insights');
 
     // Push notification toggle — special handler (async permission + subscription)
     const pushToggle = container.querySelector('#pref-push-enabled');
