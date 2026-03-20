@@ -22,9 +22,9 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.22';
-import { showToast } from './js/utils.js?v=20.22';
-import * as Metronome from './metronome.js?v=20.22';
+import * as Admin from './admin.js?v=20.23';
+import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.23';
+import * as Metronome from './metronome.js?v=20.23';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -1112,6 +1112,7 @@ async function open(url, name, opts) {
   _ownsBlobUrl = opts?.ownsBlobUrl || false;
   const gen = ++_openGen; // track this open generation
 
+  requestWakeLock(); // prevent screen dimming while viewing charts
   // Metronome button: show only when BPM is provided (practice mode)
   _metronomeBpm = opts?.bpm || null;
   _metronomeTimeSig = opts?.timeSig || 4;
@@ -1169,6 +1170,7 @@ async function open(url, name, opts) {
 }
 
 function close() {
+  releaseWakeLock();
   ++_openGen; // Invalidate any in-flight open() that resolves after close
   // Stop metronome if we started it from the PDF viewer
   if (_metronomeStartedByPdf && Metronome.isPlaying()) Metronome.stop();
