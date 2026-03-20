@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.33';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.33';
-import * as Modal from './modal.js?v=20.33';
-import * as Router from './router.js?v=20.33';
-import * as Admin from '../admin.js?v=20.33';
-import * as Auth from '../auth.js?v=20.33';
-import * as Sync from './sync.js?v=20.33';
-import * as Drive from '../drive.js?v=20.33';
-import * as GitHub from '../github.js?v=20.33';
-import * as Player from '../player.js?v=20.33';
-import * as PDFViewer from '../pdf-viewer.js?v=20.33';
-import * as Metronome from '../metronome.js?v=20.33';
-import * as App from '../app.js?v=20.33';
-import * as Setlists from './setlists.js?v=20.33';
-import * as Practice from './practice.js?v=20.33';
-import * as Dashboard from './dashboard.js?v=20.33';
-import * as IDB from '../idb.js?v=20.33';
+import * as Store from './store.js?v=20.34';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.34';
+import * as Modal from './modal.js?v=20.34';
+import * as Router from './router.js?v=20.34';
+import * as Admin from '../admin.js?v=20.34';
+import * as Auth from '../auth.js?v=20.34';
+import * as Sync from './sync.js?v=20.34';
+import * as Drive from '../drive.js?v=20.34';
+import * as GitHub from '../github.js?v=20.34';
+import * as Player from '../player.js?v=20.34';
+import * as PDFViewer from '../pdf-viewer.js?v=20.34';
+import * as Metronome from '../metronome.js?v=20.34';
+import * as App from '../app.js?v=20.34';
+import * as Setlists from './setlists.js?v=20.34';
+import * as Practice from './practice.js?v=20.34';
+import * as Dashboard from './dashboard.js?v=20.34';
+import * as IDB from '../idb.js?v=20.34';
 
 // ─── Background audio conversion ────────────────────────────
 // After uploading audio to R2, silently convert to WebM/Opus if the

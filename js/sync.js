@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.33';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.33';
-import * as GitHub from '../github.js?v=20.33';
-import * as Drive from '../drive.js?v=20.33';
-import * as Router from './router.js?v=20.33';
-import * as IDB from '../idb.js?v=20.33';
-import * as OPFS from './opfs.js?v=20.33';
-import * as Auth from '../auth.js?v=20.33';
-import * as Admin from '../admin.js?v=20.33';
-import * as MutationQueue from './mutation-queue.js?v=20.33';
+import * as Store from './store.js?v=20.34';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.34';
+import * as GitHub from '../github.js?v=20.34';
+import * as Drive from '../drive.js?v=20.34';
+import * as Router from './router.js?v=20.34';
+import * as IDB from '../idb.js?v=20.34';
+import * as OPFS from './opfs.js?v=20.34';
+import * as Auth from '../auth.js?v=20.34';
+import * as Admin from '../admin.js?v=20.34';
+import * as MutationQueue from './mutation-queue.js?v=20.34';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -341,6 +341,18 @@ async function loadSongsInstant() {
     }
     return;
   }
+  // Async decompression fallback — _loadLocal uses sync read which skips gz: data
+  const decompressed = await _getDecompressed('ct_songs');
+  if (decompressed) {
+    try {
+      const parsed = migrateSchema(JSON.parse(decompressed), 'songs');
+      if (parsed.length > 0) {
+        Store.set('songs', parsed);
+        if (IDB.isAvailable()) IDB.saveSongs(parsed).catch(() => {});
+        return;
+      }
+    } catch (e) { console.warn('Decompressed songs parse failed', e); }
+  }
   const swSongs = await _loadFromSWCache();
   if (swSongs && swSongs.length > 0) {
     Store.set('songs', swSongs);
@@ -419,6 +431,17 @@ async function loadSetlistsInstant() {
       IDB.saveSetlists(local).catch(() => {});
     }
     return;
+  }
+  const decompressed = await _getDecompressed('ct_setlists');
+  if (decompressed) {
+    try {
+      const parsed = migrateSchema(JSON.parse(decompressed), 'setlists');
+      if (parsed.length > 0) {
+        Store.set('setlists', parsed);
+        if (IDB.isAvailable()) IDB.saveSetlists(parsed).catch(() => {});
+        return;
+      }
+    } catch (e) { console.warn('Decompressed setlists parse failed', e); }
   }
   const swSetlists = await _loadSetlistsFromSWCache();
   if (swSetlists && swSetlists.length > 0) {
@@ -499,6 +522,17 @@ async function loadPracticeInstant() {
     }
     return;
   }
+  const decompressed = await _getDecompressed('ct_practice');
+  if (decompressed) {
+    try {
+      const parsed = migrateSchema(JSON.parse(decompressed), 'practice');
+      if (parsed.length > 0) {
+        Store.set('practice', parsed);
+        if (IDB.isAvailable()) IDB.savePractice(parsed).catch(() => {});
+        return;
+      }
+    } catch (e) { console.warn('Decompressed practice parse failed', e); }
+  }
   const sw = await _loadPracticeFromSWCache();
   if (sw && sw.length > 0) {
     Store.set('practice', sw);
@@ -576,6 +610,17 @@ async function loadWikiChartsInstant() {
       IDB.saveWikiCharts(local).catch(() => {});
     }
     return;
+  }
+  const decompressed = await _getDecompressed('ct_wikicharts');
+  if (decompressed) {
+    try {
+      const parsed = migrateSchema(JSON.parse(decompressed), 'wikiCharts');
+      if (parsed.length > 0) {
+        Store.set('wikiCharts', parsed);
+        if (IDB.isAvailable()) IDB.saveWikiCharts(parsed).catch(() => {});
+        return;
+      }
+    } catch (e) { console.warn('Decompressed wikiCharts parse failed', e); }
   }
   const sw = await _loadWikiChartsFromSWCache();
   if (sw && sw.length > 0) {
