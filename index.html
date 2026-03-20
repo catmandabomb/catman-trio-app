@@ -84,10 +84,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.29" as="style">
+  <link rel="preload" href="app.css?v=20.30" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.29">
-  <link rel="stylesheet" href="app.css?v=20.29" />
+  <link rel="modulepreload" href="app.js?v=20.30">
+  <link rel="stylesheet" href="app.css?v=20.30" />
 
   <script src="lib/pdf.min.js" defer></script>
   <script src="lib/Sortable.min.js" defer></script>
@@ -139,6 +139,10 @@
     </div>
   </header>
 
+  <div id="offline-indicator" class="offline-indicator hidden" role="status" aria-live="polite">
+    <i data-lucide="wifi-off" style="width:12px;height:12px;"></i> Offline — changes will sync when reconnected
+  </div>
+
   <main id="app">
 
     <!-- LIST VIEW -->
@@ -150,6 +154,9 @@
             <i data-lucide="download" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Install
           </button>
           <button id="btn-auth-toggle" class="btn-ghost topbar-nav-btn" title="Log In" aria-label="Log In"><i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In</button>
+          <button id="btn-offline-queue" class="icon-btn hidden" aria-label="Pending changes" title="Pending offline changes">
+            <i data-lucide="cloud-off"></i><span id="offline-queue-badge" class="offline-queue-badge hidden"></span>
+          </button>
           <button id="btn-messages" class="icon-btn hidden" aria-label="Messages" title="Messages">
             <i data-lucide="mail"></i><span id="msg-unread-badge" class="msg-unread-badge hidden"></span>
           </button>
@@ -475,6 +482,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.29"></script>
+  <script type="module" src="app.js?v=20.30"></script>
 </body>
 </html>

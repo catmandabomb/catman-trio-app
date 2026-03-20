@@ -13,16 +13,17 @@ function clampZoom(zoom) {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
 }
 
-function getMaxDPR(isMobile) {
-  return isMobile ? 3 : 4;
+function getMaxDPR(isMobile, deviceMemGB) {
+  // Matches actual pdf-viewer.js logic:
+  // _maxDPR = _isMobileDevice ? (_deviceMemGB <= 2 ? 1.5 : 3) : 4;
+  return isMobile ? (deviceMemGB <= 2 ? 1.5 : 3) : 4;
 }
 
 function getMaxRenderCache(deviceMemGB, isMobile) {
-  const mem = deviceMemGB || (isMobile ? 2 : 8);
-  if (mem <= 2) return 8;
-  if (mem <= 4) return 15;
-  if (mem >= 8) return 40;
-  return 20;
+  // Matches actual pdf-viewer.js logic:
+  // MAX_RENDER_CACHE = Math.min(20, _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : 20);
+  const mem = deviceMemGB || (isMobile ? 3 : 8);
+  return Math.min(20, mem <= 2 ? 8 : mem <= 4 ? 15 : 20);
 }
 
 function clampPage(pageNum, numPages) {
@@ -64,12 +65,18 @@ describe('PDF Viewer — zoom clamping', () => {
 });
 
 describe('PDF Viewer — DPR capping', () => {
-  it('mobile DPR capped at 3', () => {
-    assert.equal(getMaxDPR(true), 3);
+  it('mobile DPR capped at 3 for >2GB devices', () => {
+    assert.equal(getMaxDPR(true, 4), 3);
+    assert.equal(getMaxDPR(true, 8), 3);
+  });
+
+  it('mobile DPR capped at 1.5 for <=2GB devices', () => {
+    assert.equal(getMaxDPR(true, 2), 1.5);
+    assert.equal(getMaxDPR(true, 1), 1.5);
   });
 
   it('desktop DPR capped at 4', () => {
-    assert.equal(getMaxDPR(false), 4);
+    assert.equal(getMaxDPR(false, 8), 4);
   });
 });
 
@@ -90,18 +97,25 @@ describe('PDF Viewer — adaptive cache sizing', () => {
     assert.equal(getMaxRenderCache(3, false), 15);
   });
 
-  it('8GB+ memory gets 40 cache slots', () => {
-    assert.equal(getMaxRenderCache(8, false), 40);
-    assert.equal(getMaxRenderCache(16, false), 40);
+  it('8GB+ memory gets 20 cache slots (capped by Math.min)', () => {
+    assert.equal(getMaxRenderCache(8, false), 20);
+    assert.equal(getMaxRenderCache(16, false), 20);
   });
 
-  it('6GB memory gets 20 cache slots (default)', () => {
+  it('6GB memory gets 20 cache slots', () => {
     assert.equal(getMaxRenderCache(6, false), 20);
   });
 
   it('null/undefined memory defaults based on mobile flag', () => {
-    assert.equal(getMaxRenderCache(null, true), 8);   // mobile default 2GB -> 8
-    assert.equal(getMaxRenderCache(null, false), 40);  // desktop default 8GB -> 40
+    // mobile default is 3GB -> 15 slots, desktop default is 8GB -> 20 slots
+    assert.equal(getMaxRenderCache(null, true), 15);
+    assert.equal(getMaxRenderCache(null, false), 20);
+  });
+
+  it('max cache never exceeds 20', () => {
+    // All inputs should produce <= 20
+    assert.ok(getMaxRenderCache(32, false) <= 20);
+    assert.ok(getMaxRenderCache(16, true) <= 20);
   });
 });
 

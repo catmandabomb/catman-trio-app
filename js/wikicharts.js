@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.29';
-import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.29';
-import * as Modal from './modal.js?v=20.29';
-import * as Router from './router.js?v=20.29';
-import * as Admin from '../admin.js?v=20.29';
-import * as Auth from '../auth.js?v=20.29';
-import * as Sync from './sync.js?v=20.29';
+import * as Store from './store.js?v=20.30';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.30';
+import * as Modal from './modal.js?v=20.30';
+import * as Router from './router.js?v=20.30';
+import * as Admin from '../admin.js?v=20.30';
+import * as Auth from '../auth.js?v=20.30';
+import * as Sync from './sync.js?v=20.30';
 
 // ─── Constants ──────────────────────────────────────────────
 

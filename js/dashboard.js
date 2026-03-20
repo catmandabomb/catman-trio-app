@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.29';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.29';
-import * as Modal from './modal.js?v=20.29';
-import * as Router from './router.js?v=20.29';
-import * as Admin from '../admin.js?v=20.29';
-import * as Auth from '../auth.js?v=20.29';
-import * as GitHub from '../github.js?v=20.29';
-import * as Drive from '../drive.js?v=20.29';
-import * as Sync from './sync.js?v=20.29';
-import * as App from '../app.js?v=20.29';
-import * as IDB from '../idb.js?v=20.29';
+import * as Store from './store.js?v=20.30';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.30';
+import * as Modal from './modal.js?v=20.30';
+import * as Router from './router.js?v=20.30';
+import * as Admin from '../admin.js?v=20.30';
+import * as Auth from '../auth.js?v=20.30';
+import * as GitHub from '../github.js?v=20.30';
+import * as Drive from '../drive.js?v=20.30';
+import * as Sync from './sync.js?v=20.30';
+import * as App from '../app.js?v=20.30';
+import * as IDB from '../idb.js?v=20.30';
 
 // ─── renderDashboard ──────────────────────────────────────
 

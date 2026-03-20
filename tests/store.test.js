@@ -10,7 +10,7 @@ const { setupGlobals, resetAll } = require('./mocks');
 
 function createStore() {
   const _state = {
-    APP_VERSION: 'v20.23',
+    APP_VERSION: 'v20.29',
     DATA_SCHEMA_VERSION: 1,
     songs: [],
     setlists: [],
@@ -33,14 +33,34 @@ function createStore() {
     selectedSongIds: new Set(),
     activeSetlist: null,
     editSetlist: null,
+    editSetlistIsNew: false,
     showArchived: false,
     liveModeActive: false,
+    exitLiveModeRef: null,
+    sortableSetlist: null,
+    activePracticeList: null,
+    editPracticeList: null,
+    editPracticeListIsNew: false,
+    practiceList: null,
+    activeWikiChart: null,
+    orchestraSettings: {},
     syncing: false,
     lastDriveSnapshot: null,
+    savingSongs: false,
+    savingSetlists: false,
+    savingPractice: false,
+    savingWikiCharts: false,
+    autoConfigAttempted: false,
     blobCache: {},
     playerRefs: [],
     cachedPdfSet: new Set(),
+    lastListFingerprint: '',
+    lastTagBarFP: '',
+    lastKeyBarFP: '',
+    detailAnchorObserver: null,
+    levWorker: null,
     toastTimer: null,
+    deferredInstallPrompt: null,
     manualSyncHistory: [],
     activeOrchestraId: null,
     orchestras: [],
@@ -194,9 +214,44 @@ describe('Store — initial state integrity', () => {
     assert.equal(store.get('isPopstateNavigation'), false);
     assert.equal(store.get('skipViewTransition'), false);
     assert.equal(store.get('selectionMode'), false);
+    assert.equal(store.get('editIsNew'), false);
+    assert.equal(store.get('editSetlistIsNew'), false);
+    assert.equal(store.get('editPracticeListIsNew'), false);
     assert.equal(store.get('showArchived'), false);
     assert.equal(store.get('liveModeActive'), false);
     assert.equal(store.get('syncing'), false);
+    assert.equal(store.get('savingSongs'), false);
+    assert.equal(store.get('savingSetlists'), false);
+    assert.equal(store.get('savingPractice'), false);
+    assert.equal(store.get('savingWikiCharts'), false);
+    assert.equal(store.get('autoConfigAttempted'), false);
+  });
+
+  it('string states initialize empty', () => {
+    assert.equal(store.get('lastListFingerprint'), '');
+    assert.equal(store.get('lastTagBarFP'), '');
+    assert.equal(store.get('lastKeyBarFP'), '');
+  });
+
+  it('null states initialize to null', () => {
+    assert.isNull(store.get('activeSong'));
+    assert.isNull(store.get('editSong'));
+    assert.isNull(store.get('activeSetlist'));
+    assert.isNull(store.get('editSetlist'));
+    assert.isNull(store.get('activePracticeList'));
+    assert.isNull(store.get('editPracticeList'));
+    assert.isNull(store.get('practiceList'));
+    assert.isNull(store.get('activeWikiChart'));
+    assert.isNull(store.get('lastDriveSnapshot'));
+    assert.isNull(store.get('activeOrchestraId'));
+    assert.isNull(store.get('instrumentHierarchy'));
+    assert.isNull(store.get('userInstrumentId'));
+    assert.isNull(store.get('exitLiveModeRef'));
+    assert.isNull(store.get('sortableSetlist'));
+    assert.isNull(store.get('detailAnchorObserver'));
+    assert.isNull(store.get('levWorker'));
+    assert.isNull(store.get('toastTimer'));
+    assert.isNull(store.get('deferredInstallPrompt'));
   });
 
   it('get on non-existent key returns undefined', () => {

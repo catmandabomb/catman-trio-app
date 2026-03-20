@@ -8,15 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.29';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.29';
-import * as GitHub from '../github.js?v=20.29';
-import * as Drive from '../drive.js?v=20.29';
-import * as Router from './router.js?v=20.29';
-import * as IDB from '../idb.js?v=20.29';
-import * as OPFS from './opfs.js?v=20.29';
-import * as Auth from '../auth.js?v=20.29';
-import * as Admin from '../admin.js?v=20.29';
+import * as Store from './store.js?v=20.30';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.30';
+import * as GitHub from '../github.js?v=20.30';
+import * as Drive from '../drive.js?v=20.30';
+import * as Router from './router.js?v=20.30';
+import * as IDB from '../idb.js?v=20.30';
+import * as OPFS from './opfs.js?v=20.30';
+import * as Auth from '../auth.js?v=20.30';
+import * as Admin from '../admin.js?v=20.30';
+import * as MutationQueue from './mutation-queue.js?v=20.30';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -845,6 +846,11 @@ async function saveSongs(toastMsg) {
   if (useCloudflare()) {
     _saveToD1('songs', songs).then(() => _markSynced()).catch(e => {
       if (e.status === 409) { _handleConflict('songs', songs, _saveLocal); return; }
+      if (MutationQueue.isNetworkError(e)) {
+        MutationQueue.enqueueBulkSave('songs', songs);
+        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
+        return;
+      }
       console.warn('D1 save songs failed', e);
     });
     showToast(toastMsg || 'Saved.');
@@ -883,6 +889,11 @@ async function saveSetlists(toastMsg) {
   if (useCloudflare()) {
     _saveToD1('setlists', setlists).then(() => _markSynced()).catch(e => {
       if (e.status === 409) { _handleConflict('setlists', setlists, _saveSetlistsLocal); return; }
+      if (MutationQueue.isNetworkError(e)) {
+        MutationQueue.enqueueBulkSave('setlists', setlists);
+        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
+        return;
+      }
       console.warn('D1 save setlists failed', e);
     });
     showToast(toastMsg || 'Saved.');
@@ -921,6 +932,11 @@ async function savePractice(toastMsg) {
   if (useCloudflare()) {
     _saveToD1('practice', practice).then(() => _markSynced()).catch(e => {
       if (e.status === 409) { _handleConflict('practice', practice, _savePracticeLocal); return; }
+      if (MutationQueue.isNetworkError(e)) {
+        MutationQueue.enqueueBulkSave('practice', practice);
+        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
+        return;
+      }
       console.warn('D1 save practice failed', e);
     });
     showToast(toastMsg || 'Saved.');
@@ -959,6 +975,11 @@ async function saveWikiCharts(toastMsg) {
   if (useCloudflare()) {
     _saveToD1('wikicharts', wikiCharts).then(() => _markSynced()).catch(e => {
       if (e.status === 409) { _handleConflict('wikicharts', wikiCharts, _saveWikiChartsLocal); return; }
+      if (MutationQueue.isNetworkError(e)) {
+        MutationQueue.enqueueBulkSave('wikicharts', wikiCharts);
+        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
+        return;
+      }
       console.warn('D1 save wikiCharts failed', e);
     });
     showToast(toastMsg || 'Saved.');
@@ -1162,17 +1183,11 @@ async function saveOrchestraSetting(key, value) {
   try { localStorage.setItem(`ct_orch_settings_${orchId}`, JSON.stringify(settings)); } catch (_) {}
 
   if (!useCloudflare() || !Auth.getToken?.()) return true;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value }),
-    });
-    return true;
-  } catch (e) {
-    console.warn('Failed to save orchestra setting:', e.message);
-    return false;
-  }
+  return _queueableWrite(`/orchestras/${orchId}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
 }
 
 /**
@@ -1189,17 +1204,11 @@ async function saveOrchestraSettingsBatch(settings) {
   try { localStorage.setItem(`ct_orch_settings_${orchId}`, JSON.stringify(current)); } catch (_) {}
 
   if (!useCloudflare() || !Auth.getToken?.()) return true;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/settings/batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ settings }),
-    });
-    return true;
-  } catch (e) {
-    console.warn('Failed to save orchestra settings batch:', e.message);
-    return false;
-  }
+  return _queueableWrite(`/orchestras/${orchId}/settings/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings }),
+  });
 }
 
 /**
@@ -1235,23 +1244,17 @@ async function loadAdminSettings() {
  */
 async function saveAdminSetting(key, value) {
   if (!useCloudflare() || !Auth.getToken?.()) return false;
+  // Update local cache immediately (optimistic)
   try {
-    await _workerFetch('/admin/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value }),
-    });
-    // Update local cache
-    try {
-      const cached = JSON.parse(localStorage.getItem('ct_admin_settings') || '{}');
-      cached[key] = value;
-      localStorage.setItem('ct_admin_settings', JSON.stringify(cached));
-    } catch (_) {}
-    return true;
-  } catch (e) {
-    console.warn('Failed to save admin setting:', e.message);
-    return false;
-  }
+    const cached = JSON.parse(localStorage.getItem('ct_admin_settings') || '{}');
+    cached[key] = value;
+    localStorage.setItem('ct_admin_settings', JSON.stringify(cached));
+  } catch (_) {}
+  return _queueableWrite('/admin/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
 }
 
 /**
@@ -1298,14 +1301,11 @@ async function loadSongSuggestions(status = 'pending') {
 async function submitSongSuggestion(songId, fieldName, oldValue, newValue) {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/suggestions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ songId, fieldName, oldValue, newValue }),
-    });
-    return true;
-  } catch { return false; }
+  return _queueableWrite(`/orchestras/${orchId}/suggestions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songId, fieldName, oldValue, newValue }),
+  }, 'Suggestion queued — will send when back online');
 }
 
 /**
@@ -1314,14 +1314,30 @@ async function submitSongSuggestion(songId, fieldName, oldValue, newValue) {
 async function reviewSongSuggestion(suggestionId, status) {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
+  return _queueableWrite(`/orchestras/${orchId}/suggestions/${suggestionId}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  }, 'Review queued — will sync when back online');
+}
+
+// ─── Queueable write helper ─────────────────────────────
+// Wraps a _workerFetch write call so network failures get queued for offline retry.
+// Returns true on success OR successful queue, false on non-queueable failure.
+
+async function _queueableWrite(path, options, toastOnQueue) {
   try {
-    await _workerFetch(`/orchestras/${orchId}/suggestions/${suggestionId}/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
+    await _workerFetch(path, options);
     return true;
-  } catch { return false; }
+  } catch (e) {
+    if (MutationQueue.isNetworkError(e)) {
+      const body = options.body ? JSON.parse(options.body) : null;
+      await MutationQueue.enqueue(path, options.method || 'POST', body);
+      if (toastOnQueue) showToast(toastOnQueue);
+      return true; // Queued successfully — optimistic
+    }
+    return false;
+  }
 }
 
 // ─── Orchestra Messages ─────────────────────────────────
@@ -1373,14 +1389,11 @@ async function getMessageThread(messageId) {
 async function sendMessage(subject, body, category = 'general') {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, body, category }),
-    });
-    return true;
-  } catch { return false; }
+  return _queueableWrite(`/orchestras/${orchId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject, body, category }),
+  }, 'Message queued — will send when back online');
 }
 
 /**
@@ -1389,14 +1402,11 @@ async function sendMessage(subject, body, category = 'general') {
 async function replyToMessage(messageId, body) {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}/reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
-    return true;
-  } catch { return false; }
+  return _queueableWrite(`/orchestras/${orchId}/messages/${messageId}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  }, 'Reply queued — will send when back online');
 }
 
 /**
@@ -1405,14 +1415,11 @@ async function replyToMessage(messageId, body) {
 async function updateMessageStatus(messageId, status) {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}/status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    return true;
-  } catch { return false; }
+  return _queueableWrite(`/orchestras/${orchId}/messages/${messageId}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  }, 'Status update queued — will sync when back online');
 }
 
 /**
@@ -1421,15 +1428,12 @@ async function updateMessageStatus(messageId, status) {
 async function deleteMessage(messageId) {
   const orchId = Auth.getActiveOrchestraId?.();
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return false;
-  try {
-    await _workerFetch(`/orchestras/${orchId}/messages/${messageId}`, {
-      method: 'DELETE',
-    });
-    return true;
-  } catch { return false; }
+  return _queueableWrite(`/orchestras/${orchId}/messages/${messageId}`, {
+    method: 'DELETE',
+  }, 'Delete queued — will sync when back online');
 }
 
 // ─── Expose internal helpers for backward compat ───────────
 
-export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra, loadOrchestraSettings, saveOrchestraSetting, saveOrchestraSettingsBatch, getOrchestraSetting, loadAdminSettings, saveAdminSetting, getAdminSetting, loadSongSuggestions, submitSongSuggestion, reviewSongSuggestion, loadMessages, getUnreadMessageCount, getMessageThread, sendMessage, replyToMessage, updateMessageStatus, deleteMessage };
+export { migrateSchema, loadSongsInstant, loadSetlistsInstant, loadPracticeInstant, loadWikiChartsInstant, migratePracticeData, syncAll, doSyncRefresh, tryAutoConfigureGitHub, saveSongs, saveSetlists, savePractice, saveWikiCharts, useCloudflare, startSyncPolling, stopSyncPolling, loadOrchestras, loadInstrumentHierarchy, switchOrchestra, loadOrchestraSettings, saveOrchestraSetting, saveOrchestraSettingsBatch, getOrchestraSetting, loadAdminSettings, saveAdminSetting, getAdminSetting, loadSongSuggestions, submitSongSuggestion, reviewSongSuggestion, loadMessages, getUnreadMessageCount, getMessageThread, sendMessage, replyToMessage, updateMessageStatus, deleteMessage, MutationQueue };
 export { _saveLocal as saveLocal, _saveSetlistsLocal as saveSetlistsLocal, _savePracticeLocal as savePracticeLocal, _saveWikiChartsLocal as saveWikiChartsLocal };

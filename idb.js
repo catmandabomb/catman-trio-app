@@ -11,19 +11,21 @@ let _available = false;
 async function open() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) { reject(new Error('IndexedDB not supported')); return; }
-    const req = indexedDB.open('catmantrio-db', 4);
+    const req = indexedDB.open('catmantrio-db', 5);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('setlists')) db.createObjectStore('setlists', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('practice')) db.createObjectStore('practice', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
-      // v2: pending writes store for Background Sync
+      // v2: pending writes store for Background Sync (bulk saves, one per type)
       if (!db.objectStoreNames.contains('pendingWrites')) db.createObjectStore('pendingWrites', { keyPath: 'type' });
       // v3: audio file cache for offline playback
       if (!db.objectStoreNames.contains('audioCache')) db.createObjectStore('audioCache', { keyPath: 'fileId' });
       // v4: WikiCharts store
       if (!db.objectStoreNames.contains('wikiCharts')) db.createObjectStore('wikiCharts', { keyPath: 'id' });
+      // v5: mutation queue for offline discrete mutations (FIFO, auto-increment)
+      if (!db.objectStoreNames.contains('mutationQueue')) db.createObjectStore('mutationQueue', { autoIncrement: true });
     };
     req.onsuccess = (e) => { _db = e.target.result; _available = true;
         _db.onversionchange = () => { _db.close(); _available = false; };
@@ -261,9 +263,129 @@ async function getAudioCacheSize() {
   });
 }
 
+// ─── Mutation queue (offline discrete mutations) ──────
+
+/**
+ * Enqueue a discrete mutation for offline retry.
+ * @param {Object} mutation - { path, method, body, headers }
+ * @returns {Promise<number>} Auto-generated key
+ */
+async function enqueueMutation(mutation) {
+  if (!_db) return -1;
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readwrite');
+      const req = tx.objectStore('mutationQueue').add({
+        ...mutation,
+        ts: Date.now(),
+        retries: 0,
+      });
+      let key = -1;
+      req.onsuccess = () => { key = req.result; };
+      tx.oncomplete = () => resolve(key);
+      tx.onerror = () => reject(tx.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+/**
+ * Get all queued mutations in insertion order (FIFO via autoIncrement keys).
+ * @returns {Promise<Array<{key: number, path: string, method: string, body: string, ts: number, retries: number}>>}
+ */
+async function getAllMutations() {
+  if (!_db) return [];
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readonly');
+      const store = tx.objectStore('mutationQueue');
+      const results = [];
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          results.push({ ...cursor.value, key: cursor.key });
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+/**
+ * Remove a mutation from the queue by its auto-increment key.
+ * @param {number} key
+ */
+async function dequeueMutation(key) {
+  if (!_db) return;
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readwrite');
+      tx.objectStore('mutationQueue').delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+/**
+ * Update a mutation's retry count.
+ * @param {number} key
+ * @param {Object} updates - Fields to merge (e.g. { retries: 2 })
+ */
+async function updateMutation(key, updates) {
+  if (!_db) return;
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readwrite');
+      const store = tx.objectStore('mutationQueue');
+      const getReq = store.get(key);
+      getReq.onsuccess = () => {
+        if (!getReq.result) { resolve(); return; }
+        store.put({ ...getReq.result, ...updates }, key);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+/**
+ * Clear the entire mutation queue.
+ */
+async function clearMutationQueue() {
+  if (!_db) return;
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readwrite');
+      tx.objectStore('mutationQueue').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+/**
+ * Count queued mutations.
+ * @returns {Promise<number>}
+ */
+async function countMutations() {
+  if (!_db) return 0;
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = _db.transaction('mutationQueue', 'readonly');
+      const req = tx.objectStore('mutationQueue').count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+
 async function clearAll() {
   if (!_db) return;
-  const stores = ['songs', 'setlists', 'practice', 'wikiCharts', 'meta', 'pendingWrites', 'audioCache'];
+  const stores = ['songs', 'setlists', 'practice', 'wikiCharts', 'meta', 'pendingWrites', 'audioCache', 'mutationQueue'];
   return new Promise((resolve, reject) => {
     try {
       const tx = _db.transaction(stores, 'readwrite');
@@ -289,4 +411,4 @@ async function getStorageInfo() {
   return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice'), wikiCharts: await count('wikiCharts') };
 }
 
-export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadWikiCharts, saveWikiCharts, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize };
+export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadWikiCharts, saveWikiCharts, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize, enqueueMutation, getAllMutations, dequeueMutation, updateMutation, clearMutationQueue, countMutations };

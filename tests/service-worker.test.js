@@ -6,7 +6,7 @@ const { describe, it, assert } = require('./test-runner');
 
 // ─── Replicate service worker logic for testing ──────────────
 
-const CACHE_NAME = 'catmantrio-v20.23';
+const CACHE_NAME = 'catmantrio-v20.29';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -16,9 +16,12 @@ const SHELL_ASSETS = [
   '/js/practice.js', '/js/setlists.js', '/js/migrate.js', '/js/songs.js',
   '/js/wikicharts.js', '/app.js', '/drive.js', '/github.js',
   '/pdf-viewer.js', '/player.js', '/metronome.js', '/auth.js', '/admin.js',
+  '/js/orchestra.js', '/js/instruments.js', '/js/messages.js',
+  '/js/annotations.js', '/js/opfs.js',
   '/lucide.min.js', '/workers/levenshtein-worker.js',
   '/workers/metronome-processor.js', '/workers/pdf-render-worker.js',
-  '/workers/crypto-worker.js', '/lib/pdf.min.js', '/lib/pdf.worker.min.js',
+  '/workers/crypto-worker.js', '/workers/audio-converter.js',
+  '/lib/pdf.min.js', '/lib/pdf.worker.min.js',
   '/lib/Sortable.min.js', '/manifest.json', '/img/icon-192.png', '/img/icon-512.png',
 ];
 
@@ -101,7 +104,8 @@ describe('Service Worker — shell assets', () => {
 
   it('includes all JS modules', () => {
     const jsModules = ['/js/store.js', '/js/utils.js', '/js/modal.js', '/js/router.js',
-      '/js/sync.js', '/js/songs.js', '/js/setlists.js', '/js/practice.js', '/js/wikicharts.js'];
+      '/js/sync.js', '/js/songs.js', '/js/setlists.js', '/js/practice.js', '/js/wikicharts.js',
+      '/js/orchestra.js', '/js/instruments.js', '/js/messages.js', '/js/annotations.js', '/js/opfs.js'];
     jsModules.forEach(mod => assert.includes(SHELL_ASSETS, mod, `Missing: ${mod}`));
   });
 

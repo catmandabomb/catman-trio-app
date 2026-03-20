@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.29';
+const CACHE_NAME = 'catmantrio-v20.30';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -37,6 +37,7 @@ const SHELL_ASSETS = [
   '/js/orchestra.js',
   '/js/instruments.js',
   '/js/messages.js',
+  '/js/mutation-queue.js',
   '/js/annotations.js',
   '/js/opfs.js',
   '/lucide.min.js',
@@ -355,8 +356,17 @@ self.addEventListener('sync', (e) => {
     e.waitUntil(
       self.clients.matchAll().then(clients => {
         if (clients.length > 0) {
-          // Tell the app to flush its write queue
           clients.forEach(client => client.postMessage({ type: 'SYNC_FLUSH_WRITES' }));
+        }
+      })
+    );
+  }
+  // Mutation queue flush — triggered by MutationQueue module
+  if (e.tag === 'mutation-queue-flush') {
+    e.waitUntil(
+      self.clients.matchAll().then(clients => {
+        if (clients.length > 0) {
+          clients.forEach(client => client.postMessage({ type: 'FLUSH_MUTATION_QUEUE' }));
         }
       })
     );
