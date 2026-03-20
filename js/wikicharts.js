@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.18';
-import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.18';
-import * as Modal from './modal.js?v=20.18';
-import * as Router from './router.js?v=20.18';
-import * as Admin from '../admin.js?v=20.18';
-import * as Auth from '../auth.js?v=20.18';
-import * as Sync from './sync.js?v=20.18';
+import * as Store from './store.js?v=20.19';
+import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.19';
+import * as Modal from './modal.js?v=20.19';
+import * as Router from './router.js?v=20.19';
+import * as Admin from '../admin.js?v=20.19';
+import * as Auth from '../auth.js?v=20.19';
+import * as Sync from './sync.js?v=20.19';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -98,6 +98,9 @@ let _activeWikiChart = null;
 let _scrollRaf = null;
 let _scrollSpeed = 1;
 let _scrolling = false;
+
+// Persist transpose/capo/nashville state across back-forward nav for same chart
+let _detailState = { chartId: null, transposeSemitones: 0, capoFret: 0, showNashville: false };
 
 // ─── ID generation ──────────────────────────────────────────
 
@@ -503,10 +506,13 @@ function renderWikiChartDetail(chart, opts) {
   const container = document.getElementById('wikichart-detail-content');
   if (!container) return;
 
-  // State
-  let transposeSemitones = 0;
-  let showNashville = false;
-  let capoFret = 0;
+  // State — restore from module cache if same chart, else reset
+  if (_detailState.chartId !== chart.id) {
+    _detailState = { chartId: chart.id, transposeSemitones: 0, capoFret: 0, showNashville: false };
+  }
+  let transposeSemitones = _detailState.transposeSemitones;
+  let showNashville = _detailState.showNashville;
+  let capoFret = _detailState.capoFret;
   let fontSize = parseInt(localStorage.getItem('ct_pref_wc_fontsize') || '18', 10);
 
   // Inject topbar actions synchronously (matches setlists/practice pattern)
@@ -628,10 +634,10 @@ function renderWikiChartDetail(chart, opts) {
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire controls
-    container.querySelector('#wc-transpose-down')?.addEventListener('click', () => { transposeSemitones--; _render(); });
-    container.querySelector('#wc-transpose-up')?.addEventListener('click', () => { transposeSemitones++; _render(); });
-    container.querySelector('#wc-capo-select')?.addEventListener('change', (e) => { capoFret = parseInt(e.target.value, 10) || 0; _render(); });
-    container.querySelector('#wc-nashville')?.addEventListener('click', () => { showNashville = !showNashville; _render(); });
+    container.querySelector('#wc-transpose-down')?.addEventListener('click', () => { transposeSemitones--; _detailState.transposeSemitones = transposeSemitones; _render(); });
+    container.querySelector('#wc-transpose-up')?.addEventListener('click', () => { transposeSemitones++; _detailState.transposeSemitones = transposeSemitones; _render(); });
+    container.querySelector('#wc-capo-select')?.addEventListener('change', (e) => { capoFret = parseInt(e.target.value, 10) || 0; _detailState.capoFret = capoFret; _render(); });
+    container.querySelector('#wc-nashville')?.addEventListener('click', () => { showNashville = !showNashville; _detailState.showNashville = showNashville; _render(); });
     container.querySelector('#wc-font-slider')?.addEventListener('input', (e) => {
       fontSize = parseInt(e.target.value, 10) || 18;
       const detail = container.querySelector('.wc-detail');

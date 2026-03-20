@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.18';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.18';
-import * as Modal from './modal.js?v=20.18';
-import * as Router from './router.js?v=20.18';
-import * as Sync from './sync.js?v=20.18';
-import * as Drive from '../drive.js?v=20.18';
-import * as GitHub from '../github.js?v=20.18';
-import * as Admin from '../admin.js?v=20.18';
-import * as Auth from '../auth.js?v=20.18';
-import * as Player from '../player.js?v=20.18';
-import * as Metronome from '../metronome.js?v=20.18';
-import * as PDFViewer from '../pdf-viewer.js?v=20.18';
-import * as App from '../app.js?v=20.18';
+import * as Store from './store.js?v=20.19';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.19';
+import * as Modal from './modal.js?v=20.19';
+import * as Router from './router.js?v=20.19';
+import * as Sync from './sync.js?v=20.19';
+import * as Drive from '../drive.js?v=20.19';
+import * as GitHub from '../github.js?v=20.19';
+import * as Admin from '../admin.js?v=20.19';
+import * as Auth from '../auth.js?v=20.19';
+import * as Player from '../player.js?v=20.19';
+import * as Metronome from '../metronome.js?v=20.19';
+import * as PDFViewer from '../pdf-viewer.js?v=20.19';
+import * as App from '../app.js?v=20.19';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -184,7 +184,8 @@ function _injectTuningForkBtn() {
   pitchBtn.setAttribute('aria-label', 'Select tuning fork pitch');
   const isDefault = _tfPitchIdx === 0;
   const shortLabel = isDefault ? '' : _TF_PITCHES[_tfPitchIdx].label.split(' ')[0];
-  pitchBtn.innerHTML = `<span class="tf-pitch-label" style="${isDefault ? 'display:none' : ''}">${shortLabel}</span><i data-lucide="chevron-down" style="width:12px;height:12px;"></i>`;
+  // Use raw inline SVG for chevron — immune to lucide.createIcons() re-processing
+  pitchBtn.innerHTML = `<span class="tf-pitch-label" style="${isDefault ? 'display:none' : ''}">${shortLabel}</span><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
   pitchBtn.addEventListener('click', _togglePitchDropdown);
 
   const dd = document.createElement('div');
@@ -194,8 +195,6 @@ function _injectTuningForkBtn() {
 
   wrap.append(btn, pitchBtn, dd);
   topbarRight.prepend(wrap);
-
-  if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [pitchBtn] });
 }
 
 function _cleanupTuningFork() {
