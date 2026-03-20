@@ -2792,6 +2792,51 @@ textarea.form-input {
   flex-shrink: 0;
 }
 
+/* ─── Setlist Insights (conductr-only) ──── */
+.si-last-played {
+  font-size: 10px;
+  font-weight: 400;
+  color: rgba(200, 196, 190, 0.3);
+  margin-left: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.si-duplicate-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--red);
+  background: var(--red-bg);
+  padding: 0 6px;
+  border-radius: 100px;
+  margin-left: 6px;
+  cursor: pointer;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+.si-duplicate .setlist-edit-row-title {
+  color: var(--red);
+}
+.si-key-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 2px 42px;
+  cursor: pointer;
+}
+.si-key-flow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.si-key-flow-label {
+  font-size: 10px;
+  color: var(--accent-dim);
+  opacity: 0.6;
+}
+
 .setlist-comment-input {
   padding: 6px 10px;
   font-size: 16px;

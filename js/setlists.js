@@ -50,6 +50,55 @@ function _displayTitle(sl) {
   return `${label} (${date})`;
 }
 
+// ─── Setlist Insights helpers ─────────────────────────────────
+
+const _KEY_SEMITONES = { 'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'Fb': 4, 'E#': 5, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11, 'Cb': 11 };
+// Jarring intervals (min distance): half step (1), major 3rd (4), tritone (6)
+const _JARRING_INTERVALS = new Set([1, 4, 6]);
+
+function _keyToSemitone(keyStr) {
+  if (!keyStr) return null;
+  // Strip minor/maj/dim suffixes — just root note for key distance
+  const root = keyStr.replace(/\s*(m|min|maj|dim|aug|sus|7|9|11|13|add|\/.*$).*/i, '').trim();
+  return _KEY_SEMITONES[root] ?? null;
+}
+
+function _keyDistance(key1, key2) {
+  const s1 = _keyToSemitone(key1), s2 = _keyToSemitone(key2);
+  if (s1 === null || s2 === null) return null;
+  const d = Math.abs(s1 - s2);
+  return Math.min(d, 12 - d); // minimum distance (either direction)
+}
+
+function _isJarringTransition(key1, key2) {
+  const d = _keyDistance(key1, key2);
+  return d !== null && _JARRING_INTERVALS.has(d);
+}
+
+function _getLastPlayed(songId) {
+  try {
+    const log = JSON.parse(localStorage.getItem('ct_last_played') || '{}');
+    return log[songId] || null;
+  } catch (_) { return null; }
+}
+
+function _insightsEnabled() {
+  try { return localStorage.getItem('ct_pref_setlist_insights') !== '0'; } catch (_) { return true; }
+}
+
+function _formatLastPlayed(isoDate) {
+  if (!isoDate) return '';
+  const d = new Date(isoDate);
+  const now = new Date();
+  const days = Math.floor((now - d) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
 // ─── State helpers ────────────────────────────────────────────
 
 function _syncFromStore() {
@@ -3334,11 +3383,38 @@ function _wireSetlistEditForm() {
     const emptyMsg = document.getElementById('slf-empty-msg');
     emptyMsg.classList.toggle('hidden', sl.songs.length > 0);
 
+    // ─── Setlist Insights pre-computation ───────────────────
+    const _siEnabled = _insightsEnabled() && Auth.canEditSongs();
+    // Duplicate detection: count occurrences of each non-freetext song ID
+    const _siIdCounts = {};
+    if (_siEnabled) {
+      for (const e of sl.songs) { if (!e.freetext && e.id) _siIdCounts[e.id] = (_siIdCounts[e.id] || 0) + 1; }
+    }
+    // Resolve keys for key flow analysis
+    const _siKeys = _siEnabled ? sl.songs.map(e => {
+      if (e.freetext) return e.key || '';
+      const s = _songs.find(x => x.id === e.id);
+      return s?.key || '';
+    }) : [];
+
     container.innerHTML = sl.songs.map((entry, i) => {
+      // Key flow indicator BETWEEN this row and the previous
+      let keyFlowHtml = '';
+      if (_siEnabled && i > 0 && _siKeys[i - 1] && _siKeys[i]) {
+        if (_isJarringTransition(_siKeys[i - 1], _siKeys[i])) {
+          keyFlowHtml = `<div class="si-key-flow" title="${esc(_siKeys[i - 1])} \u2192 ${esc(_siKeys[i])}: jarring key jump">
+            <span class="si-key-flow-dot"></span>
+            <span class="si-key-flow-label">${esc(_siKeys[i - 1])} \u2192 ${esc(_siKeys[i])}</span>
+          </div>`;
+        }
+      }
+
       if (entry.freetext) {
         const ftTitle = esc(entry.title || 'Untitled freetext');
         const ftMeta = [entry.key, entry.bpm ? entry.bpm + ' bpm' : ''].filter(Boolean).join(' \u00b7 ');
-        return `
+        // Last-played for freetext (by title match — best effort)
+        const ftLastPlayed = _siEnabled ? _formatLastPlayed(_getLastPlayed(entry.id)) : '';
+        return `${keyFlowHtml}
           <div class="setlist-edit-row setlist-edit-freetext" data-idx="${i}">
             <div class="drag-handle"><i data-lucide="grip-vertical" style="width:16px;height:16px;"></i></div>
             <span class="setlist-song-num">${i + 1}</span>
@@ -3346,6 +3422,7 @@ function _wireSetlistEditForm() {
               <div class="setlist-edit-row-header">
                 <span class="setlist-edit-row-title">${ftTitle}</span>
                 ${ftMeta ? `<span class="setlist-edit-row-key">${esc(ftMeta)}</span>` : ''}
+                ${ftLastPlayed ? `<span class="si-last-played">${ftLastPlayed}</span>` : ''}
               </div>
               ${entry.notes ? `<div class="setlist-edit-row-notes muted" style="font-size:12px;margin-top:2px;">${esc(entry.notes)}</div>` : ''}
               <div class="setlist-edit-comment-wrap">
@@ -3363,14 +3440,19 @@ function _wireSetlistEditForm() {
       const song = _songs.find(s => s.id === entry.id);
       const title = song ? esc(song.title) : '<em style="color:var(--text-3)">Song not found</em>';
       const key = song && song.key ? esc(song.key) : '';
-      return `
-        <div class="setlist-edit-row" data-idx="${i}">
+      // Insights: last played + duplicate badge
+      const lastPlayed = _siEnabled ? _formatLastPlayed(_getLastPlayed(entry.id)) : '';
+      const isDuplicate = _siEnabled && entry.id && _siIdCounts[entry.id] > 1;
+      return `${keyFlowHtml}
+        <div class="setlist-edit-row${isDuplicate ? ' si-duplicate' : ''}" data-idx="${i}">
           <div class="drag-handle"><i data-lucide="grip-vertical" style="width:16px;height:16px;"></i></div>
           <span class="setlist-song-num">${i + 1}</span>
           <div class="setlist-edit-row-info">
             <div class="setlist-edit-row-header">
               <span class="setlist-edit-row-title">${title}</span>
               ${key ? `<span class="setlist-edit-row-key">${key}</span>` : ''}
+              ${isDuplicate ? `<span class="si-duplicate-badge" title="This song appears more than once">dup</span>` : ''}
+              ${lastPlayed ? `<span class="si-last-played">${lastPlayed}</span>` : ''}
             </div>
             <div class="setlist-edit-comment-wrap">
               <input class="form-input setlist-comment-input" type="text"
@@ -3384,6 +3466,11 @@ function _wireSetlistEditForm() {
         </div>`;
     }).join('');
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
+
+    // Tap-to-dismiss for insight badges
+    container.querySelectorAll('.si-duplicate-badge, .si-last-played, .si-key-flow').forEach(el => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); el.remove(); });
+    });
 
     // Init SortableJS (destroy previous instance first)
     if (_sortableSetlist) { try { _sortableSetlist.destroy(); } catch(_){} _sortableSetlist = null; }
