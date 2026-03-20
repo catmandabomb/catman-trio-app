@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.31';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.31';
-import * as GitHub from '../github.js?v=20.31';
-import * as Drive from '../drive.js?v=20.31';
-import * as Router from './router.js?v=20.31';
-import * as IDB from '../idb.js?v=20.31';
-import * as OPFS from './opfs.js?v=20.31';
-import * as Auth from '../auth.js?v=20.31';
-import * as Admin from '../admin.js?v=20.31';
-import * as MutationQueue from './mutation-queue.js?v=20.31';
+import * as Store from './store.js?v=20.32';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.32';
+import * as GitHub from '../github.js?v=20.32';
+import * as Drive from '../drive.js?v=20.32';
+import * as Router from './router.js?v=20.32';
+import * as IDB from '../idb.js?v=20.32';
+import * as OPFS from './opfs.js?v=20.32';
+import * as Auth from '../auth.js?v=20.32';
+import * as Admin from '../admin.js?v=20.32';
+import * as MutationQueue from './mutation-queue.js?v=20.32';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -776,16 +776,12 @@ async function syncAll(force) {
     const backend = _useGitHub ? 'GitHub' : 'Drive';
     console.warn(`${backend} sync failed, using local cache`, e);
     const msg = String(e.message || e || '');
-    const lastSync = parseInt(localStorage.getItem('ct_last_synced') || '0', 10);
-    const cachedLine = lastSync
-      ? 'Using cached data. Last synced ' + timeAgo(lastSync) + '.'
-      : 'Using cached data.';
-    if (msg.includes('403') || msg.includes('429') || msg.includes('rate')) {
-      showToast(`Temporary rate-limiting (${backend}).<br>${cachedLine}`, 10000);
-    } else if (msg.includes('Decryption failed')) {
-      showToast('Decryption failed.<br>PAT may have changed.', 10000);
-    } else {
-      showToast(`Sync failed.<br>${cachedLine}`, 10000);
+    // Only toast for actionable errors — routine sync failures are silent
+    // (data loads from local cache seamlessly)
+    if (msg.includes('Decryption failed')) {
+      showToast('Decryption failed — PAT may have changed.', 10000);
+    } else if (msg.includes('403') || msg.includes('429') || msg.includes('rate')) {
+      showToast('Temporarily rate-limited — try again in a moment.', 6000);
     }
   } finally {
     Store.set('syncing', false);
@@ -848,18 +844,16 @@ async function saveSongs(toastMsg) {
       if (e.status === 409) { _handleConflict('songs', songs, _saveLocal); return; }
       if (MutationQueue.isNetworkError(e)) {
         MutationQueue.enqueueBulkSave('songs', songs);
-        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
         return;
       }
       console.warn('D1 save songs failed', e);
-      showToast('Cloud save failed — saved locally only.');
     });
-    showToast(toastMsg || 'Saved.');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (GitHub.isConfigured()) {
     GitHub.saveSongs(songs).then(() => _markSynced()).catch(() => {});
-    showToast(toastMsg || 'Saved. Syncing to GitHub…');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (!isMobile() && Drive.isWriteConfigured()) {
@@ -867,17 +861,16 @@ async function saveSongs(toastMsg) {
       try {
         await Drive.saveSongs(songs);
         _markSynced();
-        showToast(toastMsg || 'Saved.');
+        if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
         console.error(`Drive songs save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
-    showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
-  } else {
-    showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
+    console.warn('Drive songs save failed after retries');
   }
+  if (toastMsg) showToast(toastMsg);
 }
 
 /**
@@ -892,18 +885,16 @@ async function saveSetlists(toastMsg) {
       if (e.status === 409) { _handleConflict('setlists', setlists, _saveSetlistsLocal); return; }
       if (MutationQueue.isNetworkError(e)) {
         MutationQueue.enqueueBulkSave('setlists', setlists);
-        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
         return;
       }
       console.warn('D1 save setlists failed', e);
-      showToast('Cloud save failed — saved locally only.');
     });
-    showToast(toastMsg || 'Saved.');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (GitHub.isConfigured()) {
     GitHub.saveSetlists(setlists).then(() => _markSynced()).catch(() => {});
-    showToast(toastMsg || 'Saved. Syncing to GitHub…');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (!isMobile() && Drive.isWriteConfigured()) {
@@ -911,17 +902,16 @@ async function saveSetlists(toastMsg) {
       try {
         await Drive.saveSetlists(setlists);
         _markSynced();
-        showToast(toastMsg || 'Saved.');
+        if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
         console.error(`Drive setlists save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
-    showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
-  } else {
-    showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
+    console.warn('Drive setlists save failed after retries');
   }
+  if (toastMsg) showToast(toastMsg);
 }
 
 /**
@@ -936,18 +926,16 @@ async function savePractice(toastMsg) {
       if (e.status === 409) { _handleConflict('practice', practice, _savePracticeLocal); return; }
       if (MutationQueue.isNetworkError(e)) {
         MutationQueue.enqueueBulkSave('practice', practice);
-        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
         return;
       }
       console.warn('D1 save practice failed', e);
-      showToast('Cloud save failed — saved locally only.');
     });
-    showToast(toastMsg || 'Saved.');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (GitHub.isConfigured()) {
     GitHub.savePractice(practice).then(() => _markSynced()).catch(() => {});
-    showToast(toastMsg || 'Saved. Syncing to GitHub…');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (!isMobile() && Drive.isWriteConfigured()) {
@@ -955,17 +943,16 @@ async function savePractice(toastMsg) {
       try {
         await Drive.savePractice(practice);
         _markSynced();
-        showToast(toastMsg || 'Saved.');
+        if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
         console.error(`Drive practice save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
-    showToast((toastMsg || 'Saved') + ' — Drive sync failed, will retry on next save.');
-  } else {
-    showToast((toastMsg || 'Saved') + ' (local only — configure GitHub in Admin Dashboard to sync)');
+    console.warn('Drive practice save failed after retries');
   }
+  if (toastMsg) showToast(toastMsg);
 }
 
 /**
@@ -980,21 +967,19 @@ async function saveWikiCharts(toastMsg) {
       if (e.status === 409) { _handleConflict('wikicharts', wikiCharts, _saveWikiChartsLocal); return; }
       if (MutationQueue.isNetworkError(e)) {
         MutationQueue.enqueueBulkSave('wikicharts', wikiCharts);
-        showToast((toastMsg || 'Saved') + ' (offline — will sync when back online)');
         return;
       }
       console.warn('D1 save wikiCharts failed', e);
-      showToast('Cloud save failed — saved locally only.');
     });
-    showToast(toastMsg || 'Saved.');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
   if (GitHub.isConfigured()) {
     GitHub.saveWikiCharts(wikiCharts).then(() => _markSynced()).catch(() => {});
-    showToast(toastMsg || 'Saved. Syncing to GitHub…');
+    if (toastMsg) showToast(toastMsg);
     return;
   }
-  showToast((toastMsg || 'Saved') + ' (local only)');
+  if (toastMsg) showToast(toastMsg);
 }
 
 // ─── Real-time sync polling ─────────────────────────────────

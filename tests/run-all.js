@@ -31,6 +31,7 @@ const testFiles = [
   './practice.test.js',
   './messages.test.js',
   './mutation-queue.test.js',
+  './navigation.test.js',
 ];
 
 for (const f of testFiles) {

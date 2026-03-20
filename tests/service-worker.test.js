@@ -3,27 +3,25 @@
  */
 
 const { describe, it, assert } = require('./test-runner');
+const fs = require('fs');
+const path = require('path');
 
-// ─── Replicate service worker logic for testing ──────────────
+// ─── Read values from service-worker.js source to avoid hardcoded drift ──
 
-const CACHE_NAME = 'catmantrio-v20.29';
+const _swSource = fs.readFileSync(path.join(__dirname, '..', 'service-worker.js'), 'utf8');
+
+// Extract CACHE_NAME
+const _cacheMatch = _swSource.match(/const CACHE_NAME\s*=\s*'([^']+)'/);
+const CACHE_NAME = _cacheMatch ? _cacheMatch[1] : 'catmantrio-UNKNOWN';
+
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
-const SHELL_ASSETS = [
-  '/', '/index.html', '/app.css', '/idb.js', '/js/store.js', '/js/utils.js',
-  '/js/modal.js', '/js/router.js', '/js/sync.js', '/js/dashboard.js',
-  '/js/practice.js', '/js/setlists.js', '/js/migrate.js', '/js/songs.js',
-  '/js/wikicharts.js', '/app.js', '/drive.js', '/github.js',
-  '/pdf-viewer.js', '/player.js', '/metronome.js', '/auth.js', '/admin.js',
-  '/js/orchestra.js', '/js/instruments.js', '/js/messages.js',
-  '/js/annotations.js', '/js/opfs.js',
-  '/lucide.min.js', '/workers/levenshtein-worker.js',
-  '/workers/metronome-processor.js', '/workers/pdf-render-worker.js',
-  '/workers/crypto-worker.js', '/workers/audio-converter.js',
-  '/lib/pdf.min.js', '/lib/pdf.worker.min.js',
-  '/lib/Sortable.min.js', '/manifest.json', '/img/icon-192.png', '/img/icon-512.png',
-];
+// Extract SHELL_ASSETS array from source
+const _shellMatch = _swSource.match(/const SHELL_ASSETS\s*=\s*\[([\s\S]*?)\];/);
+const SHELL_ASSETS = _shellMatch
+  ? _shellMatch[1].match(/'([^']+)'/g).map(s => s.replace(/'/g, ''))
+  : [];
 
 function shouldBypassSW(url) {
   return url.includes('googleapis.com') ||

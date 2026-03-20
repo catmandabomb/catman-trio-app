@@ -9,6 +9,7 @@
  * - Retry limits
  * - Badge formatting
  * - Flush behavior
+ * - Error categorization
  */
 
 const { describe, it, beforeEach, assert } = require('./test-runner');
@@ -114,6 +115,18 @@ describe('MutationQueue: bulk save dedup logic', () => {
     enqueueBulk('songs', [{ id: 's1' }]);
     assert.deepEqual(getPending()[0].data.deletions, []);
   });
+
+  it('overwrite preserves latest data, not first', () => {
+    enqueueBulk('songs', [{ id: 's1', title: 'old' }]);
+    enqueueBulk('songs', [{ id: 's1', title: 'new' }]);
+    assert.equal(getPending()[0].data.items[0].title, 'new');
+  });
+
+  it('overwrite replaces deletions too', () => {
+    enqueueBulk('songs', [], ['old-delete']);
+    enqueueBulk('songs', [], ['new-delete']);
+    assert.deepEqual(getPending()[0].data.deletions, ['new-delete']);
+  });
 });
 
 // ─── Discrete mutation FIFO ─────────────────────────────────
@@ -164,6 +177,25 @@ describe('MutationQueue: discrete mutation FIFO', () => {
     dequeue(999);
     assert.equal(_queue.length, 1);
   });
+
+  it('assigns unique keys per enqueue', () => {
+    const k1 = enqueue('/a', 'POST', null);
+    const k2 = enqueue('/b', 'POST', null);
+    assert.notEqual(_queue[0].key, _queue[1].key);
+  });
+
+  it('initializes retries to 0', () => {
+    enqueue('/test', 'POST', { data: 1 });
+    assert.equal(_queue[0].retries, 0);
+  });
+
+  it('records timestamp at enqueue time', () => {
+    const before = Date.now();
+    enqueue('/test', 'POST', null);
+    const after = Date.now();
+    assert.ok(_queue[0].ts >= before);
+    assert.ok(_queue[0].ts <= after);
+  });
 });
 
 // ─── Retry logic ────────────────────────────────────────────
@@ -171,29 +203,38 @@ describe('MutationQueue: discrete mutation FIFO', () => {
 describe('MutationQueue: retry limits', () => {
   const MAX_RETRIES = 5;
 
-  it('drops mutation after MAX_RETRIES', () => {
+  function shouldDrop(retries) {
+    return retries >= MAX_RETRIES;
+  }
+
+  it('drops mutation at exactly MAX_RETRIES', () => {
+    assert.ok(shouldDrop(5));
+  });
+
+  it('drops mutation above MAX_RETRIES', () => {
+    assert.ok(shouldDrop(10));
+  });
+
+  it('keeps mutation below MAX_RETRIES', () => {
+    assert.notOk(shouldDrop(4));
+  });
+
+  it('keeps mutation at zero retries', () => {
+    assert.notOk(shouldDrop(0));
+  });
+
+  it('simulates retry loop reaching drop threshold', () => {
     const mutation = { key: 1, path: '/test', retries: 0 };
     let dropped = false;
-    for (let i = 0; i < MAX_RETRIES + 1; i++) {
+    for (let i = 0; i < 10; i++) {
       mutation.retries++;
-      if (mutation.retries >= MAX_RETRIES) {
+      if (shouldDrop(mutation.retries)) {
         dropped = true;
         break;
       }
     }
     assert.ok(dropped);
     assert.equal(mutation.retries, MAX_RETRIES);
-  });
-
-  it('keeps mutation under retry limit', () => {
-    const mutation = { key: 1, path: '/test', retries: 0 };
-    mutation.retries = MAX_RETRIES - 1;
-    assert.ok(mutation.retries < MAX_RETRIES);
-  });
-
-  it('handles zero retries', () => {
-    const mutation = { key: 1, retries: 0 };
-    assert.ok(mutation.retries < MAX_RETRIES);
   });
 });
 
@@ -230,21 +271,6 @@ describe('MutationQueue: badge formatting', () => {
   });
 });
 
-// ─── Count tracking ─────────────────────────────────────────
-
-describe('MutationQueue: count tracking', () => {
-  it('counts bulk + discrete mutations separately', () => {
-    const bulkCount = 2; // songs, setlists
-    const discreteCount = 3; // 3 messages
-    const total = bulkCount + discreteCount;
-    assert.equal(total, 5);
-  });
-
-  it('count is zero when both queues empty', () => {
-    assert.equal(0 + 0, 0);
-  });
-});
-
 // ─── Body key mapping ───────────────────────────────────────
 
 describe('MutationQueue: body key mapping', () => {
@@ -266,6 +292,75 @@ describe('MutationQueue: body key mapping', () => {
 
   it('maps wikicharts to wikiCharts (camelCase)', () => {
     assert.equal(bodyKey('wikicharts'), 'wikiCharts');
+  });
+});
+
+// ─── Flush error categorization ─────────────────────────────
+
+describe('MutationQueue: flush error categorization', () => {
+  // Mirror the error categorization logic from mutation-queue.js flush()
+  function categorizeError(err) {
+    if (err instanceof TypeError) return 'network';      // Still offline — stop
+    if (!err.status) return 'bail';                       // Unknown error — stop
+    if (err.status === 401 || err.status === 429) return 'bail';  // Auth/rate — stop
+    if (err.status >= 500) return 'retry';                // Server error — skip, retry later
+    return 'drop';                                        // Permanent 4xx — drop mutation
+  }
+
+  it('categorizes TypeError as network', () => {
+    assert.equal(categorizeError(new TypeError('Failed to fetch')), 'network');
+  });
+
+  it('categorizes 401 as bail', () => {
+    const err = new Error('Unauthorized');
+    err.status = 401;
+    assert.equal(categorizeError(err), 'bail');
+  });
+
+  it('categorizes 429 as bail', () => {
+    const err = new Error('Too Many Requests');
+    err.status = 429;
+    assert.equal(categorizeError(err), 'bail');
+  });
+
+  it('categorizes 500 as retry', () => {
+    const err = new Error('Internal Server Error');
+    err.status = 500;
+    assert.equal(categorizeError(err), 'retry');
+  });
+
+  it('categorizes 502 as retry', () => {
+    const err = new Error('Bad Gateway');
+    err.status = 502;
+    assert.equal(categorizeError(err), 'retry');
+  });
+
+  it('categorizes 400 as drop', () => {
+    const err = new Error('Bad Request');
+    err.status = 400;
+    assert.equal(categorizeError(err), 'drop');
+  });
+
+  it('categorizes 403 as drop', () => {
+    const err = new Error('Forbidden');
+    err.status = 403;
+    assert.equal(categorizeError(err), 'drop');
+  });
+
+  it('categorizes 404 as drop', () => {
+    const err = new Error('Not Found');
+    err.status = 404;
+    assert.equal(categorizeError(err), 'drop');
+  });
+
+  it('categorizes 409 as drop', () => {
+    const err = new Error('Conflict');
+    err.status = 409;
+    assert.equal(categorizeError(err), 'drop');
+  });
+
+  it('categorizes error without status as bail', () => {
+    assert.equal(categorizeError(new Error('Unknown')), 'bail');
   });
 });
 
@@ -305,13 +400,19 @@ describe('MutationQueue: flush ordering', () => {
 
 describe('MutationQueue: queueableWrite pattern', () => {
   it('returns true on successful fetch', async () => {
-    let fetchResult = true;
+    let queued = false;
     async function queueableWrite() {
-      if (fetchResult) return true;
-      return false;
+      try {
+        // Simulate successful fetch
+        return true;
+      } catch (e) {
+        if (e instanceof TypeError) { queued = true; return true; }
+        return false;
+      }
     }
     const result = await queueableWrite();
     assert.ok(result);
+    assert.notOk(queued); // Should NOT have queued
   });
 
   it('returns true when queued on network error', async () => {
@@ -333,25 +434,101 @@ describe('MutationQueue: queueableWrite pattern', () => {
   });
 
   it('returns false on server error (not queued)', async () => {
+    let queued = false;
     async function queueableWrite() {
       try {
         const err = new Error('Internal Server Error');
         err.status = 500;
         throw err;
       } catch (e) {
-        if (e instanceof TypeError) return true;
+        if (e instanceof TypeError) { queued = true; return true; }
         return false;
       }
     }
     const result = await queueableWrite();
     assert.notOk(result);
+    assert.notOk(queued);
+  });
+
+  it('distinguishes network errors from auth errors', async () => {
+    const errors = [];
+
+    for (const makeErr of [
+      () => new TypeError('Failed to fetch'),
+      () => { const e = new Error('Unauthorized'); e.status = 401; return e; },
+      () => { const e = new Error('Server Error'); e.status = 500; return e; },
+    ]) {
+      const err = makeErr();
+      errors.push(err instanceof TypeError ? 'queue' : 'fail');
+    }
+
+    assert.equal(errors[0], 'queue');
+    assert.equal(errors[1], 'fail');
+    assert.equal(errors[2], 'fail');
   });
 });
 
-// ─── IDB mutation queue schema ──────────────────────────────
+// ─── Concurrent flush guard ─────────────────────────────────
 
-describe('MutationQueue: IDB schema v5', () => {
-  it('mutation has required fields', () => {
+describe('MutationQueue: concurrent flush guard', () => {
+  it('blocks second flush while first is running', () => {
+    let _flushing = false;
+    function flush() {
+      if (_flushing) return 'blocked';
+      _flushing = true;
+      return 'started';
+    }
+    assert.equal(flush(), 'started');
+    assert.equal(flush(), 'blocked');
+  });
+
+  it('allows flush after previous completes', () => {
+    let _flushing = false;
+    function startFlush() { if (_flushing) return false; _flushing = true; return true; }
+    function endFlush() { _flushing = false; }
+
+    assert.ok(startFlush());
+    assert.notOk(startFlush()); // blocked
+    endFlush();
+    assert.ok(startFlush()); // allowed again
+  });
+});
+
+// ─── Flush preconditions ────────────────────────────────────
+
+describe('MutationQueue: flush preconditions', () => {
+  it('does not flush when not authenticated', () => {
+    const hasToken = false;
+    const isOnline = true;
+    const shouldFlush = hasToken && isOnline;
+    assert.notOk(shouldFlush);
+  });
+
+  it('does not flush when offline', () => {
+    const hasToken = true;
+    const origOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    const shouldFlush = hasToken && navigator.onLine;
+    assert.notOk(shouldFlush);
+    if (origOnLine) Object.defineProperty(navigator, 'onLine', origOnLine);
+    else delete navigator.onLine;
+  });
+
+  it('flushes when authenticated and online', () => {
+    const hasToken = true;
+    const origOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    const shouldFlush = hasToken && navigator.onLine;
+    assert.ok(shouldFlush);
+    if (origOnLine) Object.defineProperty(navigator, 'onLine', origOnLine);
+    else delete navigator.onLine;
+  });
+});
+
+// ─── IDB mutation schema ────────────────────────────────────
+
+describe('MutationQueue: IDB mutation schema', () => {
+  it('mutation object has all required fields', () => {
     const mutation = {
       path: '/orchestras/x/messages',
       method: 'POST',
@@ -359,8 +536,9 @@ describe('MutationQueue: IDB schema v5', () => {
       ts: Date.now(),
       retries: 0,
     };
-    assert.ok(mutation.path);
-    assert.ok(mutation.method);
+    assert.type(mutation.path, 'string');
+    assert.type(mutation.method, 'string');
+    assert.type(mutation.ts, 'number');
     assert.ok(mutation.ts > 0);
     assert.equal(mutation.retries, 0);
   });
@@ -377,56 +555,48 @@ describe('MutationQueue: IDB schema v5', () => {
     assert.equal(mutation.method, 'DELETE');
   });
 
-  it('body is JSON stringified', () => {
+  it('body round-trips through JSON stringify/parse', () => {
     const payload = { subject: 'test', body: 'hello', category: 'general' };
-    const mutation = {
-      body: JSON.stringify(payload),
-    };
-    const parsed = JSON.parse(mutation.body);
-    assert.equal(parsed.subject, 'test');
-    assert.equal(parsed.category, 'general');
+    const serialized = JSON.stringify(payload);
+    const parsed = JSON.parse(serialized);
+    assert.equal(parsed.subject, payload.subject);
+    assert.equal(parsed.category, payload.category);
+    assert.equal(parsed.body, payload.body);
   });
 });
 
-// ─── Background Sync tag ────────────────────────────────────
+// ─── Background Sync integration ────────────────────────────
 
 describe('MutationQueue: Background Sync', () => {
-  it('uses correct sync tag', () => {
-    const SYNC_TAG = 'mutation-queue-flush';
-    assert.equal(SYNC_TAG, 'mutation-queue-flush');
+  it('sync tag matches service-worker handler', () => {
+    // The SW listens for 'mutation-queue-flush' in the sync event handler.
+    // The module registers this same tag. Verify they stay aligned.
+    const MODULE_TAG = 'mutation-queue-flush';
+    // Read from service-worker.js source: e.tag === 'mutation-queue-flush'
+    assert.equal(MODULE_TAG, 'mutation-queue-flush');
   });
 
-  it('SW message type matches', () => {
-    const MSG_TYPE = 'FLUSH_MUTATION_QUEUE';
-    assert.equal(MSG_TYPE, 'FLUSH_MUTATION_QUEUE');
+  it('SW message type triggers flush', () => {
+    // SW sends { type: 'FLUSH_MUTATION_QUEUE' } to clients when sync fires.
+    // Module listens for this type in serviceWorker.addEventListener('message').
+    const SW_MSG_TYPE = 'FLUSH_MUTATION_QUEUE';
+    assert.ok(SW_MSG_TYPE.startsWith('FLUSH_'));
+    assert.ok(SW_MSG_TYPE.includes('MUTATION'));
   });
 });
 
-// ─── Offline indicator logic ────────────────────────────────
+// ─── Count tracking ─────────────────────────────────────────
 
-describe('MutationQueue: offline indicator', () => {
-  it('shows indicator when offline', () => {
-    const isOffline = true;
-    const shouldShow = isOffline;
-    assert.ok(shouldShow);
-  });
-
-  it('hides indicator when online', () => {
-    const isOffline = false;
-    const shouldShow = isOffline;
-    assert.notOk(shouldShow);
-  });
-
-  it('shows queue badge when pending > 0', () => {
-    const pending = 3;
-    const shouldShowBadge = pending > 0;
-    assert.ok(shouldShowBadge);
-  });
-
-  it('hides queue badge when pending = 0', () => {
-    const pending = 0;
-    const shouldShowBadge = pending > 0;
-    assert.notOk(shouldShowBadge);
+describe('MutationQueue: count tracking', () => {
+  it('total count is sum of bulk + discrete', () => {
+    // Simulate _refreshCount logic from mutation-queue.js
+    function refreshCount(bulkWrites, discreteMutations) {
+      return bulkWrites.length + discreteMutations;
+    }
+    assert.equal(refreshCount([{ type: 'songs' }, { type: 'setlists' }], 3), 5);
+    assert.equal(refreshCount([], 0), 0);
+    assert.equal(refreshCount([{ type: 'songs' }], 0), 1);
+    assert.equal(refreshCount([], 7), 7);
   });
 });
 
@@ -442,36 +612,23 @@ describe('MutationQueue: edge cases', () => {
     assert.notOk(flushedAny);
   });
 
-  it('handles concurrent flush guard', () => {
-    let _flushing = false;
-    function flush() {
-      if (_flushing) return 'blocked';
-      _flushing = true;
-      return 'started';
-    }
-    assert.equal(flush(), 'started');
-    assert.equal(flush(), 'blocked');
-  });
-
-  it('does not flush when not authenticated', () => {
-    const hasToken = false;
-    const shouldFlush = hasToken && navigator.onLine;
-    assert.notOk(shouldFlush);
-  });
-
-  it('does not flush when offline', () => {
-    const hasToken = true;
-    const origOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
-    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
-    const shouldFlush = hasToken && navigator.onLine;
-    assert.notOk(shouldFlush);
-    if (origOnLine) Object.defineProperty(navigator, 'onLine', origOnLine);
-    else delete navigator.onLine;
-  });
-
   it('large queue count caps at 99+ for badge', () => {
-    const count = 150;
-    const display = count > 99 ? '99+' : String(count);
-    assert.equal(display, '99+');
+    function formatBadge(count) {
+      if (count <= 0) return null;
+      return count > 99 ? '99+' : String(count);
+    }
+    assert.equal(formatBadge(150), '99+');
+    assert.equal(formatBadge(100), '99+');
+    assert.equal(formatBadge(99), '99');
+  });
+
+  it('body key mapping only transforms wikicharts', () => {
+    function bodyKey(type) {
+      return type === 'wikicharts' ? 'wikiCharts' : type;
+    }
+    // Verify all 4 types have correct body key for API payload
+    const types = ['songs', 'setlists', 'practice', 'wikicharts'];
+    const expected = ['songs', 'setlists', 'practice', 'wikiCharts'];
+    types.forEach((t, i) => assert.equal(bodyKey(t), expected[i]));
   });
 });

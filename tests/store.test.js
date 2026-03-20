@@ -4,13 +4,20 @@
 
 const { describe, it, beforeEach, assert } = require('./test-runner');
 const { setupGlobals, resetAll } = require('./mocks');
+const fs = require('fs');
+const path = require('path');
+
+// Read APP_VERSION from source to avoid hardcoded drift
+const _storeSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'store.js'), 'utf8');
+const _versionMatch = _storeSource.match(/APP_VERSION:\s*'(v[\d.]+)'/);
+const _sourceVersion = _versionMatch ? _versionMatch[1] : 'v0.0';
 
 // Since store.js is an ES module, we replicate its logic for testing
 // (the actual module uses import/export which can't be required directly)
 
 function createStore() {
   const _state = {
-    APP_VERSION: 'v20.29',
+    APP_VERSION: _sourceVersion,
     DATA_SCHEMA_VERSION: 1,
     songs: [],
     setlists: [],
