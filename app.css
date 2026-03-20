@@ -52,17 +52,47 @@
 ═══════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════
-   1. VIEW TRANSITIONS
+   1. VIEW TRANSITIONS (A1 — Directional slide + scale)
 ═══════════════════════════════════════════ */
+
+/* Forward: old slides left + shrinks, new slides in from right */
+@keyframes vt-slide-out-left {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-8%) scale(0.97); }
+}
+@keyframes vt-slide-in-right {
+  from { opacity: 0; transform: translateX(8%) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+/* Back: old slides right + shrinks, new slides in from left */
+@keyframes vt-slide-out-right {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(8%) scale(0.97); }
+}
+@keyframes vt-slide-in-left {
+  from { opacity: 0; transform: translateX(-8%) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+/* Legacy fade for topbar */
 @keyframes vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes vt-fade-in  { from { opacity: 0; } to { opacity: 1; } }
 
+/* Default (forward) direction */
 ::view-transition-old(root) {
-  animation: vt-fade-out 0.28s ease-out;
+  animation: vt-slide-out-left 0.35s cubic-bezier(0.32, 0.72, 0, 1);
 }
 ::view-transition-new(root) {
-  animation: vt-fade-in 0.28s ease-in;
+  animation: vt-slide-in-right 0.35s cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+/* Back navigation — set by router.js via html.nav-back class */
+html.nav-back::view-transition-old(root) {
+  animation: vt-slide-out-right 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+html.nav-back::view-transition-new(root) {
+  animation: vt-slide-in-left 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* Topbar participates in transitions separately so fixed-position element
    doesn't render on top of the crossfade overlay, eliminating button jitter. */
 #topbar { view-transition-name: topbar; }
@@ -945,9 +975,10 @@ body.is-mobile .search-refresh-btn { display: none; }
   gap: 2px;
 }
 
+/* A2 — Staggered card entry with spring easing */
 @keyframes cardIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 .song-card {
   background: var(--bg-2);
@@ -962,10 +993,18 @@ body.is-mobile .search-refresh-btn { display: none; }
   grid-template-rows: auto auto auto;
   gap: 4px 14px;
   margin-bottom: 10px;
-  animation: cardIn 0.25s ease-out both;
+  animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
   contain: layout style paint;
   /* content-visibility: auto removed — breaks cardIn animation for off-screen cards */
 }
+/* Stagger first 8 cards; rest appear instantly */
+.song-card:nth-child(2)  { animation-delay: 30ms; }
+.song-card:nth-child(3)  { animation-delay: 60ms; }
+.song-card:nth-child(4)  { animation-delay: 90ms; }
+.song-card:nth-child(5)  { animation-delay: 120ms; }
+.song-card:nth-child(6)  { animation-delay: 150ms; }
+.song-card:nth-child(7)  { animation-delay: 180ms; }
+.song-card:nth-child(8)  { animation-delay: 210ms; }
 /* List density settings */
 [data-density="compact"] .song-card {
   padding: 10px 14px 10px 12px;
@@ -2205,6 +2244,15 @@ textarea.form-input {
 /* ═══════════════════════════════════════════
    MODALS
 ═══════════════════════════════════════════ */
+/* A3 — Modal scale-up animation */
+@keyframes modalOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -2216,6 +2264,7 @@ textarea.form-input {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  animation: modalOverlayIn 0.25s ease-out;
 }
 
 .modal {
@@ -2227,6 +2276,7 @@ textarea.form-input {
   width: 100%;
   max-width: 400px;
   box-shadow: var(--shadow-lg), 0 0 40px rgba(232,195,115,0.06);
+  animation: modalScaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .modal h2 {
@@ -2447,7 +2497,15 @@ textarea.form-input {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, transform 0.12s, box-shadow 0.12s;
   margin-bottom: 10px;
+  animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+.setlist-card:nth-child(2) { animation-delay: 30ms; }
+.setlist-card:nth-child(3) { animation-delay: 60ms; }
+.setlist-card:nth-child(4) { animation-delay: 90ms; }
+.setlist-card:nth-child(5) { animation-delay: 120ms; }
+.setlist-card:nth-child(6) { animation-delay: 150ms; }
+.setlist-card:nth-child(7) { animation-delay: 180ms; }
+.setlist-card:nth-child(8) { animation-delay: 210ms; }
 .setlist-card:hover {
   background: var(--bg-3);
   border-color: var(--border-light);
@@ -2904,7 +2962,15 @@ textarea.form-input {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, transform 0.12s, box-shadow 0.12s;
   margin-bottom: 10px;
+  animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+.pl-card:nth-child(2) { animation-delay: 30ms; }
+.pl-card:nth-child(3) { animation-delay: 60ms; }
+.pl-card:nth-child(4) { animation-delay: 90ms; }
+.pl-card:nth-child(5) { animation-delay: 120ms; }
+.pl-card:nth-child(6) { animation-delay: 150ms; }
+.pl-card:nth-child(7) { animation-delay: 180ms; }
+.pl-card:nth-child(8) { animation-delay: 210ms; }
 .pl-card:hover {
   background: var(--bg-3);
   border-color: var(--border-light);
@@ -3211,6 +3277,7 @@ textarea.form-input {
 /* ═══════════════════════════════════════════
    TOAST
 ═══════════════════════════════════════════ */
+/* A4 — Toast spring slide-in */
 #toast {
   position: fixed;
   bottom: calc(24px + var(--safe-bottom));
@@ -3227,7 +3294,7 @@ textarea.form-input {
   white-space: nowrap;
   box-shadow: var(--shadow-lg), 0 0 20px rgba(232,195,115,0.1);
   opacity: 0;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: opacity 0.2s ease-out, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   pointer-events: none;
 }
 #toast.show {
@@ -5912,6 +5979,26 @@ body:not(.authed) #ptr-indicator {
 }
 
 /* ═══════════════════════════════════════════
+   A7 — Floating action pulse (one-time attention grab)
+═══════════════════════════════════════════ */
+@keyframes actionPulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+.animate-pulse-in {
+  animation: actionPulse 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ═══════════════════════════════════════════
+   Quick polish — tabular nums for aligned digits
+═══════════════════════════════════════════ */
+.song-card-bpm, .lm-clock, .lm-timer, .metronome-bpm,
+.pl-card-count, .setlist-card-count, .wc-list-sections {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════
    ACCESSIBILITY — REDUCED MOTION
 ═══════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
@@ -6050,7 +6137,15 @@ body:not(.authed) #search-bar .search-refresh-btn {
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
+  animation: cardIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+.wc-list-row:nth-child(2) { animation-delay: 30ms; }
+.wc-list-row:nth-child(3) { animation-delay: 60ms; }
+.wc-list-row:nth-child(4) { animation-delay: 90ms; }
+.wc-list-row:nth-child(5) { animation-delay: 120ms; }
+.wc-list-row:nth-child(6) { animation-delay: 150ms; }
+.wc-list-row:nth-child(7) { animation-delay: 180ms; }
+.wc-list-row:nth-child(8) { animation-delay: 210ms; }
 .wc-list-row:hover { background: var(--card-hover); transform: translateY(-1px); }
 .wc-list-info { flex: 1; min-width: 0; }
 .wc-list-title { display: block; font-weight: 600; font-size: 15px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

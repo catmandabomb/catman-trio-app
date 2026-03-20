@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.21';
-import * as Player from '../player.js?v=20.21';
-import * as Metronome from '../metronome.js?v=20.21';
+import * as Store from './store.js?v=20.22';
+import * as Player from '../player.js?v=20.22';
+import * as Metronome from '../metronome.js?v=20.22';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.21');
+  if (!_App) _App = import('../app.js?v=20.22');
   return _App;
 }
 
@@ -214,7 +214,23 @@ function showView(name) {
   if (alreadyActive || isFirstCall || _prefersReducedMotion.matches || skipTransition) {
     swap();
   } else if (document.startViewTransition) {
-    try { document.startViewTransition(swap); } catch (_) { swap(); }
+    // A1: Set nav direction class for directional slide transitions
+    const isBack = Store.get('navDirection') === 'back';
+    if (isBack) document.documentElement.classList.add('nav-back');
+    try {
+      const t = document.startViewTransition(swap);
+      t.finished.then(() => {
+        document.documentElement.classList.remove('nav-back');
+        Store.set('navDirection', 'forward');
+      }).catch(() => {
+        document.documentElement.classList.remove('nav-back');
+        Store.set('navDirection', 'forward');
+      });
+    } catch (_) {
+      swap();
+      document.documentElement.classList.remove('nav-back');
+      Store.set('navDirection', 'forward');
+    }
   } else {
     swap();
   }
@@ -267,6 +283,7 @@ function pushNav(renderFn) {
 }
 
 function navigateBack() {
+  Store.set('navDirection', 'back');
   if (Metronome.isPlaying()) Metronome.stop();
   Player.stopAll();
   // Clean up live mode if active

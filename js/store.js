@@ -62,7 +62,7 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.21',
+  APP_VERSION:        'v20.22',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────
@@ -75,6 +75,7 @@ const _state = {
   view:               'list',
   showViewCalled:     false,
   navStack:           [],
+  navDirection:       'forward',
   isPopstateNavigation: false,
   skipViewTransition: false,
   currentRouteParams: {},

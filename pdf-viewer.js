@@ -22,9 +22,9 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.21';
-import { showToast } from './js/utils.js?v=20.21';
-import * as Metronome from './metronome.js?v=20.21';
+import * as Admin from './admin.js?v=20.22';
+import { showToast } from './js/utils.js?v=20.22';
+import * as Metronome from './metronome.js?v=20.22';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
