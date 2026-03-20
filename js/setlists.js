@@ -5,20 +5,20 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.23';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.23';
-import * as Modal from './modal.js?v=20.23';
-import * as Router from './router.js?v=20.23';
-import * as Admin from '../admin.js?v=20.23';
-import * as Auth from '../auth.js?v=20.23';
-import * as Sync from './sync.js?v=20.23';
-import * as WikiCharts from './wikicharts.js?v=20.23';
-import * as Drive from '../drive.js?v=20.23';
-import * as GitHub from '../github.js?v=20.23';
-import * as Player from '../player.js?v=20.23';
-import * as PDFViewer from '../pdf-viewer.js?v=20.23';
-import * as App from '../app.js?v=20.23';
-import * as Songs from './songs.js?v=20.23';
+import * as Store from './store.js?v=20.24';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.24';
+import * as Modal from './modal.js?v=20.24';
+import * as Router from './router.js?v=20.24';
+import * as Admin from '../admin.js?v=20.24';
+import * as Auth from '../auth.js?v=20.24';
+import * as Sync from './sync.js?v=20.24';
+import * as WikiCharts from './wikicharts.js?v=20.24';
+import * as Drive from '../drive.js?v=20.24';
+import * as GitHub from '../github.js?v=20.24';
+import * as Player from '../player.js?v=20.24';
+import * as PDFViewer from '../pdf-viewer.js?v=20.24';
+import * as App from '../app.js?v=20.24';
+import * as Songs from './songs.js?v=20.24';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -555,6 +555,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
     ${songs.length > 0 ? `<div class="detail-actions"><button class="btn-copy-setlist"><i data-lucide="clipboard-copy" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Copy</button><button class="btn-print-setlist" title="Print setlist"><i data-lucide="printer" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Print</button><button class="btn-share-setlist" title="Share setlist"><i data-lucide="share-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Share</button>${(Auth.isLoggedIn()) ? '<button class="btn-email-setlist" title="Email setlist"><i data-lucide="mail" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Email</button>' : ''}${isAdmin ? '<button class="btn-share-packet" title="Share setlist as gig packet"><i data-lucide="package" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Packet</button>' : ''}</div>` : ''}
     <div class="detail-actions" style="margin-top:4px;">
       <button class="btn-show-notes" title="Show gig notes"><i data-lucide="file-text" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Show Notes${setlist.notes ? ' *' : ''}</button>
+      ${songs.length > 0 ? `<button class="btn-prefetch-offline" title="Cache all charts for offline use"><i data-lucide="wifi-off" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Prepare Offline</button>` : ''}
     </div>
   </div>`;
 
@@ -729,6 +730,11 @@ function renderSetlistDetail(setlist, skipNavPush) {
   // Wire Show Notes button (Feature 23B)
   container.querySelector('.btn-show-notes')?.addEventListener('click', () => {
     _showSetlistNotesModal(setlist);
+  });
+
+  // Wire Prepare for Offline button — bulk-cache all charts for this setlist
+  container.querySelector('.btn-prefetch-offline')?.addEventListener('click', () => {
+    _prefetchSetlistForOffline(setlist, _songs);
   });
 
   // Wire Key Override buttons (Feature 22 — freetext entries with WikiChart)
@@ -3052,6 +3058,96 @@ function _showKeyOverrideModal(entry, setlist) {
   });
 }
 
+// ─── PREPARE FOR OFFLINE — Bulk prefetch charts ──────────────────
+
+function _prefetchSetlistForOffline(setlist, allSongs) {
+  const songs = setlist.songs || [];
+  if (!songs.length) return;
+
+  // Collect all chart file IDs from songs in this setlist
+  const fileUrls = [];
+  for (const entry of songs) {
+    if (entry.freetext) continue;
+    const song = allSongs.find(s => s.id === entry.id);
+    if (!song || !song.assets?.charts) continue;
+    for (const chart of song.assets.charts) {
+      const fid = chart.r2FileId || chart.driveId;
+      if (fid) {
+        fileUrls.push({
+          url: (GitHub.workerUrl || 'https://catman-api.catmandabomb.workers.dev') + '/files/' + fid,
+          cacheKey: `pdf-${fid}`,
+        });
+      }
+    }
+  }
+
+  if (!fileUrls.length) {
+    showToast('No charts to cache.');
+    return;
+  }
+
+  const btn = document.querySelector('.btn-prefetch-offline');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;" class="animate-spin"></i>Caching 0/${fileUrls.length}...`;
+    if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+  }
+
+  const token = Auth.getToken ? Auth.getToken() : null;
+
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    // Use service worker for background prefetch with progress
+    const _onMsg = (e) => {
+      if (e.data?.type === 'PREFETCH_PROGRESS' && btn) {
+        btn.innerHTML = `<i data-lucide="loader" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;" class="animate-spin"></i>Caching ${e.data.done}/${e.data.total}...`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      }
+      if (e.data?.type === 'PREFETCH_COMPLETE') {
+        navigator.serviceWorker.removeEventListener('message', _onMsg);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i data-lucide="check" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Cached!`;
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+        }
+        const msg = e.data.failed > 0
+          ? `Cached ${e.data.done}/${e.data.total} charts (${e.data.failed} failed)`
+          : `All ${e.data.done} charts cached for offline use!`;
+        showToast(msg);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', _onMsg);
+    navigator.serviceWorker.controller.postMessage({
+      type: 'PREFETCH_PDFS',
+      urls: fileUrls,
+      token,
+    });
+  } else {
+    // Fallback: fetch directly (no SW available)
+    (async () => {
+      let done = 0, failed = 0;
+      for (const { url } of fileUrls) {
+        try {
+          const headers = {};
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const resp = await fetch(url, { headers });
+          if (resp.ok) done++;
+          else failed++;
+        } catch (_) { failed++; }
+        if (btn) {
+          btn.innerHTML = `<i data-lucide="loader" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;" class="animate-spin"></i>Caching ${done}/${fileUrls.length}...`;
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+        }
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="check" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"></i>Cached!`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+      }
+      showToast(failed > 0 ? `Cached ${done}/${fileUrls.length} charts` : `All ${done} charts cached!`);
+    })();
+  }
+}
+
 // ─── SETLIST NOTES MODAL (Feature 23B) ──────────────────────────
 
 function _showSetlistNotesModal(setlist) {
@@ -3575,8 +3671,13 @@ function _wireSetlistEditForm() {
   _renderSelectedSongs();
   _renderPicker();
 
-  // "It's Been a While" suggestions — songs not in any recent (non-archived) setlist
+  // "It's Been a While" suggestions — songs not played recently, ranked by staleness
   function _renderSuggestions() {
+    if (!_insightsEnabled() || !Auth.canEditSongs()) {
+      const sec = document.getElementById('slf-suggestions-section');
+      if (sec) sec.style.display = 'none';
+      return;
+    }
     const recentSetlists = _setlists.filter(s => !s.archived && s.id !== sl.id);
     const recentSongIds = new Set();
     recentSetlists.forEach(s => (s.songs || []).forEach(e => { if (!e.freetext && e.id) recentSongIds.add(e.id); }));
@@ -3588,17 +3689,24 @@ function _wireSetlistEditForm() {
       if (section) section.style.display = 'none';
       return;
     }
-    // Pick 3 random suggestions
-    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
-    const picks = shuffled.slice(0, 3);
+    // Rank by last-played staleness (oldest first, never-played at top)
+    const now = Date.now();
+    const ranked = candidates.map(s => {
+      const lp = _getLastPlayed(s.id);
+      const age = lp ? now - new Date(lp).getTime() : Infinity;
+      return { song: s, lastPlayed: lp, age };
+    }).sort((a, b) => b.age - a.age);
+    const picks = ranked.slice(0, 5);
     section.style.display = '';
-    container.innerHTML = picks.map(s => `
+    container.innerHTML = picks.map(({ song: s, lastPlayed: lp }) => {
+      const lpText = lp ? _formatLastPlayed(lp) : 'never played';
+      return `
       <div class="suggestion-chip" data-suggest-id="${esc(s.id)}">
         <span class="suggestion-title">${esc(s.title)}</span>
-        ${s.key ? `<span class="suggestion-meta">${esc(s.key)}</span>` : ''}
+        <span class="suggestion-meta">${[s.key, lpText].filter(Boolean).join(' · ')}</span>
         <button class="btn-ghost suggestion-add" data-suggest-id="${esc(s.id)}">+ Add</button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
     container.querySelectorAll('.suggestion-add').forEach(btn => {
       btn.addEventListener('click', () => {
         sl.songs.push({ id: btn.dataset.suggestId, comment: '' });

@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.23';
-import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.23';
-import * as Modal from './modal.js?v=20.23';
-import * as Router from './router.js?v=20.23';
-import * as Admin from '../admin.js?v=20.23';
-import * as Auth from '../auth.js?v=20.23';
-import * as Sync from './sync.js?v=20.23';
+import * as Store from './store.js?v=20.24';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.24';
+import * as Modal from './modal.js?v=20.24';
+import * as Router from './router.js?v=20.24';
+import * as Admin from '../admin.js?v=20.24';
+import * as Auth from '../auth.js?v=20.24';
+import * as Sync from './sync.js?v=20.24';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -1149,16 +1149,44 @@ function _chordToMidi(chordSymbol) {
 }
 
 /**
+ * Reduce a full voicing to a jazz shell voicing:
+ * root + 3rd + 7th (or 6th). Drops the 5th and extensions.
+ * This is how real jazz pianists comp — minimal, clean, smooth.
+ */
+function _toShellVoicing(rootMidi, intervals) {
+  // Identify interval roles
+  const third = intervals.find(i => i === 3 || i === 4); // minor or major 3rd
+  const seventh = intervals.find(i => i === 10 || i === 11 || i === 9); // b7, maj7, or 6th
+  const shell = [0]; // root always
+  if (third !== undefined) shell.push(third);
+  if (seventh !== undefined) shell.push(seventh);
+  // If no 7th found (triads), include 5th for body
+  if (seventh === undefined) {
+    const fifth = intervals.find(i => i === 7 || i === 6 || i === 8);
+    if (fifth !== undefined) shell.push(fifth);
+  }
+  return shell.map(i => rootMidi + i);
+}
+
+function _useShellVoicings() {
+  return localStorage.getItem('ct_pref_shell_voicings') === '1';
+}
+
+/**
  * Build a voicing (array of MIDI notes) for a chord, applying voice leading
  * from the previous voicing to minimize movement.
+ * Supports shell voicings (root-3rd-7th) for jazz comping.
  */
 function _buildVoicing(chordSymbol, prevVoicing) {
   const parsed = _chordToMidi(chordSymbol);
   if (!parsed) return prevVoicing || [60, 64, 67]; // fallback to C major
   const { rootMidi, intervals } = parsed;
 
-  // Build root-position voicing
-  const rootPos = intervals.map(i => rootMidi + i);
+  // Build root-position voicing (full or shell)
+  const useShell = _useShellVoicings();
+  const rootPos = useShell
+    ? _toShellVoicing(rootMidi, intervals)
+    : intervals.map(i => rootMidi + i);
 
   if (!prevVoicing || prevVoicing.length === 0) {
     // First chord — center around middle C area

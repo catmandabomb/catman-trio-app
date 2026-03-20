@@ -7,7 +7,7 @@
  * @module utils
  */
 
-import * as Store from './store.js?v=20.23';
+import * as Store from './store.js?v=20.24';
 
 // ─── HTML / String helpers ──────────────────────────────────
 

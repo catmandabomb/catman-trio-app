@@ -1,16 +1,24 @@
 /**
- * modal.js — Consolidated modal system
+ * modal.js — Consolidated modal system with Popover API progressive enhancement
  *
- * Unified focus trap, Escape/backdrop handling, and modal lifecycle.
+ * Uses native Popover API (popover="manual") where supported for:
+ *   - Top-layer rendering (above all z-index stacking)
+ *   - Browser-native Escape key handling
+ *   - Proper focus management
+ * Falls back to the classic overlay approach on older browsers.
+ *
  * All modals go through this module for consistent UX.
  */
 
-import { haptic } from './utils.js?v=20.23';
+import { haptic } from './utils.js?v=20.24';
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
 
+// Feature detect: does the browser support the Popover API?
+const _supportsPopover = typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover === 'function';
+
 // Track active modals for cleanup
-const _active = new Map(); // overlayEl -> { trap, cleanup }
+const _active = new Map(); // overlayEl -> { trap, cleanup, hide }
 
 // ─── Focus Trap ─────────────────────────────────────────────
 
@@ -47,11 +55,25 @@ function trapFocus(modalEl) {
   };
 }
 
+// ─── Popover API helpers ────────────────────────────────────
+
+/**
+ * Upgrade an overlay element to use the Popover API.
+ * Sets popover="manual" so we control show/hide programmatically.
+ */
+function _upgradeToPopover(overlay) {
+  if (!_supportsPopover) return false;
+  if (overlay.getAttribute('popover') != null) return true; // already upgraded
+  overlay.setAttribute('popover', 'manual');
+  return true;
+}
+
 // ─── Show / Hide ────────────────────────────────────────────
 
 /**
  * Show an existing overlay element as a modal.
  * Sets up focus trap, Escape key, and optional backdrop click.
+ * Progressively enhanced with Popover API where available.
  *
  * @param {HTMLElement|string} overlayOrId - overlay element or its ID
  * @param {Object} [opts]
@@ -72,17 +94,28 @@ function show(overlayOrId, opts = {}) {
   }
 
   const { backdrop = true, escape = true, onHide } = opts;
+  const usePopover = _upgradeToPopover(overlay);
 
+  // Show the overlay
+  if (usePopover) {
+    try { overlay.showPopover(); } catch (_) {}
+  }
   overlay.classList.remove('hidden');
+
   const trap = trapFocus(overlay);
 
   const _hide = () => {
+    if (usePopover) {
+      try { overlay.hidePopover(); } catch (_) {}
+    }
     overlay.classList.add('hidden');
     if (trap) trap.release();
     cleanup();
     if (onHide) onHide();
   };
 
+  // Escape key — Popover API handles this for popover="auto", but we use "manual"
+  // so we still need our own handler for consistent behavior
   const _onKey = (e) => {
     if (escape && e.key === 'Escape') {
       e.stopImmediatePropagation();
@@ -94,12 +127,19 @@ function show(overlayOrId, opts = {}) {
     if (backdrop && e.target === overlay) _hide();
   };
 
+  // Popover toggle event — browser-initiated dismiss (e.g. popover stacking)
+  const _onToggle = (e) => {
+    if (e.newState === 'closed') _hide();
+  };
+
   document.addEventListener('keydown', _onKey);
   overlay.addEventListener('click', _onBackdrop);
+  if (usePopover) overlay.addEventListener('toggle', _onToggle);
 
   function cleanup() {
     document.removeEventListener('keydown', _onKey);
     overlay.removeEventListener('click', _onBackdrop);
+    if (usePopover) overlay.removeEventListener('toggle', _onToggle);
     _active.delete(overlay);
   }
 
@@ -120,6 +160,9 @@ function hide(overlayOrId) {
   if (entry) {
     entry.hide();
   } else {
+    if (_supportsPopover && overlay.getAttribute('popover') != null) {
+      try { overlay.hidePopover(); } catch (_) {}
+    }
     overlay.classList.add('hidden');
   }
 }

@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.23';
+const CACHE_NAME = 'catmantrio-v20.24';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -243,6 +243,42 @@ self.addEventListener('message', (e) => {
       } catch (err) {
         console.warn('SW: get cached PDF list error', err);
         if (e.source) e.source.postMessage({ type: 'CACHED_PDF_LIST', driveIds: [] });
+      }
+    })();
+  }
+
+  // ─── Bulk prefetch PDFs for offline use ──────────────────
+  if (e.data && e.data.type === 'PREFETCH_PDFS') {
+    const { urls, token } = e.data; // urls = [{url, cacheKey}]
+    (async () => {
+      try {
+        const cache = await caches.open(PDF_CACHE);
+        let done = 0;
+        let failed = 0;
+        for (const { url, cacheKey } of urls) {
+          // Skip if already cached
+          const existing = await cache.match(cacheKey);
+          if (existing) { done++; continue; }
+          try {
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const resp = await fetch(url, { headers });
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const cacheResp = new Response(blob, { headers: { 'Content-Type': 'application/pdf' } });
+              await cache.put(cacheKey, cacheResp);
+              done++;
+            } else {
+              failed++;
+            }
+          } catch (_) { failed++; }
+          // Progress update
+          if (e.source) e.source.postMessage({ type: 'PREFETCH_PROGRESS', done, failed, total: urls.length });
+        }
+        if (e.source) e.source.postMessage({ type: 'PREFETCH_COMPLETE', done, failed, total: urls.length });
+      } catch (err) {
+        console.warn('SW: prefetch PDFs error', err);
+        if (e.source) e.source.postMessage({ type: 'PREFETCH_COMPLETE', done: 0, failed: urls.length, total: urls.length });
       }
     })();
   }
