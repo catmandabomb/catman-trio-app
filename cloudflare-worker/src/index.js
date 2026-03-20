@@ -1413,10 +1413,11 @@ export default {
       }
       return respond(await AppData.uploadFile(request, env, currentUser, _orchId));
     }
-    // GET /files/:id — download a file from R2
+    // GET /files/:id — download a file from R2 (supports Range requests for linearized PDF streaming)
     const fileDownloadMatch = path.match(/^\/files\/([a-f0-9]{16})$/);
     if (fileDownloadMatch && method === 'GET') {
-      return respond(await AppData.downloadFile(env, fileDownloadMatch[1]));
+      const rangeHeader = request.headers.get('Range') || null;
+      return respond(await AppData.downloadFile(env, fileDownloadMatch[1], rangeHeader));
     }
     // DELETE /files/:id — delete a file from R2
     if (fileDownloadMatch && method === 'DELETE') {

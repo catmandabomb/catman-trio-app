@@ -426,18 +426,63 @@ export async function uploadFile(request, env, currentUser, orchestraId) {
   return json({ ok: true, fileId, r2Key, filename, size: data.byteLength });
 }
 
-export async function downloadFile(env, fileId) {
+export async function downloadFile(env, fileId, rangeHeader) {
   const file = await env.DB.prepare('SELECT r2_key, filename, mime_type FROM files WHERE id = ?').bind(fileId).first();
   if (!file) return json({ error: 'File not found' }, 404);
 
+  const baseHeaders = {
+    'Content-Type': file.mime_type,
+    'Content-Disposition': `inline; filename="${_safeFilename(file.filename)}"`,
+    'Cache-Control': 'public, max-age=86400',
+    'Accept-Ranges': 'bytes',
+  };
+
+  // Range request — serve partial content for linearized PDF streaming
+  if (rangeHeader) {
+    // Parse "bytes=START-END" (END is optional)
+    const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+    if (!match) return json({ error: 'Invalid Range header' }, 416);
+
+    const start = parseInt(match[1], 10);
+    const end = match[2] ? parseInt(match[2], 10) : undefined;
+
+    // First, get the object metadata to know total size
+    const head = await env.PACKETS.head(file.r2_key);
+    if (!head) return json({ error: 'File missing from storage' }, 404);
+    const totalSize = head.size;
+
+    // Clamp end to file size
+    const rangeEnd = end !== undefined ? Math.min(end, totalSize - 1) : totalSize - 1;
+    if (start >= totalSize || start > rangeEnd) {
+      return new Response(null, {
+        status: 416,
+        headers: { ...baseHeaders, 'Content-Range': `bytes */${totalSize}` },
+      });
+    }
+
+    const obj = await env.PACKETS.get(file.r2_key, {
+      range: { offset: start, length: rangeEnd - start + 1 },
+    });
+    if (!obj) return json({ error: 'File missing from storage' }, 404);
+
+    return new Response(obj.body, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        'Content-Range': `bytes ${start}-${rangeEnd}/${totalSize}`,
+        'Content-Length': String(rangeEnd - start + 1),
+      },
+    });
+  }
+
+  // Non-range request — serve full file
   const obj = await env.PACKETS.get(file.r2_key);
   if (!obj) return json({ error: 'File missing from storage' }, 404);
 
   return new Response(obj.body, {
     headers: {
-      'Content-Type': file.mime_type,
-      'Content-Disposition': `inline; filename="${_safeFilename(file.filename)}"`,
-      'Cache-Control': 'public, max-age=86400',
+      ...baseHeaders,
+      'Content-Length': String(obj.size),
     },
   });
 }

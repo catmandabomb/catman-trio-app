@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.25';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.25';
-import * as Modal from './modal.js?v=20.25';
-import * as Router from './router.js?v=20.25';
-import * as Sync from './sync.js?v=20.25';
-import * as Drive from '../drive.js?v=20.25';
-import * as GitHub from '../github.js?v=20.25';
-import * as Admin from '../admin.js?v=20.25';
-import * as Auth from '../auth.js?v=20.25';
-import * as Player from '../player.js?v=20.25';
-import * as Metronome from '../metronome.js?v=20.25';
-import * as PDFViewer from '../pdf-viewer.js?v=20.25';
-import * as App from '../app.js?v=20.25';
+import * as Store from './store.js?v=20.26';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.26';
+import * as Modal from './modal.js?v=20.26';
+import * as Router from './router.js?v=20.26';
+import * as Sync from './sync.js?v=20.26';
+import * as Drive from '../drive.js?v=20.26';
+import * as GitHub from '../github.js?v=20.26';
+import * as Admin from '../admin.js?v=20.26';
+import * as Auth from '../auth.js?v=20.26';
+import * as Player from '../player.js?v=20.26';
+import * as Metronome from '../metronome.js?v=20.26';
+import * as PDFViewer from '../pdf-viewer.js?v=20.26';
+import * as App from '../app.js?v=20.26';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -960,7 +960,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
           ${(a.charts || []).length ? `<div class="detail-section" style="margin-bottom:12px">
             <div class="detail-section-label">Charts</div>
             <div class="file-list">${(a.charts || []).map(c => `
-              <div class="file-item-row"><button class="file-item" data-open-chart="${esc(c.r2FileId || c.driveId)}" data-name="${esc(c.name)}" data-song-bpm="${song.bpm || ''}" data-song-timesig="${song.timeSig || ''}">
+              <div class="file-item-row"><button class="file-item" data-open-chart="${esc(c.r2FileId || c.driveId)}" data-name="${esc(c.name)}" data-song-bpm="${song.bpm || ''}" data-song-timesig="${song.timeSig || ''}" data-song-id="${esc(song.id)}">
                 <div class="file-item-icon pdf"><i data-lucide="file-text"></i></div>
                 <span class="file-item-name">${esc(c.name)}</span>
                 <i data-lucide="chevron-right" class="file-item-arrow"></i>
@@ -1116,6 +1116,12 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
             pdfOpts.bpm = songBpm;
             const ts = btn.dataset.songTimesig;
             if (ts) { const n = parseInt(ts, 10); if (n > 0) pdfOpts.timeSig = n; }
+          }
+          // Pass song context for annotations
+          if (btn.dataset.songId) {
+            pdfOpts.songId = btn.dataset.songId;
+            const song = Store.get('songs').find(s => s.id === btn.dataset.songId);
+            if (song?.notes) pdfOpts.songNotes = song.notes;
           }
           PDFViewer.open(url, btn.dataset.name, pdfOpts);
         } catch (err) { console.error('Practice chart load failed:', btn.dataset.openChart, err); showToast('Failed to load chart.'); }

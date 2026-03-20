@@ -597,6 +597,8 @@ function create(container, { name, blobUrl, songTitle, loopMode, songId, persist
         navigator.mediaSession.setActionHandler('play', _msPlay);
         navigator.mediaSession.setActionHandler('pause', _msPause);
         navigator.mediaSession.setActionHandler('stop', _msStop);
+        navigator.mediaSession.setActionHandler('seekbackward', () => { if (audio) audio.currentTime = Math.max(0, audio.currentTime - 10); });
+        navigator.mediaSession.setActionHandler('seekforward', () => { if (audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); });
       } catch (_) {}
     });
   }

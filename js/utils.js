@@ -7,7 +7,7 @@
  * @module utils
  */
 
-import * as Store from './store.js?v=20.25';
+import * as Store from './store.js?v=20.26';
 
 // ─── HTML / String helpers ──────────────────────────────────
 
@@ -181,7 +181,10 @@ function isIOS() {
 
 /** @returns {boolean} True if running on a mobile/tablet device */
 function isMobile() {
-  if (/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+  const ua = navigator.userAgent;
+  // Samsung DeX: Android UA but using mouse/keyboard on large screen — treat as desktop
+  if (/Android/i.test(ua) && window.matchMedia('(hover: hover) and (pointer: fine)').matches && window.innerWidth > 1024) return false;
+  if (/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
   if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) return true;
   if (navigator.maxTouchPoints > 1 && window.innerWidth <= 1024) return true;
   return false;
@@ -206,7 +209,7 @@ function isPWAInstalled() {
 function detectPlatform() {
   const ua = navigator.userAgent;
   // WebView detection: Facebook, Instagram, and other in-app browsers
-  if (/FBAN|FBAV|Instagram|Line\/|Snapchat|Twitter|MicroMessenger/i.test(ua)) return 'webview';
+  if (/FBAN|FBAV|Instagram|Line\/|Snapchat|Twitter|MicroMessenger|LinkedIn|Telegram|Pinterest|Reddit/i.test(ua)) return 'webview';
   if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
   if (/iPhone|iPod/i.test(ua)) return 'ios';
   // Firefox on Android (distinct from Chrome — no beforeinstallprompt)

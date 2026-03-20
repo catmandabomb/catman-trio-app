@@ -9,6 +9,7 @@
   <meta name="theme-color" content="#0e0e10" />
   <meta name="darkreader-lock">
   <meta name="color-scheme" content="dark">
+  <meta name="nightmode" content="disable">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://static.cloudflareinsights.com 'sha256-6y/NAM97sjR2cg0g9WaS1+JtEeUUShtMLksYa/yTpTo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://catman-api.catmandabomb.workers.dev https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com https://cloudflareinsights.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob:; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
   <title>Catman Trio</title>
 
@@ -83,10 +84,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.25" as="style">
+  <link rel="preload" href="app.css?v=20.26" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.25">
-  <link rel="stylesheet" href="app.css?v=20.25" />
+  <link rel="modulepreload" href="app.js?v=20.26">
+  <link rel="stylesheet" href="app.css?v=20.26" />
 
   <script src="lib/pdf.min.js" defer></script>
   <script src="lib/Sortable.min.js" defer></script>
@@ -386,6 +387,9 @@
         <button id="pdf-metronome" class="icon-btn hidden" aria-label="Toggle metronome" title="Toggle metronome">
           <i data-lucide="timer"></i>
         </button>
+        <button id="pdf-draw" class="icon-btn pdf-draw-btn hidden" aria-label="Toggle drawing mode" title="Draw on chart">
+          <i data-lucide="paintbrush-2"></i>
+        </button>
         <button id="pdf-close" class="icon-btn" aria-label="Close PDF" title="Close PDF">
           <i data-lucide="x"></i>
         </button>
@@ -463,6 +467,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.25"></script>
+  <script type="module" src="app.js?v=20.26"></script>
 </body>
 </html>

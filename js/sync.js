@@ -1,21 +1,131 @@
 /**
  * sync.js — Data load/save/sync layer
  *
- * Handles localStorage, IndexedDB, SW cache, and remote sync
+ * Handles localStorage, IndexedDB, OPFS (write buffer), SW cache, and remote sync
  * (Cloudflare D1 primary, GitHub/Drive legacy fallback).
  * State lives in Store; re-renders via Router.
  *
  * @module sync
  */
 
-import * as Store from './store.js?v=20.25';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.25';
-import * as GitHub from '../github.js?v=20.25';
-import * as Drive from '../drive.js?v=20.25';
-import * as Router from './router.js?v=20.25';
-import * as IDB from '../idb.js?v=20.25';
-import * as Auth from '../auth.js?v=20.25';
-import * as Admin from '../admin.js?v=20.25';
+import * as Store from './store.js?v=20.26';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.26';
+import * as GitHub from '../github.js?v=20.26';
+import * as Drive from '../drive.js?v=20.26';
+import * as Router from './router.js?v=20.26';
+import * as IDB from '../idb.js?v=20.26';
+import * as OPFS from './opfs.js?v=20.26';
+import * as Auth from '../auth.js?v=20.26';
+import * as Admin from '../admin.js?v=20.26';
+
+// ─── Compression Streams (progressive enhancement) ──────────
+// Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
+// Falls back to raw JSON when CompressionStream is unavailable or on error.
+
+const _compressionAvailable = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+
+/**
+ * Gzip-compress a JSON string and return a 'gz:'-prefixed base64 string.
+ * Uses chunked btoa for strings > 1MB to avoid call stack overflow.
+ * @param {string} str - Raw JSON string
+ * @returns {Promise<string>} 'gz:' + base64-encoded gzip data
+ */
+async function _compress(str) {
+  const blob = new Blob([str]);
+  const cs = new CompressionStream('gzip');
+  const stream = blob.stream().pipeThrough(cs);
+  const buf = await new Response(stream).arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // Chunked btoa to avoid "Maximum call stack size exceeded" on large arrays
+  let binary = '';
+  const CHUNK = 0x8000; // 32KB chunks
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return 'gz:' + btoa(binary);
+}
+
+/**
+ * Decompress a 'gz:'-prefixed base64 string back to the original JSON string.
+ * @param {string} encoded - 'gz:' + base64 gzip data
+ * @returns {Promise<string>} Original JSON string
+ */
+async function _decompress(encoded) {
+  const b64 = encoded.slice(3); // remove 'gz:' prefix
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const ds = new DecompressionStream('gzip');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Response(stream).text();
+}
+
+/**
+ * Save a JSON string to localStorage, compressing if available.
+ * @param {string} key - localStorage key
+ * @param {string} jsonStr - JSON string to store
+ */
+async function _setCompressed(key, jsonStr) {
+  if (_compressionAvailable) {
+    try {
+      const compressed = await _compress(jsonStr);
+      localStorage.setItem(key, compressed);
+      return;
+    } catch (e) {
+      console.warn('Compression failed, falling back to raw JSON', e);
+    }
+  }
+  localStorage.setItem(key, jsonStr);
+}
+
+/**
+ * Read from localStorage, decompressing if the value has a 'gz:' prefix.
+ * @param {string} key - localStorage key
+ * @returns {Promise<string|null>} Raw JSON string, or null if key doesn't exist
+ */
+async function _getDecompressed(key) {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return null;
+  if (raw.startsWith('gz:')) {
+    try {
+      return await _decompress(raw);
+    } catch (e) {
+      console.warn('Decompression failed, treating as raw JSON', e);
+      return raw; // let the caller's JSON.parse handle it (will likely fail gracefully)
+    }
+  }
+  return raw;
+}
+
+/**
+ * Synchronous read from localStorage with gz: detection.
+ * Used by _load*Local which are synchronous — returns raw JSON or null.
+ * If compressed data is found, returns null so the caller falls through
+ * to IDB or SW cache (which have the uncompressed data).
+ * We also schedule a background decompression to re-populate.
+ * @param {string} key - localStorage key
+ * @returns {string|null} JSON string or null if compressed/missing
+ */
+function _getLocalSync(key) {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return null;
+  if (raw.startsWith('gz:')) {
+    // Can't decompress synchronously — return null so caller falls through to IDB/SW cache
+    return null;
+  }
+  return raw;
+}
+
+// ─── OPFS write buffer (fire-and-forget) ────────────────────
+// Writes to OPFS are crash-resilient but not awaited in the save path
+// to avoid blocking the UI. OPFS serves as a recovery source only.
+
+function _opfsWrite(filename, data) {
+  try {
+    const json = typeof data === 'string' ? data : JSON.stringify(data);
+    OPFS.writeData(filename, json).catch(() => {}); // fire-and-forget
+  } catch { /* skip */ }
+}
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
@@ -173,18 +283,24 @@ function migrateSchema(data, type) {
 // ─── Songs: local storage helpers ──────────────────────────
 
 function _loadLocal() {
-  try { return migrateSchema(JSON.parse(localStorage.getItem('ct_songs') || '[]'), 'songs'); }
-  catch { return []; }
+  try {
+    const raw = _getLocalSync('ct_songs');
+    return migrateSchema(JSON.parse(raw || '[]'), 'songs');
+  } catch { return []; }
 }
 
 async function _saveLocal(songs) {
+  // OPFS write-ahead (fire-and-forget, crash-resilient)
+  _opfsWrite('songs.json', songs);
   // IDB first (primary), localStorage as fallback mirror
   if (IDB.isAvailable()) {
     try { await IDB.saveSongs(songs); }
     catch (e) { console.warn('IDB save songs failed', e); }
   }
-  try { localStorage.setItem('ct_songs', JSON.stringify(songs)); }
-  catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
+  try {
+    const jsonStr = JSON.stringify(songs);
+    await _setCompressed('ct_songs', jsonStr);
+  } catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SONGS', songs });
   }
@@ -228,24 +344,42 @@ async function loadSongsInstant() {
   if (swSongs && swSongs.length > 0) {
     Store.set('songs', swSongs);
     _saveLocal(swSongs);
+    return;
+  }
+  // OPFS recovery — last resort
+  const opfsSongs = await OPFS.readData('songs.json');
+  if (opfsSongs) {
+    try {
+      const parsed = JSON.parse(opfsSongs);
+      if (parsed.length > 0) {
+        Store.set('songs', migrateSchema(parsed, 'songs'));
+        _saveLocal(parsed); // re-populate IDB + localStorage
+      }
+    } catch { /* corrupt OPFS data — skip */ }
   }
 }
 
 // ─── Setlists: local storage helpers ───────────────────────
 
 function _loadSetlistsLocal() {
-  try { return migrateSchema(JSON.parse(localStorage.getItem('ct_setlists') || '[]'), 'setlists'); }
-  catch { return []; }
+  try {
+    const raw = _getLocalSync('ct_setlists');
+    return migrateSchema(JSON.parse(raw || '[]'), 'setlists');
+  } catch { return []; }
 }
 
 async function _saveSetlistsLocal(setlists) {
+  // OPFS write-ahead (fire-and-forget, crash-resilient)
+  _opfsWrite('setlists.json', setlists);
   // IDB first (primary), localStorage as fallback mirror
   if (IDB.isAvailable()) {
     try { await IDB.saveSetlists(setlists); }
     catch (e) { console.warn('IDB save setlists failed', e); }
   }
-  try { localStorage.setItem('ct_setlists', JSON.stringify(setlists)); }
-  catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
+  try {
+    const jsonStr = JSON.stringify(setlists);
+    await _setCompressed('ct_setlists', jsonStr);
+  } catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SETLISTS', setlists });
   }
@@ -289,24 +423,42 @@ async function loadSetlistsInstant() {
   if (swSetlists && swSetlists.length > 0) {
     Store.set('setlists', swSetlists);
     _saveSetlistsLocal(swSetlists);
+    return;
+  }
+  // OPFS recovery — last resort
+  const opfsSetlists = await OPFS.readData('setlists.json');
+  if (opfsSetlists) {
+    try {
+      const parsed = JSON.parse(opfsSetlists);
+      if (parsed.length > 0) {
+        Store.set('setlists', migrateSchema(parsed, 'setlists'));
+        _saveSetlistsLocal(parsed);
+      }
+    } catch { /* corrupt OPFS data — skip */ }
   }
 }
 
 // ─── Practice: local storage helpers ───────────────────────
 
 function _loadPracticeLocal() {
-  try { return migrateSchema(JSON.parse(localStorage.getItem('ct_practice') || '[]'), 'practice'); }
-  catch { return []; }
+  try {
+    const raw = _getLocalSync('ct_practice');
+    return migrateSchema(JSON.parse(raw || '[]'), 'practice');
+  } catch { return []; }
 }
 
 async function _savePracticeLocal(data) {
+  // OPFS write-ahead (fire-and-forget, crash-resilient)
+  _opfsWrite('practice.json', data);
   // IDB first (primary), localStorage as fallback mirror
   if (IDB.isAvailable()) {
     try { await IDB.savePractice(data); }
     catch (e) { console.warn('IDB save practice failed', e); }
   }
-  try { localStorage.setItem('ct_practice', JSON.stringify(data)); }
-  catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
+  try {
+    const jsonStr = JSON.stringify(data);
+    await _setCompressed('ct_practice', jsonStr);
+  } catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
   }
@@ -350,23 +502,41 @@ async function loadPracticeInstant() {
   if (sw && sw.length > 0) {
     Store.set('practice', sw);
     _savePracticeLocal(sw);
+    return;
+  }
+  // OPFS recovery — last resort
+  const opfsPractice = await OPFS.readData('practice.json');
+  if (opfsPractice) {
+    try {
+      const parsed = JSON.parse(opfsPractice);
+      if (parsed.length > 0) {
+        Store.set('practice', migrateSchema(parsed, 'practice'));
+        _savePracticeLocal(parsed);
+      }
+    } catch { /* corrupt OPFS data — skip */ }
   }
 }
 
 // ─── WikiCharts: local storage helpers ──────────────────
 
 function _loadWikiChartsLocal() {
-  try { return migrateSchema(JSON.parse(localStorage.getItem('ct_wikicharts') || '[]'), 'wikiCharts'); }
-  catch { return []; }
+  try {
+    const raw = _getLocalSync('ct_wikicharts');
+    return migrateSchema(JSON.parse(raw || '[]'), 'wikiCharts');
+  } catch { return []; }
 }
 
 async function _saveWikiChartsLocal(data) {
+  // OPFS write-ahead (fire-and-forget, crash-resilient)
+  _opfsWrite('wikicharts.json', data);
   if (IDB.isAvailable()) {
     try { await IDB.saveWikiCharts(data); }
     catch (e) { console.warn('IDB save wikiCharts failed', e); }
   }
-  try { localStorage.setItem('ct_wikicharts', JSON.stringify(data)); }
-  catch (e) { console.warn('localStorage save failed (wikiCharts)', e); showToast('Storage full — data may not persist.'); }
+  try {
+    const jsonStr = JSON.stringify(data);
+    await _setCompressed('ct_wikicharts', jsonStr);
+  } catch (e) { console.warn('localStorage save failed (wikiCharts)', e); showToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_WIKICHARTS', wikiCharts: data });
   }
@@ -410,6 +580,18 @@ async function loadWikiChartsInstant() {
   if (sw && sw.length > 0) {
     Store.set('wikiCharts', sw);
     _saveWikiChartsLocal(sw);
+    return;
+  }
+  // OPFS recovery — last resort
+  const opfsWC = await OPFS.readData('wikicharts.json');
+  if (opfsWC) {
+    try {
+      const parsed = JSON.parse(opfsWC);
+      if (parsed.length > 0) {
+        Store.set('wikiCharts', migrateSchema(parsed, 'wikiCharts'));
+        _saveWikiChartsLocal(parsed);
+      }
+    } catch { /* corrupt OPFS data — skip */ }
   }
 }
 
@@ -915,9 +1097,10 @@ async function switchOrchestra(orchestraId) {
       localStorage.removeItem('ct_sync_fingerprints');
     } catch (_) {}
 
-    // 3. Clear IDB
+    // 3. Clear IDB + OPFS
     try { await IDB.clear?.('songs'); } catch (_) {}
     try { await IDB.clear?.('setlists'); } catch (_) {}
+    OPFS.clearAll().catch(() => {}); // fire-and-forget
 
     // 4. Reset poll baseline
     _lastChanges = null;

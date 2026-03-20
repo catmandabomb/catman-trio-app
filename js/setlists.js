@@ -5,20 +5,21 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.25';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.25';
-import * as Modal from './modal.js?v=20.25';
-import * as Router from './router.js?v=20.25';
-import * as Admin from '../admin.js?v=20.25';
-import * as Auth from '../auth.js?v=20.25';
-import * as Sync from './sync.js?v=20.25';
-import * as WikiCharts from './wikicharts.js?v=20.25';
-import * as Drive from '../drive.js?v=20.25';
-import * as GitHub from '../github.js?v=20.25';
-import * as Player from '../player.js?v=20.25';
-import * as PDFViewer from '../pdf-viewer.js?v=20.25';
-import * as App from '../app.js?v=20.25';
-import * as Songs from './songs.js?v=20.25';
+import * as Store from './store.js?v=20.26';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.26';
+import * as Modal from './modal.js?v=20.26';
+import * as Router from './router.js?v=20.26';
+import * as Admin from '../admin.js?v=20.26';
+import * as Auth from '../auth.js?v=20.26';
+import * as Sync from './sync.js?v=20.26';
+import * as WikiCharts from './wikicharts.js?v=20.26';
+import * as Drive from '../drive.js?v=20.26';
+import * as GitHub from '../github.js?v=20.26';
+import * as Player from '../player.js?v=20.26';
+import * as PDFViewer from '../pdf-viewer.js?v=20.26';
+import * as App from '../app.js?v=20.26';
+import * as Songs from './songs.js?v=20.26';
+import * as Annotations from './annotations.js?v=20.26';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -2012,6 +2013,10 @@ function _renderLiveMode(setlist) {
           loadArea.classList.add('hidden');
           void canvas.offsetHeight; // force iOS compositing
           _diagLog('rendered', { pageIdx, gen, ms: Date.now() - renderStart });
+          // Attach annotation overlay for live mode charts
+          if (page.song?.id) {
+            Annotations.attachLiveMode(canvas, chartArea, page.song.id, page.pageNum);
+          }
         })
         .catch(err => {
           console.error('Live mode chart render error', err);

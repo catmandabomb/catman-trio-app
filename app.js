@@ -2,25 +2,25 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.25';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.25';
-import * as Modal from './js/modal.js?v=20.25';
-import * as Router from './js/router.js?v=20.25';
-import * as Sync from './js/sync.js?v=20.25';
-import * as Drive from './drive.js?v=20.25';
-import * as GitHub from './github.js?v=20.25';
-import * as Admin from './admin.js?v=20.25';
-import * as Auth from './auth.js?v=20.25';
-import * as Player from './player.js?v=20.25';
-import * as Songs from './js/songs.js?v=20.25';
-import * as Setlists from './js/setlists.js?v=20.25';
-import * as Practice from './js/practice.js?v=20.25';
-import * as Dashboard from './js/dashboard.js?v=20.25';
-import * as Migrate from './js/migrate.js?v=20.25';
-import * as WikiCharts from './js/wikicharts.js?v=20.25';
-import * as IDB from './idb.js?v=20.25';
-import * as Orchestra from './js/orchestra.js?v=20.25';
-import * as Instruments from './js/instruments.js?v=20.25';
+import * as Store from './js/store.js?v=20.26';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.26';
+import * as Modal from './js/modal.js?v=20.26';
+import * as Router from './js/router.js?v=20.26';
+import * as Sync from './js/sync.js?v=20.26';
+import * as Drive from './drive.js?v=20.26';
+import * as GitHub from './github.js?v=20.26';
+import * as Admin from './admin.js?v=20.26';
+import * as Auth from './auth.js?v=20.26';
+import * as Player from './player.js?v=20.26';
+import * as Songs from './js/songs.js?v=20.26';
+import * as Setlists from './js/setlists.js?v=20.26';
+import * as Practice from './js/practice.js?v=20.26';
+import * as Dashboard from './js/dashboard.js?v=20.26';
+import * as Migrate from './js/migrate.js?v=20.26';
+import * as WikiCharts from './js/wikicharts.js?v=20.26';
+import * as IDB from './idb.js?v=20.26';
+import * as Orchestra from './js/orchestra.js?v=20.26';
+import * as Instruments from './js/instruments.js?v=20.26';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -1202,6 +1202,33 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
+        <!-- ANNOTATIONS (all logged-in users) -->
+        <div class="settings-section">
+          <div class="settings-section-title"><i data-lucide="paintbrush-2" style="width:16px;height:16px;"></i> Annotations</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show drawings</div>
+              <div class="settings-hint">Display your pen/highlighter annotations on charts</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-show-drawings" ${_getPref('show_drawings', '1') === '1' ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show text notes overlay</div>
+              <div class="settings-hint">Display song notes on charts when viewing PDFs</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-show-text-overlay" ${_getPref('show_text_overlay', '1') === '1' ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
         ${Auth.canEditSongs() ? `
         <!-- CONDUCTR TOOLS (owner/admin/conductr only) -->
         <div class="settings-section">
@@ -1227,6 +1254,19 @@ let _cachedPdfSet = new Set();
               <input type="checkbox" id="pref-shell-voicings" ${_getPref('shell_voicings', '0') === '1' ? 'checked' : ''}>
               <span class="settings-toggle-track"></span>
             </label>
+          </div>
+
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Audio format</div>
+                <div class="settings-hint" id="pref-audio-format-hint">${_getPref('audio_format', 'opus') === 'opus' ? 'Converts uploaded audio to Opus format (smaller files, same quality). Original file is replaced after conversion.' : 'Keeps uploaded audio files in their original format.'}</div>
+              </div>
+            </div>
+            <select class="settings-select" id="pref-audio-format" style="width:100%;max-width:280px;">
+              <option value="opus" ${_getPref('audio_format', 'opus') === 'opus' ? 'selected' : ''}>Compress audio (Opus)</option>
+              <option value="original" ${_getPref('audio_format', 'opus') === 'original' ? 'selected' : ''}>Keep original format</option>
+            </select>
           </div>
         </div>
         ` : ''}
@@ -1298,9 +1338,27 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-show-redmode', 'live_show_redmode');
     wire('pref-lm-stage-red', 'lm_stage_red');
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
+    // Annotations toggles
+    wire('pref-show-drawings', 'show_drawings');
+    wire('pref-show-text-overlay', 'show_text_overlay');
+
     // Conductr Tools toggles (only wired if section is present)
     wire('pref-setlist-insights', 'setlist_insights');
     wire('pref-shell-voicings', 'shell_voicings');
+
+    // Audio format select (conductr tools)
+    const audioFmtSelect = container.querySelector('#pref-audio-format');
+    if (audioFmtSelect) {
+      audioFmtSelect.addEventListener('change', () => {
+        _setPref('audio_format', audioFmtSelect.value);
+        const hint = container.querySelector('#pref-audio-format-hint');
+        if (hint) {
+          hint.textContent = audioFmtSelect.value === 'opus'
+            ? 'Converts uploaded audio to Opus format (smaller files, same quality). Original file is replaced after conversion.'
+            : 'Keeps uploaded audio files in their original format.';
+        }
+      });
+    }
 
     // Push notification toggle — special handler (async permission + subscription)
     const pushToggle = container.querySelector('#pref-push-enabled');
@@ -1817,7 +1875,7 @@ let _cachedPdfSet = new Set();
         <div class="install-steps">
           <div class="install-step">
             <span class="install-step-num">1</span>
-            <span>Tap the <strong>menu</strong> button <span class="install-icon-hint">( &#8942; )</span> in the top right of Chrome</span>
+            <span>Tap the <strong>menu</strong> button <span class="install-icon-hint">( &#8942; )</span> in the top right of your browser</span>
           </div>
           <div class="install-step">
             <span class="install-step-num">2</span>
@@ -2147,6 +2205,9 @@ let _cachedPdfSet = new Set();
         Store.set('isPopstateNavigation', false);
       }
     });
+
+    // Navigation API progressive enhancement (replaces popstate on supporting browsers)
+    Router.initNavigationAPI?.();
 
     // Feature 2: beforeinstallprompt handler
     window.addEventListener('beforeinstallprompt', (e) => {

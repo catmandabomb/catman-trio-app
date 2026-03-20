@@ -110,6 +110,12 @@ html.nav-back::view-transition-new(root) {
   ::view-transition-new(topbar) {
     animation: none;
   }
+  /* Skip blur on reduced-motion (proxy for budget GPU devices) */
+  #topbar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: rgba(14,14,16,0.95);
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -2033,7 +2039,7 @@ textarea.form-input {
   background: none;
   border: none;
   outline: none;
-  font-size: 12px;
+  font-size: 16px;
   color: var(--text);
   min-width: 80px;
   flex: 1;
@@ -2145,7 +2151,7 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 9px 8px;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text);
   outline: none;
   appearance: none;
@@ -2262,7 +2268,7 @@ textarea.form-input {
 /* ═══════════════════════════════════════════
    MODALS
 ═══════════════════════════════════════════ */
-/* A3 — Modal scale-up animation */
+/* A3 — Modal scale-up animation (keyframe fallback for browsers without @starting-style) */
 @keyframes modalOverlayIn {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -2283,6 +2289,9 @@ textarea.form-input {
   justify-content: center;
   padding: 20px;
   animation: modalOverlayIn 0.25s ease-out;
+}
+.modal-overlay.hidden {
+  display: none;
 }
 
 /* Popover API progressive enhancement — top-layer rendering */
@@ -2310,6 +2319,77 @@ textarea.form-input {
   max-width: 400px;
   box-shadow: var(--shadow-lg), 0 0 40px rgba(232,195,115,0.06);
   animation: modalScaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ─── @starting-style progressive enhancement ───
+   Pure CSS entry/exit animations for modals and toasts.
+   Replaces rAF animation hacks where supported.
+   Browsers without @starting-style fall back to the keyframe animations above. */
+@supports (transition-behavior: allow-discrete) {
+  .modal-overlay {
+    opacity: 1;
+    animation: none;
+    transition: opacity 0.25s ease-out,
+                display 0.25s allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  .modal-overlay.hidden {
+    opacity: 0;
+    display: none;
+  }
+
+  .modal-overlay[popover]::backdrop {
+    animation: none;
+    opacity: 1;
+    transition: opacity 0.25s ease-out,
+                display 0.25s allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  .modal {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    animation: none;
+    transition: opacity 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+                transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.92) translateY(8px);
+    }
+  }
+
+  #toast {
+    transition: opacity 0.2s ease-out,
+                transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                display 0.3s allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+      transform: translateX(-50%) translateY(10px);
+    }
+  }
+
+  .packet-result-toast {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    animation: none;
+    transition: opacity 0.25s ease-out,
+                transform 0.25s ease-out,
+                display 0.25s allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+      transform: translateX(-50%) translateY(20px);
+    }
+  }
 }
 
 .modal h2 {
@@ -4748,22 +4828,236 @@ html.live-mode-active { overflow: hidden; touch-action: none; overscroll-behavio
   background: #111;
 }
 
-/* Stage Red Mode — deep red tint for dark stages */
+/* ═══════════════════════════════════════════
+   STAGE RED MODE — Night-Vision-Preserving Theme
+   Zero blue light. Full CSS custom property override.
+   Applied via .lm-stage-red on .lm-carousel
+═══════════════════════════════════════════ */
+
+/* Stage Red custom properties */
 .lm-carousel.lm-stage-red {
-  background: #1a0505;
+  --red-bg:       #1a0505;
+  --red-bg-2:     #2a0a0a;
+  --red-bg-3:     #3a1010;
+  --red-text:     #cc4444;
+  --red-text-2:   #993333;
+  --red-text-dim: #662222;
+  --red-accent:   #e84040;
+  --red-accent-dim: #aa2e2e;
+  --red-border:   #441212;
+  --red-border-light: #5a1a1a;
+  --red-glow:     rgba(204,68,68,0.15);
+
+  background: var(--red-bg);
 }
+
+/* Slides */
 .lm-carousel.lm-stage-red .lm-slide {
-  background: #1a0505;
+  background: var(--red-bg);
 }
 .lm-carousel.lm-stage-red .lm-slide-canvas {
   filter: sepia(1) saturate(3) hue-rotate(-15deg) brightness(0.7);
 }
+
 /* Stage red + dark mode: combine filters */
 .lm-carousel.lm-stage-red.lm-dark-mode .lm-slide-canvas {
   filter: invert(1) hue-rotate(180deg) sepia(1) saturate(3) hue-rotate(-15deg) brightness(0.7);
 }
+
+/* Slide metadata text */
 .lm-carousel.lm-stage-red .lm-slide-meta {
-  color: #ff9999;
+  color: var(--red-text);
+}
+.lm-carousel.lm-stage-red .lm-slide-meta .lm-meta-key,
+.lm-carousel.lm-stage-red .lm-slide-meta .lm-meta-bpm {
+  color: var(--red-text-2);
+}
+
+/* Chart overlay (gradient on chart slides) */
+.lm-carousel.lm-stage-red .lm-chart-overlay {
+  background: linear-gradient(to bottom, rgba(26,5,5,0.85) 0%, rgba(26,5,5,0) 100%);
+  color: var(--red-text);
+}
+
+/* Header — song title, progress, clock */
+.lm-carousel.lm-stage-red ~ .lm-header,
+.lm-stage-red .lm-header {
+  color: var(--red-text);
+}
+.lm-carousel.lm-stage-red ~ .lm-header .lm-song-title,
+.lm-stage-red .lm-song-title {
+  color: var(--red-text);
+}
+.lm-carousel.lm-stage-red ~ .lm-header .lm-progress,
+.lm-stage-red .lm-progress {
+  color: var(--red-text-2);
+}
+.lm-carousel.lm-stage-red ~ .lm-header .lm-clock,
+.lm-stage-red .lm-clock {
+  color: var(--red-text-dim);
+}
+
+/* Timer */
+.lm-carousel.lm-stage-red ~ .lm-header .lm-timer,
+.lm-stage-red .lm-timer {
+  color: var(--red-accent);
+}
+.lm-carousel.lm-stage-red ~ .lm-header .lm-timer-btn,
+.lm-stage-red .lm-timer-btn {
+  color: var(--red-accent);
+  border-color: var(--red-border);
+}
+.lm-carousel.lm-stage-red ~ .lm-header .lm-timer-btn.lm-timer-running,
+.lm-stage-red .lm-timer-btn.lm-timer-running {
+  border-color: var(--red-accent-dim);
+  background: var(--red-glow);
+}
+
+/* Tool toggles — base state in red mode */
+.lm-stage-red .lm-dark-toggle,
+.lm-stage-red .lm-half-toggle,
+.lm-stage-red .lm-red-toggle,
+.lm-stage-red .lm-notes-toggle,
+.lm-stage-red .lm-auto-toggle {
+  color: var(--red-text-2);
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-dark-toggle:hover,
+.lm-stage-red .lm-half-toggle:hover,
+.lm-stage-red .lm-red-toggle:hover,
+.lm-stage-red .lm-notes-toggle:hover,
+.lm-stage-red .lm-auto-toggle:hover {
+  color: var(--red-text);
+  background: var(--red-bg-3);
+  border-color: var(--red-border-light);
+}
+/* Active toggles in red mode */
+.lm-stage-red .lm-dark-toggle.active,
+.lm-stage-red .lm-half-toggle.active,
+.lm-stage-red .lm-notes-toggle.active {
+  color: var(--red-accent);
+  background: var(--red-glow);
+  border-color: var(--red-accent-dim);
+}
+.lm-stage-red .lm-red-toggle.active {
+  color: var(--red-accent);
+  background: rgba(232,64,64,0.2);
+  border-color: var(--red-accent);
+}
+.lm-stage-red .lm-auto-toggle.active {
+  color: var(--red-accent);
+  background: var(--red-glow);
+  border-color: var(--red-accent-dim);
+  animation: lm-red-pulse-ring 2s ease-in-out infinite;
+}
+@keyframes lm-red-pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(204,68,68,0); }
+  50% { box-shadow: 0 0 0 4px rgba(204,68,68,0.25); }
+}
+
+/* Close & Jump buttons */
+.lm-stage-red .lm-close-btn {
+  color: var(--red-text-2);
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-close-btn:hover {
+  color: var(--red-accent);
+  background: var(--red-bg-3);
+}
+.lm-stage-red .lm-close-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--red-accent);
+}
+.lm-stage-red .lm-jump-btn {
+  color: var(--red-text-2);
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-jump-btn:hover {
+  color: var(--red-text);
+  background: var(--red-bg-3);
+}
+.lm-stage-red .lm-jump-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--red-accent);
+}
+
+/* Navigation buttons */
+.lm-stage-red ~ .lm-nav .lm-nav-btn {
+  color: var(--red-text-2);
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red ~ .lm-nav .lm-nav-btn:hover:not(:disabled) {
+  color: var(--red-text);
+  background: var(--red-bg-3);
+}
+.lm-stage-red ~ .lm-nav .lm-nav-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--red-accent);
+}
+.lm-stage-red ~ .lm-nav .lm-nav-btn:disabled {
+  opacity: 0.15;
+}
+
+/* Auto-advance progress bar */
+.lm-stage-red .lm-auto-progress {
+  background: var(--red-accent);
+}
+
+/* Auto-advance interval picker */
+.lm-stage-red .lm-auto-picker {
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-auto-pick-item {
+  color: var(--red-text-2);
+  background: var(--red-bg-3);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-auto-pick-item:hover {
+  color: var(--red-text);
+  background: rgba(58,16,16,0.8);
+}
+.lm-stage-red .lm-auto-pick-item.active {
+  color: var(--red-accent);
+  background: var(--red-glow);
+  border-color: var(--red-accent-dim);
+}
+
+/* Jump overlay */
+.lm-stage-red .lm-jump-overlay {
+  background: rgba(26,5,5,0.85);
+}
+.lm-stage-red .lm-jump-list {
+  background: var(--red-bg-2);
+  border-color: var(--red-border);
+}
+.lm-stage-red .lm-jump-item {
+  color: var(--red-text-2);
+}
+.lm-stage-red .lm-jump-item:hover {
+  color: var(--red-text);
+  background: var(--red-bg-3);
+}
+.lm-stage-red .lm-jump-item.current {
+  color: var(--red-accent);
+  background: var(--red-glow);
+}
+
+/* Scrollbar in red mode */
+.lm-stage-red ::-webkit-scrollbar-track {
+  background: var(--red-bg);
+}
+.lm-stage-red ::-webkit-scrollbar-thumb {
+  background: var(--red-border);
+}
+.lm-stage-red ::-webkit-scrollbar-thumb:hover {
+  background: var(--red-border-light);
+}
+
+/* Wake lock indicator */
+.lm-stage-red .lm-wake-indicator {
+  opacity: 0.1;
 }
 
 /* Rehearsal Notes Overlay */
@@ -4794,8 +5088,9 @@ html.live-mode-active { overflow: hidden; touch-action: none; overscroll-behavio
 
 /* Stage Red + Rehearsal Notes */
 .lm-carousel.lm-stage-red ~ .lm-rehearsal-overlay {
-  background: rgba(40,5,5,0.8);
-  color: #ff9999;
+  background: rgba(40,5,5,0.85);
+  color: var(--red-text, #cc4444);
+  border: 1px solid var(--red-border, #441212);
 }
 
 /* Half-Page Turns — clip chart to show top or bottom half */
@@ -7281,3 +7576,252 @@ body:not(.authed) #search-bar .search-refresh-btn {
   margin-left: 4px;
 }
 .difficulty-picker-clear:hover { color: var(--text-2); }
+
+/* ═══════════════════════════════════════════
+   CSS ANCHOR POSITIONING (Progressive Enhancement)
+   Replaces relative-parent positioning with native anchor()
+   for dropdowns that may overflow viewport edges.
+   Non-supporting browsers keep the existing absolute positioning.
+═══════════════════════════════════════════ */
+@supports (anchor-name: --x) {
+  /* ── Tuning fork pitch dropdown ── */
+  #btn-tuning-fork-pitch {
+    anchor-name: --tf-pitch-trigger;
+  }
+  .tuning-fork-dropdown {
+    position: fixed;
+    position-anchor: --tf-pitch-trigger;
+    top: anchor(bottom);
+    right: anchor(right);
+    left: auto;
+    margin-top: 4px;
+    /* Remove absolute-positioning assumptions */
+    position-try-fallbacks: flip-block;
+  }
+
+  /* ── Tag suggest dropdown (song edit form) ── */
+  .tag-inline-input {
+    anchor-name: --tag-input;
+  }
+  .tag-suggest-dropdown {
+    position: fixed;
+    position-anchor: --tag-input;
+    top: anchor(bottom);
+    left: anchor(left);
+    right: auto;
+    width: anchor-size(width);
+    margin-top: 4px;
+    position-try-fallbacks: flip-block;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   STAGE RED — Body-level overrides
+   When stage red is active, the entire live-mode
+   container (including body bg) goes deep red.
+═══════════════════════════════════════════ */
+#setlist-live-content:has(.lm-stage-red) {
+  background: #1a0505;
+}
+/* Body bg fallback for browsers with :has() support */
+body.live-mode-active:has(.lm-stage-red) {
+  background: #0f0303;
+}
+
+/* ═══════════════════════════════════════════
+   41. PDF Annotations — Drawing Overlay
+═══════════════════════════════════════════ */
+
+/* Overlay canvas positioned on top of PDF canvas */
+.annotation-overlay,
+.annotation-overlay-lm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  pointer-events: none;
+  touch-action: auto;
+}
+
+.annotation-overlay.drawing-active {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* Drawing mode button in PDF toolbar */
+.pdf-draw-btn {
+  flex-shrink: 0;
+}
+.pdf-draw-btn.drawing-active {
+  color: var(--accent) !important;
+  background: var(--bg-3);
+}
+
+/* Floating annotation palette */
+.annotation-palette {
+  position: fixed;
+  z-index: 10020; /* above PDF modal (10010) */
+  background: rgba(20, 20, 24, 0.92);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-lg);
+  min-width: 180px;
+}
+
+.annotation-palette.hidden {
+  display: none;
+}
+
+.annot-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.annot-tool-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.annot-tool-btn:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}
+
+.annot-tool-btn.annot-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.annot-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.annot-sizes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.annot-size-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.annot-size-btn:hover {
+  background: var(--bg-3);
+}
+
+.annot-size-btn.annot-active {
+  background: var(--accent-bg);
+}
+
+.annot-size-dot {
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.annot-size-sm { width: 6px; height: 6px; }
+.annot-size-md { width: 10px; height: 10px; }
+.annot-size-lg { width: 16px; height: 16px; }
+
+.annot-colors {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.annot-color-btn {
+  width: 24px;
+  height: 24px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+  flex-shrink: 0;
+}
+
+.annot-color-btn:hover {
+  transform: scale(1.15);
+}
+
+.annot-color-btn.annot-active {
+  border-color: var(--accent);
+  transform: scale(1.15);
+}
+
+/* Text notes overlay */
+.annotation-text-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 8;
+  background: rgba(20, 20, 24, 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 36px 10px 14px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  max-height: 120px;
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+.annot-text-content {
+  word-break: break-word;
+}
+
+.annot-text-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.annot-text-dismiss:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}

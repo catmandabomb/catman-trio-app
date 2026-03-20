@@ -22,9 +22,11 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.25';
-import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.25';
-import * as Metronome from './metronome.js?v=20.25';
+import * as Admin from './admin.js?v=20.26';
+import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.26';
+import * as Metronome from './metronome.js?v=20.26';
+import * as Annotations from './js/annotations.js?v=20.26';
+import * as Auth from './auth.js?v=20.26';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -39,11 +41,11 @@ const MAX_ZOOM = 5;
 // Cache stores pre-rendered canvases keyed by `${pdfId}-${pageNum}`
 const _renderCache = new Map(); // key: `${pdfId}-${pageNum}` → { canvas, displayW, displayH }
 const _isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-// DPR cap: high-density mobile devices (3x, 4x) waste canvas memory rendering
-// at full DPR. Cap at 3 on mobile to stay within iOS ~256MB canvas budget.
-const _maxDPR = _isMobileDevice ? 3 : 4;
 // B3: adaptive cache sizing based on device memory (when available)
-const _deviceMemGB = navigator.deviceMemory || (_isMobileDevice ? 2 : 8);
+const _deviceMemGB = navigator.deviceMemory || (_isMobileDevice ? 3 : 8);
+// DPR cap: high-density mobile devices (3x, 4x) waste canvas memory rendering
+// at full DPR. Cap at 1.5 on <=2GB devices, 3 on other mobile, 4 on desktop.
+const _maxDPR = _isMobileDevice ? (_deviceMemGB <= 2 ? 1.5 : 3) : 4;
 const MAX_RENDER_CACHE = Math.min(20, _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : 20);
 
 // Assign stable IDs to pdfDoc objects via WeakMap (they have no built-in ID)
@@ -308,6 +310,8 @@ let _focusTrap   = null;  // focus trap handle for modal
 let _metronomeBpm = null; // BPM passed from practice mode (null = hide button)
 let _metronomeTimeSig = 4; // time signature beats per measure
 let _metronomeStartedByPdf = false; // true if WE started the metronome (so we stop it on close)
+let _annotSongId = null;   // song ID for annotation context
+let _annotSongNotes = null; // song notes for text overlay
 
 const modal     = () => document.getElementById('modal-pdf');
 const canvasEl  = () => document.getElementById('pdf-canvas');
@@ -1092,6 +1096,21 @@ async function _renderPage(num) {
     const lbl = zoomLabel();
     if (lbl) lbl.textContent = '100%';
     _updateNav();
+
+    // Attach annotation overlay after render
+    if (_annotSongId && Auth.isLoggedIn()) {
+      Annotations.attach(canvasEl(), container(), {
+        songId: _annotSongId,
+        pageNum: num,
+        totalPages: _pdfDoc.numPages,
+      });
+      // Show text notes overlay on page 1
+      if (_annotSongNotes && num === 1) {
+        Annotations.showTextOverlay(container(), _annotSongNotes);
+      } else {
+        Annotations.hideTextOverlay(container());
+      }
+    }
   } catch (e) {
     console.error('PDF render error', e);
   } finally {
@@ -1117,6 +1136,8 @@ async function open(url, name, opts) {
   _metronomeBpm = opts?.bpm || null;
   _metronomeTimeSig = opts?.timeSig || 4;
   _metronomeStartedByPdf = false;
+  _annotSongId = opts?.songId || null;
+  _annotSongNotes = opts?.songNotes || null;
   const metBtn = document.getElementById('pdf-metronome');
   if (metBtn) {
     if (_metronomeBpm) {
@@ -1128,6 +1149,20 @@ async function open(url, name, opts) {
       metBtn.classList.remove('pdf-metronome-active');
     }
   }
+
+  // Show/hide draw button based on login state and songId
+  const drawBtn = document.getElementById('pdf-draw');
+  if (drawBtn) {
+    if (Auth.isLoggedIn() && _annotSongId) {
+      drawBtn.classList.remove('hidden');
+      drawBtn.classList.remove('drawing-active');
+    } else {
+      drawBtn.classList.add('hidden');
+    }
+  }
+  // Reset annotation drawing mode on new open
+  Annotations.detach();
+  Annotations.setDrawingMode(false);
 
   fileLabel().textContent = name || 'Chart';
   modal().classList.remove('hidden');
@@ -1153,7 +1188,24 @@ async function open(url, name, opts) {
   _cvs.style.visibility = 'hidden';
 
   try {
-    const doc = await pdfjsLib.getDocument(url).promise;
+    // Configure PDF.js loading: use range requests for Worker URLs (linearized PDF streaming),
+    // fall back to normal full-download for blob: URLs or other sources.
+    const useRangeRequests = opts?.directUrl && !opts.directUrl.startsWith('blob:');
+    let loadingTask;
+    if (useRangeRequests) {
+      const token = opts?.authToken || null;
+      loadingTask = pdfjsLib.getDocument({
+        url: opts.directUrl,
+        disableAutoFetch: true,     // Don't fetch entire file upfront
+        disableStream: false,        // Allow streaming
+        rangeChunkSize: 65536,       // 64KB chunks (good for sheet music)
+        ...(token ? { httpHeaders: { 'Authorization': `Bearer ${token}` } } : {}),
+        withCredentials: false,
+      });
+    } else {
+      loadingTask = pdfjsLib.getDocument(url);
+    }
+    const doc = await loadingTask.promise;
     if (gen !== _openGen) { doc.destroy(); return; } // stale — user already opened another or closed
     _pdfDoc = doc;
     _pdfUrlMap.set(doc, url);
@@ -1172,6 +1224,13 @@ async function open(url, name, opts) {
 function close() {
   releaseWakeLock();
   ++_openGen; // Invalidate any in-flight open() that resolves after close
+  // Clean up annotations
+  Annotations.detach();
+  Annotations.hideTextOverlay(container());
+  _annotSongId = null;
+  _annotSongNotes = null;
+  const drawBtn = document.getElementById('pdf-draw');
+  if (drawBtn) { drawBtn.classList.add('hidden'); drawBtn.classList.remove('drawing-active'); }
   // Stop metronome if we started it from the PDF viewer
   if (_metronomeStartedByPdf && Metronome.isPlaying()) Metronome.stop();
   _metronomeStartedByPdf = false;
@@ -1281,6 +1340,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Draw button toggle
+  const drawBtn = document.getElementById('pdf-draw');
+  if (drawBtn) {
+    drawBtn.addEventListener('click', () => {
+      const active = Annotations.toggleDrawingMode();
+      drawBtn.classList.toggle('drawing-active', active);
+      if (active) {
+        Annotations.togglePalette(drawBtn);
+      } else {
+        Annotations.hidePalette();
+      }
+    });
+  }
+
+  // Dismiss annotation palette on tap outside
+  document.addEventListener('pointerdown', (e) => {
+    if (!Annotations.isPaletteVisible()) return;
+    const palette = document.getElementById('annotation-palette');
+    const drawBtn2 = document.getElementById('pdf-draw');
+    if (palette && !palette.contains(e.target) && drawBtn2 && !drawBtn2.contains(e.target)) {
+      Annotations.hidePalette();
+    }
+  });
+
   // Close on backdrop click
   modal().addEventListener('click', (e) => {
     if (e.target === modal()) close();
@@ -1289,7 +1372,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // Keyboard shortcuts when modal is open
   document.addEventListener('keydown', (e) => {
     if (modal().classList.contains('hidden')) return;
-    if (e.key === 'Escape') { close(); e.preventDefault(); }
+    // Ctrl+Z / Cmd+Z undo in drawing mode
+    if (Annotations.isDrawingMode() && e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      Annotations.undo();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (Annotations.isDrawingMode()) {
+        Annotations.setDrawingMode(false);
+        Annotations.hidePalette();
+        const drawBtn3 = document.getElementById('pdf-draw');
+        if (drawBtn3) drawBtn3.classList.remove('drawing-active');
+        e.preventDefault();
+        return;
+      }
+      close(); e.preventDefault();
+    }
     if (e.key === 'ArrowLeft' || e.key === 'PageUp')  { prevPage(); e.preventDefault(); }
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { nextPage(); e.preventDefault(); }
     if (e.key === '+' || e.key === '=') { zoomIn(); e.preventDefault(); }
@@ -1300,6 +1399,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Tap zones for page turning
   container().addEventListener('click', (e) => {
     if (modal().classList.contains('hidden')) return;
+    if (Annotations.isDrawingMode()) return; // don't page turn while drawing
     if (_zpHandle && _zpHandle.getZoom() > 1.05) return;
     // Don't trigger on button/control clicks
     if (e.target.closest('button, .pdf-toolbar')) return;

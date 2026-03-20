@@ -7,20 +7,23 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.25';
-import * as Player from '../player.js?v=20.25';
-import * as Metronome from '../metronome.js?v=20.25';
+import * as Store from './store.js?v=20.26';
+import * as Player from '../player.js?v=20.26';
+import * as Metronome from '../metronome.js?v=20.26';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.25');
+  if (!_App) _App = import('../app.js?v=20.26');
   return _App;
 }
 
 // ─── View registry ──────────────────────────────────────────
 const _registry = {};       // viewName → renderFn(route)
 const _hooks = {};          // hookName → fn
+
+// ─── Navigation API feature detection ───────────────────────
+const _hasNavigationAPI = typeof window.navigation !== 'undefined';
 
 // ─── Cached DOM references ─────────────────────────────────
 let _viewEls = null;        // cached .view NodeList
@@ -199,7 +202,21 @@ function showView(name) {
           try { history.replaceState(null, '', location.pathname + location.search); } catch (_) {}
         }
       } else if (location.hash !== hash) {
-        try { history.pushState(null, '', hash); } catch (_) {}
+        // Navigation API: use navigation.navigate() for push navigations
+        if (_hasNavigationAPI) {
+          try {
+            _internalNavigation = true;
+            const url = new URL(hash, location.href);
+            window.navigation.navigate(url.href, { history: 'push' });
+          } catch (_navErr) {
+            // Fallback to History API if Navigation API call fails
+            try { history.pushState(null, '', hash); } catch (_) {}
+          } finally {
+            _internalNavigation = false;
+          }
+        } else {
+          try { history.pushState(null, '', hash); } catch (_) {}
+        }
       }
     }
     // aria-current on active nav button
@@ -306,6 +323,13 @@ function navigateBack() {
     if (typeof prev === 'function') prev();
     else if (_registry['list']) _registry['list']();
   } else if (_registry['list']) {
+    // Navigation API: use navigation.back() for browser-level back
+    if (_hasNavigationAPI && window.navigation.canGoBack) {
+      try {
+        window.navigation.back();
+        return;
+      } catch (_) { /* fall through to registry fallback */ }
+    }
     _registry['list']();
   }
 }
@@ -320,6 +344,67 @@ function rerenderCurrentView() {
   if (fn) fn({ rerender: true });
 }
 
+// ─── Navigation API intercept listener ──────────────────────
+// Progressive enhancement: when the Navigation API is available, intercept
+// same-document navigations via the 'navigate' event. This supplements (and
+// in supporting browsers, supersedes) the popstate listener in app.js.
+
+let _navigateListenerAttached = false;
+let _internalNavigation = false;  // Guard to prevent re-entrant navigate events from showView
+
+/**
+ * Attach the Navigation API 'navigate' listener.
+ * Safe to call multiple times — only attaches once.
+ * Call after DOM + modules are ready (e.g. from app.js init).
+ */
+function initNavigationAPI() {
+  if (!_hasNavigationAPI || _navigateListenerAttached) return;
+  _navigateListenerAttached = true;
+
+  try {
+    window.navigation.addEventListener('navigate', (event) => {
+      // Skip if this navigation was triggered by showView() itself (avoid re-entrant loop)
+      if (_internalNavigation) return;
+      // Only intercept same-origin, same-document hash navigations
+      if (!event.canIntercept || event.hashChange === false) return;
+      // Don't intercept downloads or form submissions
+      if (event.downloadRequest || event.formData) return;
+      // Don't intercept when live mode is active — it manages its own history state
+      if (Store.get('liveModeActive')) return;
+
+      const destUrl = new URL(event.destination.url);
+      // Only handle navigations within our own origin
+      if (destUrl.origin !== location.origin) return;
+
+      const hash = destUrl.hash || '';
+      const route = resolveHash(hash);
+
+      event.intercept({
+        handler() {
+          // Mark as popstate-equivalent for back/forward traversals
+          const isTraversal = event.navigationType === 'traverse';
+          if (isTraversal) {
+            Store.set('isPopstateNavigation', true);
+            Store.set('navDirection', 'back');
+            // Pop navStack entry to mirror popstate behavior
+            const navStack = Store.get('navStack');
+            if (navStack.length > 0) navStack.pop();
+          }
+          try {
+            navigateToRoute(route);
+          } finally {
+            if (isTraversal) {
+              Store.set('isPopstateNavigation', false);
+            }
+          }
+        }
+      });
+    });
+  } catch (_) {
+    // Navigation API listener failed — popstate fallback remains active
+  }
+}
+
 // ─── Public API ─────────────────────────────────────────────
 
-export { register, registerHook, viewToHash, resolveHash, navigateToRoute, showView, setTopbar, pushNav, navigateBack, rerenderCurrentView };
+export { register, registerHook, viewToHash, resolveHash, navigateToRoute, showView, setTopbar, pushNav, navigateBack, rerenderCurrentView, initNavigationAPI };

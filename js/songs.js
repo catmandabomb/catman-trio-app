@@ -5,23 +5,163 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.25';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.25';
-import * as Modal from './modal.js?v=20.25';
-import * as Router from './router.js?v=20.25';
-import * as Admin from '../admin.js?v=20.25';
-import * as Auth from '../auth.js?v=20.25';
-import * as Sync from './sync.js?v=20.25';
-import * as Drive from '../drive.js?v=20.25';
-import * as GitHub from '../github.js?v=20.25';
-import * as Player from '../player.js?v=20.25';
-import * as PDFViewer from '../pdf-viewer.js?v=20.25';
-import * as Metronome from '../metronome.js?v=20.25';
-import * as App from '../app.js?v=20.25';
-import * as Setlists from './setlists.js?v=20.25';
-import * as Practice from './practice.js?v=20.25';
-import * as Dashboard from './dashboard.js?v=20.25';
-import * as IDB from '../idb.js?v=20.25';
+import * as Store from './store.js?v=20.26';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.26';
+import * as Modal from './modal.js?v=20.26';
+import * as Router from './router.js?v=20.26';
+import * as Admin from '../admin.js?v=20.26';
+import * as Auth from '../auth.js?v=20.26';
+import * as Sync from './sync.js?v=20.26';
+import * as Drive from '../drive.js?v=20.26';
+import * as GitHub from '../github.js?v=20.26';
+import * as Player from '../player.js?v=20.26';
+import * as PDFViewer from '../pdf-viewer.js?v=20.26';
+import * as Metronome from '../metronome.js?v=20.26';
+import * as App from '../app.js?v=20.26';
+import * as Setlists from './setlists.js?v=20.26';
+import * as Practice from './practice.js?v=20.26';
+import * as Dashboard from './dashboard.js?v=20.26';
+import * as IDB from '../idb.js?v=20.26';
+
+// ─── Background audio conversion ────────────────────────────
+// After uploading audio to R2, silently convert to WebM/Opus if the
+// user's audio_format preference is 'opus' (default). Conversion runs
+// in a Web Worker to avoid blocking the UI. On success, the converted
+// file replaces the original in R2. On failure, the original is kept.
+
+let _audioConverterWorker = null;
+
+/**
+ * Feature-detect whether background Opus conversion is supported.
+ * Requires: Web Workers, OfflineAudioContext, MediaRecorder with opus.
+ */
+function _canConvertAudio() {
+  if (typeof Worker === 'undefined') return false;
+  if (typeof OfflineAudioContext === 'undefined' && typeof webkitOfflineAudioContext === 'undefined') return false;
+  if (typeof MediaRecorder === 'undefined') return false;
+  try {
+    return MediaRecorder.isTypeSupported('audio/webm;codecs=opus');
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Get or create the audio converter Web Worker (singleton).
+ */
+function _getConverterWorker() {
+  if (!_audioConverterWorker) {
+    try {
+      _audioConverterWorker = new Worker('/workers/audio-converter.js');
+    } catch (_) {
+      return null;
+    }
+  }
+  return _audioConverterWorker;
+}
+
+/**
+ * Trigger background audio conversion after a successful upload.
+ * This is fire-and-forget from the user's perspective.
+ *
+ * @param {string} r2FileId - The R2 file ID of the uploaded original
+ * @param {string} songId - The song this audio belongs to
+ * @param {string} fileName - Original file name (for logging)
+ */
+function _triggerBackgroundConversion(r2FileId, songId, fileName) {
+  // Check preference
+  try {
+    const pref = localStorage.getItem('ct_pref_audio_format');
+    if (pref === 'original') return; // User wants originals kept
+  } catch (_) {}
+
+  // Feature detection
+  if (!_canConvertAudio()) {
+    console.info('Audio conversion: browser does not support WebM/Opus encoding, keeping original');
+    return;
+  }
+
+  // Skip if already a WebM/Opus file (no need to convert)
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+  if (ext === 'webm' || ext === 'opus') {
+    console.info('Audio conversion: file is already WebM/Opus, skipping');
+    return;
+  }
+
+  // Fetch the original file from R2, then send to worker
+  const token = Auth.getToken ? Auth.getToken() : null;
+  if (!token || !GitHub.workerUrl) return;
+
+  console.info(`Audio conversion: starting background conversion for ${fileName} (${r2FileId})`);
+
+  (async () => {
+    try {
+      // 1. Download the original file from R2
+      const resp = await fetch(GitHub.workerUrl + '/files/' + r2FileId, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error('Failed to fetch original file: ' + resp.status);
+      const arrayBuffer = await resp.arrayBuffer();
+
+      // 2. Send to Web Worker for conversion
+      const worker = _getConverterWorker();
+      if (!worker) throw new Error('Could not create converter worker');
+
+      const conversionPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Conversion timed out (5 minutes)'));
+        }, 5 * 60 * 1000);
+
+        const handler = (ev) => {
+          if (ev.data?.fileId !== r2FileId) return; // Not our conversion
+          if (ev.data.type === 'PROGRESS') {
+            console.info(`Audio conversion [${r2FileId}]: ${ev.data.stage}`);
+            return;
+          }
+          if (ev.data.type === 'RESULT') {
+            clearTimeout(timeout);
+            worker.removeEventListener('message', handler);
+            if (ev.data.ok) {
+              resolve(ev.data.blob);
+            } else {
+              reject(new Error(ev.data.error));
+            }
+          }
+        };
+        worker.addEventListener('message', handler);
+      });
+
+      worker.postMessage({
+        type: 'CONVERT',
+        buffer: arrayBuffer,
+        targetFormat: 'opus',
+        fileId: r2FileId,
+      }, [arrayBuffer]); // Transfer ownership for zero-copy
+
+      const convertedBlob = await conversionPromise;
+
+      // 3. Upload the converted file back to R2, replacing the original
+      const uploadResp = await fetch(GitHub.workerUrl + '/files/' + r2FileId, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'audio/webm;codecs=opus',
+        },
+        body: convertedBlob,
+      });
+
+      if (!uploadResp.ok) throw new Error('Failed to upload converted file: ' + uploadResp.status);
+
+      // 4. Clear any cached version of this audio in IDB so next play gets the new one
+      try { await IDB.removeCachedAudio(r2FileId); } catch (_) {}
+
+      console.info(`Audio conversion: successfully converted ${fileName} to Opus (${(convertedBlob.size / 1024).toFixed(0)} KB)`);
+    } catch (err) {
+      // Conversion failed — original file remains intact in R2
+      console.warn(`Audio conversion failed for ${fileName}: ${err.message}. Original file kept.`);
+    }
+  })();
+}
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -851,7 +991,11 @@ function renderDetail(song, skipNavPush) {
       btn.disabled = true;
       try {
         const url = await App.getBlobUrl(btn.dataset.openChart);
-        PDFViewer.open(url, btn.dataset.name);
+        const activeSong = Store.get('activeSong');
+        PDFViewer.open(url, btn.dataset.name, {
+          songId: activeSong?.id || null,
+          songNotes: activeSong?.notes || null,
+        });
       } catch (e) {
         showToast('Failed to load chart.');
       } finally {
@@ -1540,6 +1684,10 @@ function _wireEditForm() {
           const tmp = document.createElement('div');
           tmp.innerHTML = `<div class="asset-edit-row" data-drive-id="${esc(assetId)}"><span class="asset-edit-name">${esc(asset.name)}</span><button class="asset-edit-remove">\u00d7</button></div>`;
           document.getElementById(listId).appendChild(tmp.firstElementChild);
+          // Trigger background audio conversion (fire-and-forget)
+          if (assetKey === 'audio' && asset.r2FileId) {
+            _triggerBackgroundConversion(asset.r2FileId, song.id, file.name);
+          }
         } catch { showToast(`Upload failed: ${file.name}`); }
       }
       showToast('Upload complete.');

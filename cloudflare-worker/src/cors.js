@@ -26,8 +26,8 @@ function getCorsHeaders(request, env) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Expose-Headers': 'X-New-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range',
+    'Access-Control-Expose-Headers': 'X-New-Token, Accept-Ranges, Content-Range, Content-Length',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
