@@ -7,7 +7,7 @@
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
 import * as Store from './store.js?v=20.22';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs } from './utils.js?v=20.22';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.22';
 import * as Modal from './modal.js?v=20.22';
 import * as Router from './router.js?v=20.22';
 import * as Sync from './sync.js?v=20.22';
@@ -916,6 +916,7 @@ function _enterPracticeMode(practiceList, scrollToSongId) {
   _pushNav(() => renderPracticeListDetail(practiceList));
   _showView('practice-detail');
   document.body.classList.add('practice-mode-active');
+  requestWakeLock();
   _setTopbar('Practice Mode', true);
 
   const container = document.getElementById('practice-detail-content');
@@ -1286,6 +1287,7 @@ function _flushPendingNotesSave() {
 function _exitPracticeMode() {
   _flushPendingNotesSave();
   _cleanupTuningFork();
+  releaseWakeLock();
   document.body.classList.remove('practice-mode-active');
   document.getElementById('practice-jump-bar')?.remove();
   _practiceList = null;
@@ -1297,6 +1299,7 @@ Router.registerHook('cleanupPractice', () => {
   if (_bpmHoldTimer) { clearInterval(_bpmHoldTimer); _bpmHoldTimer = null; }
   if (Metronome.isPlaying()) Metronome.stop();
   _cleanupTuningFork();
+  releaseWakeLock();
 });
 
 // ─── Public API ───────────────────────────────────────────

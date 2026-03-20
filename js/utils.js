@@ -420,6 +420,34 @@ function trackFormInputs(container, tracker) {
   });
 }
 
+// ─── Screen Wake Lock ───────────────────────────────────────
+
+let _wakeLockSentinel = null;
+let _wakeLockRefCount = 0;
+
+async function requestWakeLock() {
+  _wakeLockRefCount++;
+  if (_wakeLockSentinel) return;
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLockSentinel = await navigator.wakeLock.request('screen');
+    _wakeLockSentinel.addEventListener('release', () => { _wakeLockSentinel = null; });
+  } catch (_) { /* low battery or hidden tab — silently ignore */ }
+}
+
+function releaseWakeLock() {
+  _wakeLockRefCount = Math.max(0, _wakeLockRefCount - 1);
+  if (_wakeLockRefCount > 0) return; // other callers still need it
+  if (_wakeLockSentinel) { try { _wakeLockSentinel.release(); } catch (_) {} _wakeLockSentinel = null; }
+}
+
+// Re-acquire on visibility change (OS releases wake lock when tab is hidden)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && _wakeLockRefCount > 0 && !_wakeLockSentinel) {
+    requestWakeLock();
+  }
+});
+
 // ─── Public API ─────────────────────────────────────────────
 
-export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs };
+export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock };

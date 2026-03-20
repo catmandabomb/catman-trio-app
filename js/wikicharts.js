@@ -13,7 +13,7 @@
  */
 
 import * as Store from './store.js?v=20.22';
-import { esc, showToast, haptic, deepClone, safeRender } from './utils.js?v=20.22';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.22';
 import * as Modal from './modal.js?v=20.22';
 import * as Router from './router.js?v=20.22';
 import * as Admin from '../admin.js?v=20.22';
@@ -581,6 +581,7 @@ function renderWikiChartDetail(chart, opts) {
   _activeWikiChart = chart;
   Store.set('activeWikiChart', chart);
   _showView('wikichart-detail');
+  requestWakeLock();
   _setTopbar(chart.title || 'WikiChart', true);
   _setRouteParams({ wikiChartId: chart.id });
   _pushNav(() => renderWikiChartsList());
@@ -2395,6 +2396,7 @@ Router.registerHook('cleanupWikiCharts', () => {
   _stopMetronome();
   _stopPlayback();
   _loopSectionIdx = -1;
+  releaseWakeLock();
 });
 
 // ─── Public API ─────────────────────────────────────────────
