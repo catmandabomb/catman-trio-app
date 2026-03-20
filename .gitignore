@@ -10,6 +10,12 @@ BRAINSTORM_*.md
 # Claude session files
 .claude/
 
+# Playwright MCP logs
+.playwright-mcp/
+
+# Screenshots (debug, UX audit, test results)
+screenshots/
+
 # Cloudflare / Node
 .wrangler/
 node_modules/
