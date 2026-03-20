@@ -12,13 +12,13 @@
  * @module wikicharts
  */
 
-import * as Store from './store.js?v=20.24';
-import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.24';
-import * as Modal from './modal.js?v=20.24';
-import * as Router from './router.js?v=20.24';
-import * as Admin from '../admin.js?v=20.24';
-import * as Auth from '../auth.js?v=20.24';
-import * as Sync from './sync.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.25';
+import * as Modal from './modal.js?v=20.25';
+import * as Router from './router.js?v=20.25';
+import * as Admin from '../admin.js?v=20.25';
+import * as Auth from '../auth.js?v=20.25';
+import * as Sync from './sync.js?v=20.25';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -525,7 +525,7 @@ function renderWikiChartsList(opts) {
         if (chart.feel) meta.push(chart.feel);
         const sectionCount = (chart.sections || []).length;
         html += `
-          <div class="wc-list-row" data-id="${esc(chart.id)}">
+          <div class="wc-list-row" data-id="${esc(chart.id)}" tabindex="0" role="button" aria-label="${esc(chart.title || 'Untitled')}">
             <div class="wc-list-info">
               <span class="wc-list-title">${esc(chart.title || 'Untitled')}</span>
               ${meta.length ? `<span class="wc-list-meta">${meta.map(m => esc(m)).join(' · ')}</span>` : ''}
@@ -557,6 +557,12 @@ function renderWikiChartsList(opts) {
 
     // Wire row clicks
     container.querySelectorAll('.wc-list-row').forEach(row => {
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          row.click();
+        }
+      });
       row.addEventListener('click', () => {
         const chart = _wikiCharts.find(c => c.id === row.dataset.id);
         if (chart) renderWikiChartDetail(chart);

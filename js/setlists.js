@@ -5,20 +5,20 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.24';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.24';
-import * as Modal from './modal.js?v=20.24';
-import * as Router from './router.js?v=20.24';
-import * as Admin from '../admin.js?v=20.24';
-import * as Auth from '../auth.js?v=20.24';
-import * as Sync from './sync.js?v=20.24';
-import * as WikiCharts from './wikicharts.js?v=20.24';
-import * as Drive from '../drive.js?v=20.24';
-import * as GitHub from '../github.js?v=20.24';
-import * as Player from '../player.js?v=20.24';
-import * as PDFViewer from '../pdf-viewer.js?v=20.24';
-import * as App from '../app.js?v=20.24';
-import * as Songs from './songs.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.25';
+import * as Modal from './modal.js?v=20.25';
+import * as Router from './router.js?v=20.25';
+import * as Admin from '../admin.js?v=20.25';
+import * as Auth from '../auth.js?v=20.25';
+import * as Sync from './sync.js?v=20.25';
+import * as WikiCharts from './wikicharts.js?v=20.25';
+import * as Drive from '../drive.js?v=20.25';
+import * as GitHub from '../github.js?v=20.25';
+import * as Player from '../player.js?v=20.25';
+import * as PDFViewer from '../pdf-viewer.js?v=20.25';
+import * as App from '../app.js?v=20.25';
+import * as Songs from './songs.js?v=20.25';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -327,7 +327,7 @@ function _setlistCardHTML(sl) {
   // Show venue subtitle if override title is being used
   const venueSubtitle = overrideTitle && venue ? ` · ${esc(venue)}` : '';
   return `
-    <div class="setlist-card" data-setlist-id="${esc(sl.id)}">
+    <div class="setlist-card" data-setlist-id="${esc(sl.id)}" tabindex="0" role="button" aria-label="Setlist: ${esc(title)}">
       <div class="setlist-card-title-row">
         <span class="setlist-card-name">${esc(title)}</span>
         ${deleteBtn}${editBtn}
@@ -416,12 +416,18 @@ function renderSetlists(skipNavReset) {
   container.innerHTML = html;
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
-  // Wire card clicks
+  // Wire card clicks + keyboard accessibility
   container.querySelectorAll('.setlist-card').forEach(card => {
     card.addEventListener('click', (e) => {
       if (e.target.closest('.setlist-edit-btn')) return;
       const sl = _setlists.find(s => s.id === card.dataset.setlistId);
       if (sl) renderSetlistDetail(sl);
+    });
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        card.click();
+      }
     });
   });
 
@@ -2551,6 +2557,14 @@ function _renderLiveMode(setlist) {
       const log = JSON.parse(localStorage.getItem('ct_last_played') || '{}');
       for (const id of _lmSongIds) { log[id] = now; }
       if (_lmSetlistId) log[`setlist:${_lmSetlistId}`] = now;
+      // Prune to 500 most recent entries to prevent unbounded growth
+      const MAX_LAST_PLAYED = 500;
+      const keys = Object.keys(log);
+      if (keys.length > MAX_LAST_PLAYED) {
+        keys.sort((a, b) => (log[a] < log[b] ? -1 : log[a] > log[b] ? 1 : 0));
+        const toRemove = keys.slice(0, keys.length - MAX_LAST_PLAYED);
+        for (const k of toRemove) delete log[k];
+      }
       localStorage.setItem('ct_last_played', JSON.stringify(log));
     } catch (_) {}
     _liveModeActive = false;

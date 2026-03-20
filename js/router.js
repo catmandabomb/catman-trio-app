@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.24';
-import * as Player from '../player.js?v=20.24';
-import * as Metronome from '../metronome.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import * as Player from '../player.js?v=20.25';
+import * as Metronome from '../metronome.js?v=20.25';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.24');
+  if (!_App) _App = import('../app.js?v=20.25');
   return _App;
 }
 
@@ -185,6 +185,12 @@ function showView(name) {
       }
     }
     Store.set('view', name);
+    // Announce page change to screen readers
+    const _announcer = document.getElementById('route-announcer');
+    if (_announcer) {
+      const _viewLabel = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      _announcer.textContent = 'Navigated to ' + _viewLabel;
+    }
     // Update URL hash for deep linking (don't push on popstate-driven navigation)
     if (!popstateNav) {
       const hash = viewToHash(name, Store.get('currentRouteParams'));

@@ -22,9 +22,9 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.24';
-import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.24';
-import * as Metronome from './metronome.js?v=20.24';
+import * as Admin from './admin.js?v=20.25';
+import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.25';
+import * as Metronome from './metronome.js?v=20.25';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -44,7 +44,7 @@ const _isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const _maxDPR = _isMobileDevice ? 3 : 4;
 // B3: adaptive cache sizing based on device memory (when available)
 const _deviceMemGB = navigator.deviceMemory || (_isMobileDevice ? 2 : 8);
-const MAX_RENDER_CACHE = _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : _deviceMemGB >= 8 ? 40 : 20;
+const MAX_RENDER_CACHE = Math.min(20, _deviceMemGB <= 2 ? 8 : _deviceMemGB <= 4 ? 15 : 20);
 
 // Assign stable IDs to pdfDoc objects via WeakMap (they have no built-in ID)
 const _pdfIdMap = new WeakMap();
@@ -1214,6 +1214,21 @@ if (typeof _landscapeMQ.addEventListener === 'function') {
     if (_pdfDoc && !modal().classList.contains('hidden')) {
       clearRenderCache(_pdfDoc);
       _renderPage(_pageNum);
+    }
+  });
+}
+
+// Stage Manager / foldable viewport resize — re-render when viewport changes significantly
+if (window.visualViewport) {
+  let _lastVVWidth = window.visualViewport.width;
+  window.visualViewport.addEventListener('resize', () => {
+    const newWidth = window.visualViewport.width;
+    if (Math.abs(newWidth - _lastVVWidth) > 50) {
+      _lastVVWidth = newWidth;
+      if (_pdfDoc && !modal().classList.contains('hidden')) {
+        clearRenderCache(_pdfDoc);
+        _renderPage(_pageNum);
+      }
     }
   });
 }

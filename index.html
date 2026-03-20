@@ -7,6 +7,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Catman Trio" />
   <meta name="theme-color" content="#0e0e10" />
+  <meta name="darkreader-lock">
+  <meta name="color-scheme" content="dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com https://apis.google.com https://static.cloudflareinsights.com 'sha256-6y/NAM97sjR2cg0g9WaS1+JtEeUUShtMLksYa/yTpTo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' blob: https://api.github.com https://catman-api.catmandabomb.workers.dev https://www.googleapis.com https://accounts.google.com https://content.googleapis.com https://drive.usercontent.google.com https://cloudflareinsights.com; media-src 'self' blob: https://www.googleapis.com https://content.googleapis.com https://drive.usercontent.google.com; worker-src 'self' blob:; frame-src https://accounts.google.com https://www.youtube.com https://open.spotify.com https://embed.music.apple.com; base-uri 'none'; form-action 'self';">
   <title>Catman Trio</title>
 
@@ -81,13 +83,13 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.24" as="style">
+  <link rel="preload" href="app.css?v=20.25" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.24">
-  <link rel="stylesheet" href="app.css?v=20.24" />
+  <link rel="modulepreload" href="app.js?v=20.25">
+  <link rel="stylesheet" href="app.css?v=20.25" />
 
-  <script src="lib/pdf.min.js"></script>
-  <script src="lib/Sortable.min.js"></script>
+  <script src="lib/pdf.min.js" defer></script>
+  <script src="lib/Sortable.min.js" defer></script>
 </head>
 <body style="background:#0e0e10">
   <!-- Animated splash — fades in, holds, fades out. Hard 2s kill inline. -->
@@ -104,6 +106,7 @@
   </script>
 
   <a href="#app" class="skip-link">Skip to content</a>
+  <div id="route-announcer" aria-live="assertive" aria-atomic="true" class="sr-only"></div>
 
   <header id="topbar" aria-label="Main navigation">
     <div class="topbar-row-top">
@@ -157,7 +160,7 @@
       <div id="search-bar">
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
-          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" maxlength="100" />
+          <input type="text" id="search-input" placeholder="Search songs, tags, key…" autocomplete="off" aria-label="Search songs by title, tags, or key" maxlength="100" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
           <button id="search-clear" class="search-clear-btn hidden" aria-label="Clear all filters" title="Clear all filters">
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
@@ -185,7 +188,7 @@
           <i data-lucide="refresh-cw" class="sync-spinner"></i>
           <span>Syncing songs…</span>
         </div>
-        <div id="song-list"></div>
+        <div id="song-list" aria-live="polite" aria-relevant="additions removals"></div>
         <div id="list-empty" class="empty-state hidden" aria-live="polite">
           <p id="empty-title">Loading songs…</p>
           <p id="empty-sub" class="muted">Fetching from the cloud</p>
@@ -240,7 +243,7 @@
 
     <!-- SETLISTS LIST VIEW -->
     <div id="view-setlists" class="view">
-      <div id="setlists-list" style="padding:16px"></div>
+      <div id="setlists-list" style="padding:16px" aria-live="polite" aria-relevant="additions removals"></div>
     </div>
 
     <!-- SETLIST DETAIL VIEW -->
@@ -311,29 +314,29 @@
       <p class="muted" id="login-subtext">Sign in to access edit mode and sync.</p>
       <div class="github-field">
         <label for="login-username">Username</label>
-        <input type="text" id="login-username" placeholder="Username" autocomplete="username" maxlength="25" />
+        <input type="text" id="login-username" placeholder="Username" autocomplete="username" maxlength="25" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field">
         <label for="login-password">Password</label>
-        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" maxlength="128" />
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" maxlength="128" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field hidden" id="login-confirm-pw-row">
         <label for="login-confirm-password">Confirm Password</label>
-        <input type="password" id="login-confirm-password" placeholder="Confirm password" autocomplete="new-password" maxlength="128" />
+        <input type="password" id="login-confirm-password" placeholder="Confirm password" autocomplete="new-password" maxlength="128" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field hidden" id="login-email-row">
         <label for="login-email">Email</label>
-        <input type="email" id="login-email" placeholder="Email address" autocomplete="email" maxlength="100" />
+        <input type="email" id="login-email" placeholder="Email address" autocomplete="email" maxlength="100" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field hidden" id="login-confirm-email-row">
         <label for="login-confirm-email">Confirm Email</label>
-        <input type="email" id="login-confirm-email" placeholder="Confirm email address" autocomplete="email" maxlength="100" />
+        <input type="email" id="login-confirm-email" placeholder="Confirm email address" autocomplete="email" maxlength="100" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <!-- Honeypot for bot detection (hidden from real users) -->
       <div style="position:absolute;left:-9999px;top:-9999px;" aria-hidden="true">
         <input type="text" id="login-hp" tabindex="-1" autocomplete="off" />
       </div>
-      <div id="login-error" class="error-msg hidden"></div>
+      <div id="login-error" class="error-msg hidden" role="alert"></div>
       <div id="login-forgot" class="hidden" style="text-align:center;margin:-4px 0 8px;">
         <a href="#" id="btn-login-forgot" class="text-link" style="font-size:13px;color:var(--text-3);">Forgot password?</a>
       </div>
@@ -413,15 +416,15 @@
       <p class="muted">Paste your credentials to connect Drive. Stored locally on this device only.</p>
       <div class="drive-field">
         <label for="drive-api-key">API Key</label>
-        <input type="text" id="drive-api-key" placeholder="AIza…" autocomplete="off" />
+        <input type="text" id="drive-api-key" placeholder="AIza…" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="drive-field">
         <label for="drive-client-id">OAuth Client ID</label>
-        <input type="text" id="drive-client-id" placeholder="….apps.googleusercontent.com" autocomplete="off" />
+        <input type="text" id="drive-client-id" placeholder="….apps.googleusercontent.com" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="drive-field">
         <label for="drive-folder-id">Songs Folder ID <span class="muted">(from Drive URL)</span></label>
-        <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" />
+        <input type="text" id="drive-folder-id" placeholder="1BxiM…" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="modal-actions">
         <button id="btn-drive-cancel" class="btn-secondary" title="Cancel">Cancel</button>
@@ -437,15 +440,15 @@
       <p class="muted">Connect to GitHub for encrypted data sync. Stored locally on this device only.</p>
       <div class="github-field">
         <label for="github-pat">Personal Access Token</label>
-        <input type="password" id="github-pat" placeholder="ghp_…" autocomplete="off" />
+        <input type="password" id="github-pat" placeholder="ghp_…" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field">
         <label for="github-owner">Repository Owner</label>
-        <input type="text" id="github-owner" placeholder="username or org" autocomplete="off" />
+        <input type="text" id="github-owner" placeholder="username or org" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div class="github-field">
         <label for="github-repo">Repository Name</label>
-        <input type="text" id="github-repo" placeholder="my-repo" autocomplete="off" />
+        <input type="text" id="github-repo" placeholder="my-repo" autocomplete="off" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
       </div>
       <div id="github-test-result" class="github-test-result hidden"></div>
       <div class="modal-actions">
@@ -460,6 +463,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.24"></script>
+  <script type="module" src="app.js?v=20.25"></script>
 </body>
 </html>

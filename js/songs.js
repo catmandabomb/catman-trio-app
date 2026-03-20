@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.24';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.24';
-import * as Modal from './modal.js?v=20.24';
-import * as Router from './router.js?v=20.24';
-import * as Admin from '../admin.js?v=20.24';
-import * as Auth from '../auth.js?v=20.24';
-import * as Sync from './sync.js?v=20.24';
-import * as Drive from '../drive.js?v=20.24';
-import * as GitHub from '../github.js?v=20.24';
-import * as Player from '../player.js?v=20.24';
-import * as PDFViewer from '../pdf-viewer.js?v=20.24';
-import * as Metronome from '../metronome.js?v=20.24';
-import * as App from '../app.js?v=20.24';
-import * as Setlists from './setlists.js?v=20.24';
-import * as Practice from './practice.js?v=20.24';
-import * as Dashboard from './dashboard.js?v=20.24';
-import * as IDB from '../idb.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.25';
+import * as Modal from './modal.js?v=20.25';
+import * as Router from './router.js?v=20.25';
+import * as Admin from '../admin.js?v=20.25';
+import * as Auth from '../auth.js?v=20.25';
+import * as Sync from './sync.js?v=20.25';
+import * as Drive from '../drive.js?v=20.25';
+import * as GitHub from '../github.js?v=20.25';
+import * as Player from '../player.js?v=20.25';
+import * as PDFViewer from '../pdf-viewer.js?v=20.25';
+import * as Metronome from '../metronome.js?v=20.25';
+import * as App from '../app.js?v=20.25';
+import * as Setlists from './setlists.js?v=20.25';
+import * as Practice from './practice.js?v=20.25';
+import * as Dashboard from './dashboard.js?v=20.25';
+import * as IDB from '../idb.js?v=20.25';
 
 // ─── Setlist display title helper ─────────────────────────────
 function _slTitle(sl) {
@@ -217,7 +217,7 @@ function renderList(force) {
   if (tagFP !== _lastTagBarFP) {
     _lastTagBarFP = tagFP;
     tagBar.innerHTML = orderedTags.map(t =>
-      `<button class="tag-filter-chip ${activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`
+      `<button class="tag-filter-chip ${activeTags.includes(t) ? 'active' : ''}" data-tag="${esc(t)}" aria-pressed="${activeTags.includes(t)}">${esc(t)}</button>`
     ).join('');
     tagBar.querySelectorAll('.tag-filter-chip:not(.clear-chip)').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -267,7 +267,7 @@ function renderList(force) {
     if (keyFP !== _lastKeyBarFP) {
       _lastKeyBarFP = keyFP;
       keyBar.innerHTML = orderedKeys.map(k =>
-        `<button class="kf-chip ${activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}">${esc(k)}</button>`
+        `<button class="kf-chip ${activeKeys.includes(k) ? 'active' : ''}" data-key="${esc(k)}" aria-pressed="${activeKeys.includes(k)}">${esc(k)}</button>`
       ).join('');
       keyBar.querySelectorAll('.kf-chip').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -365,6 +365,10 @@ function renderList(force) {
       }
       // Update selection state
       card.className = 'song-card' + (selectionMode && selectedSongIds.has(song.id) ? ' song-card-selected' : '');
+      // Ensure accessibility attributes are present on reused cards
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', `Song: ${song.title || 'Untitled'}`);
     } else {
       // Create new card
       card = document.createElement('div');
@@ -379,6 +383,9 @@ function renderList(force) {
       fresh.dataset.songId = song.id;
       fresh.dataset.cfp = cfp;
       fresh.className = 'song-card' + (selectionMode && selectedSongIds.has(song.id) ? ' song-card-selected' : '');
+      fresh.setAttribute('tabindex', '0');
+      fresh.setAttribute('role', 'button');
+      fresh.setAttribute('aria-label', `Song: ${song.title || 'Untitled'}`);
       fresh.innerHTML = (selectionMode ? _selectionCheckboxHTML(song.id) : '') + _songCardHTML(song);
       if (card.parentNode) card.parentNode.replaceChild(fresh, card);
       card = fresh;
@@ -510,6 +517,13 @@ function _songCardHTML(song) {
  * Wire event listeners on a song card node.
  */
 function _wireCardEvents(card, song, selectionMode, editMode) {
+  // Keyboard accessibility: Enter/Space triggers click
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      card.click();
+    }
+  });
   if (selectionMode) {
     card.addEventListener('click', () => {
       haptic.tap();

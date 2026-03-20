@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.24';
+const CACHE_NAME = 'catmantrio-v20.25';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -34,6 +34,8 @@ const SHELL_ASSETS = [
   '/metronome.js',
   '/auth.js',
   '/admin.js',
+  '/js/orchestra.js',
+  '/js/instruments.js',
   '/lucide.min.js',
   '/workers/levenshtein-worker.js',
   '/workers/metronome-processor.js',
@@ -190,6 +192,7 @@ self.addEventListener('message', (e) => {
     // Check storage before caching
     (async () => {
       try {
+        // Storage quota check — skip caching if usage > 80% of quota (iOS 50-100MB limit)
         if (navigator.storage && navigator.storage.estimate) {
           const est = await navigator.storage.estimate();
           const remaining = est.quota - est.usage;
@@ -197,11 +200,24 @@ self.addEventListener('message', (e) => {
             console.warn('SW: low storage, skipping PDF cache for', driveId);
             return;
           }
+          if (est.usage > est.quota * 0.8) {
+            console.warn('SW: storage usage > 80%, skipping PDF cache for', driveId);
+            return;
+          }
+        }
+        const cache = await caches.open(PDF_CACHE);
+        // Evict oldest entries if cache exceeds 50 items (iOS storage quota safety)
+        const keys = await cache.keys();
+        if (keys.length >= 50) {
+          const deleteCount = keys.length - 40 + 1; // evict down to 40, +1 for the new entry
+          for (let i = 0; i < deleteCount && i < keys.length; i++) {
+            await cache.delete(keys[i]);
+          }
+          console.log('SW: evicted', deleteCount, 'PDF cache entries (was', keys.length, ')');
         }
         const resp = new Response(blob, {
           headers: { 'Content-Type': 'application/pdf' },
         });
-        const cache = await caches.open(PDF_CACHE);
         await cache.put(`pdf-${driveId}`, resp);
       } catch (err) {
         console.warn('SW: cache PDF error', err);

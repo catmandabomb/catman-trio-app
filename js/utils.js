@@ -7,7 +7,7 @@
  * @module utils
  */
 
-import * as Store from './store.js?v=20.24';
+import * as Store from './store.js?v=20.25';
 
 // ─── HTML / String helpers ──────────────────────────────────
 
@@ -201,14 +201,22 @@ function isPWAInstalled() {
 
 /**
  * Detect the user's platform.
- * @returns {'ipad'|'ios'|'android'|'other'|'desktop'}
+ * @returns {'ipad'|'ios'|'android'|'android-firefox'|'webview'|'macos-safari'|'other'|'desktop'}
  */
 function detectPlatform() {
   const ua = navigator.userAgent;
+  // WebView detection: Facebook, Instagram, and other in-app browsers
+  if (/FBAN|FBAV|Instagram|Line\/|Snapchat|Twitter|MicroMessenger/i.test(ua)) return 'webview';
   if (/iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ipad';
   if (/iPhone|iPod/i.test(ua)) return 'ios';
+  // Firefox on Android (distinct from Chrome — no beforeinstallprompt)
+  if (/Android/i.test(ua) && /Firefox/i.test(ua) && !/Seamonkey/i.test(ua)) return 'android-firefox';
+  // Samsung Internet on Android (distinct install flow)
+  if (/Android/i.test(ua) && /SamsungBrowser/i.test(ua)) return 'android-samsung';
   if (/Android/i.test(ua)) return 'android';
   if (navigator.maxTouchPoints > 1) return 'other';
+  // macOS Safari: Safari UA present, no Chrome/Firefox/Edge/Opera identifiers
+  if (/Macintosh/i.test(ua) && /Safari/i.test(ua) && !/Chrome|CriOS|Firefox|FxiOS|Edg|OPR/i.test(ua)) return 'macos-safari';
   return 'desktop';
 }
 

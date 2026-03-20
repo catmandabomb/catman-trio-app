@@ -2,25 +2,25 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.24';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.24';
-import * as Modal from './js/modal.js?v=20.24';
-import * as Router from './js/router.js?v=20.24';
-import * as Sync from './js/sync.js?v=20.24';
-import * as Drive from './drive.js?v=20.24';
-import * as GitHub from './github.js?v=20.24';
-import * as Admin from './admin.js?v=20.24';
-import * as Auth from './auth.js?v=20.24';
-import * as Player from './player.js?v=20.24';
-import * as Songs from './js/songs.js?v=20.24';
-import * as Setlists from './js/setlists.js?v=20.24';
-import * as Practice from './js/practice.js?v=20.24';
-import * as Dashboard from './js/dashboard.js?v=20.24';
-import * as Migrate from './js/migrate.js?v=20.24';
-import * as WikiCharts from './js/wikicharts.js?v=20.24';
-import * as IDB from './idb.js?v=20.24';
-import * as Orchestra from './js/orchestra.js?v=20.24';
-import * as Instruments from './js/instruments.js?v=20.24';
+import * as Store from './js/store.js?v=20.25';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.25';
+import * as Modal from './js/modal.js?v=20.25';
+import * as Router from './js/router.js?v=20.25';
+import * as Sync from './js/sync.js?v=20.25';
+import * as Drive from './drive.js?v=20.25';
+import * as GitHub from './github.js?v=20.25';
+import * as Admin from './admin.js?v=20.25';
+import * as Auth from './auth.js?v=20.25';
+import * as Player from './player.js?v=20.25';
+import * as Songs from './js/songs.js?v=20.25';
+import * as Setlists from './js/setlists.js?v=20.25';
+import * as Practice from './js/practice.js?v=20.25';
+import * as Dashboard from './js/dashboard.js?v=20.25';
+import * as Migrate from './js/migrate.js?v=20.25';
+import * as WikiCharts from './js/wikicharts.js?v=20.25';
+import * as IDB from './idb.js?v=20.25';
+import * as Orchestra from './js/orchestra.js?v=20.25';
+import * as Instruments from './js/instruments.js?v=20.25';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -47,9 +47,11 @@ const _resolveHash     = Router.resolveHash;
 function _navigateToRoute(route) { Router.navigateToRoute(route); }
 let _cachedPdfSet = new Set();
 
-  // ─── Blob cache (LRU, max 30 entries) ────────────────────
-
-  const BLOB_CACHE_MAX = 30;
+  // ─── Blob cache (LRU, adaptive size) ─────────────────────
+  // iOS devices and low-memory devices get smaller cache to avoid OOM kills.
+  const _isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const _deviceMem = navigator.deviceMemory || 4;
+  const BLOB_CACHE_MAX = _isIOSDevice ? 10 : _deviceMem <= 2 ? 5 : _deviceMem <= 4 ? 15 : 30;
   let _blobCacheOrder = []; // LRU tracking: oldest first
 
   function _revokeBlobCache() {
@@ -939,9 +941,7 @@ let _cachedPdfSet = new Set();
     const lmStageRedMode    = _getPref('lm_stage_red', '0') === '1';
     const lmRehearsalNotes  = _getPref('lm_rehearsal_notes', '0') === '1';
     const pracTfPitch       = _getPref('tf_default_pitch', '0');
-    const dispDateFormat    = _getPref('date_format', 'relative');
     const dispListDensity   = _getPref('list_density', 'normal');
-    const notifSyncConflict = _getPref('notif_sync_conflict', '1') === '1';
 
     container.innerHTML = `
       <div class="settings-page">
@@ -1169,18 +1169,6 @@ let _cachedPdfSet = new Set();
 
           <div class="settings-row">
             <div class="settings-row-label">
-              <div class="settings-label">Date format</div>
-              <div class="settings-hint">How dates appear in song lists</div>
-            </div>
-            <select class="settings-select" id="pref-date-format">
-              <option value="relative" ${dispDateFormat === 'relative' ? 'selected' : ''}>Relative (2d ago)</option>
-              <option value="short" ${dispDateFormat === 'short' ? 'selected' : ''}>Short (Mar 19)</option>
-              <option value="iso" ${dispDateFormat === 'iso' ? 'selected' : ''}>ISO (2026-03-19)</option>
-            </select>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
               <div class="settings-label">List density</div>
               <div class="settings-hint">Song list row spacing</div>
             </div>
@@ -1195,17 +1183,6 @@ let _cachedPdfSet = new Set();
         <!-- NOTIFICATIONS -->
         <div class="settings-section">
           <div class="settings-section-title"><i data-lucide="bell" style="width:16px;height:16px;"></i> Notifications</div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
-              <div class="settings-label">Sync conflict toasts</div>
-              <div class="settings-hint">Show a toast when a write conflict is detected</div>
-            </div>
-            <label class="settings-toggle">
-              <input type="checkbox" id="pref-notif-sync-conflict" ${notifSyncConflict ? 'checked' : ''}>
-              <span class="settings-toggle-track"></span>
-            </label>
-          </div>
 
           <div class="settings-row" id="pref-push-row">
             <div class="settings-row-label">
@@ -1321,8 +1298,6 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-show-redmode', 'live_show_redmode');
     wire('pref-lm-stage-red', 'lm_stage_red');
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
-    wire('pref-notif-sync-conflict', 'notif_sync_conflict');
-
     // Conductr Tools toggles (only wired if section is present)
     wire('pref-setlist-insights', 'setlist_insights');
     wire('pref-shell-voicings', 'shell_voicings');
@@ -1357,7 +1332,6 @@ let _cachedPdfSet = new Set();
     wireSelect('pref-lm-auto-hide-delay', 'lm_auto_hide_delay');
     wireSelect('pref-lm-auto-advance', 'lm_auto_advance_secs');
     wireSelect('pref-tf-pitch', 'tf_default_pitch');
-    wireSelect('pref-date-format', 'date_format');
     wireSelect('pref-list-density', 'list_density');
 
     // WikiCharts settings
@@ -1597,7 +1571,7 @@ let _cachedPdfSet = new Set();
         if (result.ok) {
           showToast('Password reset! Please log in.');
           location.hash = '#';
-          if (_isMobile() && !_isPWAInstalled()) {
+          if ((_isMobile() || _detectPlatform() === 'macos-safari') && !_isPWAInstalled()) {
             _showInstallGate();
           } else {
             renderList();
@@ -1628,7 +1602,7 @@ let _cachedPdfSet = new Set();
     } else {
       showToast(result.error || 'Verification failed', 5000);
     }
-    if (_isMobile() && !_isPWAInstalled()) {
+    if ((_isMobile() || _detectPlatform() === 'macos-safari') && !_isPWAInstalled()) {
       _showInstallGate();
     } else {
       renderList();
@@ -1760,6 +1734,84 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
         <p class="install-note">Note: You must use <strong>Safari</strong> for this to work. If you're in Chrome or another browser, open this page in Safari first.</p>`;
+    } else if (platform === 'webview') {
+      // Users stuck in Facebook/Instagram/etc in-app browser
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>You're viewing this in an in-app browser. Tap the button below to open in your default browser.</span>
+          </div>
+        </div>
+        <button id="btn-open-in-browser" class="install-gate-browser-btn">Open in Browser</button>
+        <p class="install-note">If the button doesn't work, copy the link and paste it in Chrome or Safari:</p>
+        <div class="install-gate-url-box">
+          <span class="install-gate-url">${esc(location.origin + location.pathname)}</span>
+          <button id="btn-copy-url" class="install-gate-copy-btn" aria-label="Copy link">Copy</button>
+        </div>`;
+    } else if (platform === 'android-firefox') {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Tap the <strong>menu</strong> button <span class="install-icon-hint">( &#8942; )</span> in the top right</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Tap <strong>"Install"</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Tap <strong>"Add"</strong> to confirm</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">4</span>
+            <span>Open <strong>Catman Trio</strong> from your home screen</span>
+          </div>
+        </div>
+        <p class="install-note">Using Firefox? The install option is in Firefox's main menu — not a popup.</p>`;
+    } else if (platform === 'macos-safari') {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>In the menu bar, click <strong>File</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Click <strong>"Add to Dock"</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Click <strong>"Add"</strong> to confirm</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">4</span>
+            <span>Open <strong>Catman Trio</strong> from your Dock</span>
+          </div>
+        </div>
+        <p class="install-note">This requires <strong>Safari 17+</strong> on macOS Sonoma or later.</p>`;
+    } else if (platform === 'android-samsung') {
+      steps = `
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Tap the <strong>menu</strong> button <span class="install-icon-hint">( &#9776; )</span> at the bottom of Samsung Internet</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Tap <strong>"Add page to"</strong> &gt; <strong>"Home screen"</strong></span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Tap <strong>"Add"</strong> to confirm</span>
+          </div>
+          <div class="install-step">
+            <span class="install-step-num">4</span>
+            <span>Open <strong>Catman Trio</strong> from your home screen</span>
+          </div>
+        </div>
+        <p class="install-note">Using Samsung Internet? The menu is at the <strong>bottom</strong> of the screen.</p>`;
     } else if (platform === 'android') {
       steps = `
         <div class="install-steps">
@@ -1779,7 +1831,8 @@ let _cachedPdfSet = new Set();
             <span class="install-step-num">4</span>
             <span>Open <strong>Catman Trio</strong> from your home screen</span>
           </div>
-        </div>`;
+        </div>
+        <p class="install-note">If you opened this from an email or message, tap <strong>&#8942; &gt; Open in Chrome</strong> first, then install.</p>`;
     } else {
       steps = `
         <div class="install-steps">
@@ -1808,15 +1861,54 @@ let _cachedPdfSet = new Set();
       <div class="install-gate-content">
         <span class="install-gate-version">${APP_VERSION}</span>
         <div class="install-gate-logo">CT</div>
-        <h1 class="install-gate-title">Catman Trio</h1>
-        <p class="install-gate-subtitle">Welcome to the Catman Trio App. To access this app, add it to your home screen by following the steps below.</p>
+        <h1 class="install-gate-title">${platform === 'macos-safari' ? 'Install Catman Trio' : 'Catman Trio'}</h1>
+        <p class="install-gate-subtitle">${platform === 'macos-safari'
+          ? 'In Safari, go to <strong>File &gt; Add to Dock</strong> to install this app.'
+          : 'Welcome to the Catman Trio App. To access this app, add it to your home screen by following the steps below.'}</p>
         <div class="install-gate-card">
           <h2 class="install-gate-card-title">How to install</h2>
           ${steps}
         </div>
-        <p class="install-gate-footer">Once installed, the app launches in full screen and works offline — just like a native app.</p>
+        <p class="install-gate-footer">${platform === 'macos-safari'
+          ? 'Once installed, the app opens as a standalone window and works offline.'
+          : 'Once installed, the app launches in full screen and works offline — just like a native app.'}</p>
       </div>`;
     document.body.appendChild(gate);
+
+    // WebView: wire up "Open in Browser" and "Copy" buttons
+    if (platform === 'webview') {
+      const appUrl = location.origin + location.pathname;
+      const openBtn = document.getElementById('btn-open-in-browser');
+      if (openBtn) {
+        openBtn.addEventListener('click', () => {
+          // intent:// scheme works on Android to open in default browser
+          const intentUrl = `intent://${location.host}${location.pathname}#Intent;scheme=https;end`;
+          // Try intent first (Android), fallback to window.open
+          try { window.location.href = intentUrl; } catch (_) {}
+          setTimeout(() => { window.open(appUrl, '_system') || window.open(appUrl, '_blank'); }, 500);
+        });
+      }
+      const copyBtn = document.getElementById('btn-copy-url');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(appUrl).then(() => { copyBtn.textContent = 'Copied!'; });
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = appUrl;
+              ta.style.cssText = 'position:fixed;opacity:0';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              ta.remove();
+              copyBtn.textContent = 'Copied!';
+            }
+          } catch (_) {}
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        });
+      }
+    }
   }
 
   // ─── Install Banner (Feature 2) ─────────────────────────────
@@ -2080,9 +2172,10 @@ let _cachedPdfSet = new Set();
       navigator.storage.persist().catch(() => {});
     }
 
-    // PWA install gate — mobile browsers only (skip for auth action links)
+    // PWA install gate — mobile browsers + macOS Safari (skip for auth action links)
     const _isAuthLink = location.hash.startsWith('#reset-password') || location.hash.startsWith('#verify-email');
-    if (_isMobile() && !_isPWAInstalled() && !_isAuthLink) {
+    const _isMacSafari = _detectPlatform() === 'macos-safari';
+    if ((_isMobile() || _isMacSafari) && !_isPWAInstalled() && !_isAuthLink) {
       _showInstallGate();
       return; // Don't load the app
     }
@@ -2515,12 +2608,14 @@ let _cachedPdfSet = new Set();
 
     // Master volume slider (hidden on mobile — iOS audio.volume is read-only, Android has system volume)
     // Hidden by default on desktop too — shown only on detail view when song has audio/links
+    // iPad + Magic Keyboard: reports hover:hover/pointer:fine but audio.volume is still read-only on iPadOS
     const isMobile = _isMobile();
+    const _iPadOSInit = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
     const volWrap   = document.getElementById('master-volume');
     const volSlider = document.getElementById('volume-slider');
     if (!volWrap || !volSlider) { /* elements missing, skip volume setup */ }
-    else if (isMobile) {
-      // Keep hidden on mobile (iOS audio.volume is read-only)
+    else if (isMobile || _iPadOSInit) {
+      // Keep hidden on mobile / iPadOS (audio.volume is read-only)
     } else {
       volSlider.value = Player.getVolume();
       function _updateVolFill() {
@@ -2594,6 +2689,20 @@ let _cachedPdfSet = new Set();
     }
 
     _syncAllFromDrive();
+
+    // ─── Edge Sleeping Tabs / background tab sync-on-wake ────
+    // When a tab is frozen (Edge Sleeping Tabs, OS suspend, etc.),
+    // sync polling stops. Re-sync when the tab becomes visible again.
+    let _lastVisibilitySync = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (!Auth.isLoggedIn()) return;
+      // Debounce: don't re-sync if we synced within the last 10 seconds
+      const now = Date.now();
+      if (now - _lastVisibilitySync < 10000) return;
+      _lastVisibilitySync = now;
+      _syncAllFromDrive();
+    });
   }
 
   // ─── Sync Diagnostics ─────────────────────────────────────
@@ -2777,7 +2886,9 @@ const hapticSuccess = haptic.success;
 const hapticTap = haptic.tap;
 function showVolume(visible) {
   const vw = document.getElementById('master-volume');
-  if (vw && !_isMobile()) vw.classList.toggle('visible', visible);
+  // iPad + Magic Keyboard reports hover:hover/pointer:fine but audio.volume is still read-only on iPadOS
+  const _iPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  if (vw && !_isMobile() && !_iPadOS) vw.classList.toggle('visible', visible);
 }
 function revokeBlobCache() { _revokeBlobCache(); }
 function cleanupPlayers() { _cleanupPlayers(); }
@@ -2844,6 +2955,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (type === 'setlists') { Store.set('setlists', mergedData); }
     if (type === 'practice') { Store.set('practice', mergedData); }
     showToast('Sync conflict auto-resolved', 2000);
+  });
+
+  // ─── Cross-tab auth sync (G4) ──────────────────────────────
+  // When another tab changes ct_auth (login, logout, token rotation),
+  // update this tab's auth state to stay consistent.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== 'ct_auth') return;
+    if (!e.newValue) {
+      // Another tab logged out — reload to show login screen
+      Sync.stopSyncPolling();
+      location.reload();
+    } else {
+      // Another tab logged in or token rotated — refresh in-memory auth state
+      Auth.refreshSession().then(() => {
+        _updateAuthUI();
+      }).catch(() => {});
+    }
   });
 
   init();

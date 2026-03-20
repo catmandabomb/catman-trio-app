@@ -8,14 +8,14 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.24';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.24';
-import * as GitHub from '../github.js?v=20.24';
-import * as Drive from '../drive.js?v=20.24';
-import * as Router from './router.js?v=20.24';
-import * as IDB from '../idb.js?v=20.24';
-import * as Auth from '../auth.js?v=20.24';
-import * as Admin from '../admin.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.25';
+import * as GitHub from '../github.js?v=20.25';
+import * as Drive from '../drive.js?v=20.25';
+import * as Router from './router.js?v=20.25';
+import * as IDB from '../idb.js?v=20.25';
+import * as Auth from '../auth.js?v=20.25';
+import * as Admin from '../admin.js?v=20.25';
 
 // ─── Storage backend toggle ─────────────────────────────────
 // Use Cloudflare D1/R2 when the Worker is configured and the user hasn't
@@ -40,16 +40,29 @@ function useCloudflare() {
  * @returns {Promise<Object>} Parsed JSON response
  * @throws {Error} On non-OK response (409 errors include .status and .conflicts)
  */
+// Brave Shields / aggressive content blockers: show a helpful toast once per session
+let _braveShieldsToastShown = false;
+
 async function _workerFetch(path, options = {}) {
   const token = Auth.getToken ? Auth.getToken() : null;
   if (!token) throw new Error('Not authenticated');
-  const resp = await fetch(GitHub.workerUrl + path, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-  });
+  let resp;
+  try {
+    resp = await fetch(GitHub.workerUrl + path, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+    });
+  } catch (err) {
+    // TypeError from fetch() means the request was blocked (Brave Shields, ad blocker, CORS)
+    if (err instanceof TypeError && !_braveShieldsToastShown) {
+      _braveShieldsToastShown = true;
+      showToast('Network request blocked — if using Brave, try disabling Shields for this site.', 8000);
+    }
+    throw err;
+  }
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
     if (resp.status === 409) {

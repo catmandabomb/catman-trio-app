@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.24';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.24';
-import * as Modal from './modal.js?v=20.24';
-import * as Router from './router.js?v=20.24';
-import * as Sync from './sync.js?v=20.24';
-import * as Drive from '../drive.js?v=20.24';
-import * as GitHub from '../github.js?v=20.24';
-import * as Admin from '../admin.js?v=20.24';
-import * as Auth from '../auth.js?v=20.24';
-import * as Player from '../player.js?v=20.24';
-import * as Metronome from '../metronome.js?v=20.24';
-import * as PDFViewer from '../pdf-viewer.js?v=20.24';
-import * as App from '../app.js?v=20.24';
+import * as Store from './store.js?v=20.25';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.25';
+import * as Modal from './modal.js?v=20.25';
+import * as Router from './router.js?v=20.25';
+import * as Sync from './sync.js?v=20.25';
+import * as Drive from '../drive.js?v=20.25';
+import * as GitHub from '../github.js?v=20.25';
+import * as Admin from '../admin.js?v=20.25';
+import * as Auth from '../auth.js?v=20.25';
+import * as Player from '../player.js?v=20.25';
+import * as Metronome from '../metronome.js?v=20.25';
+import * as PDFViewer from '../pdf-viewer.js?v=20.25';
+import * as App from '../app.js?v=20.25';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -490,7 +490,7 @@ function renderPractice(skipNavReset) {
     activeLists.forEach(pl => {
       const songCount = (pl.songs || []).length;
       html += `
-        <div class="pl-card practice-list-card" data-practice-list-id="${esc(pl.id)}">
+        <div class="pl-card practice-list-card" data-practice-list-id="${esc(pl.id)}" tabindex="0" role="button" aria-label="${esc(pl.name || 'Untitled')}">
           <div class="pl-card-info" style="padding-left:4px">
             <div class="pl-card-title-row">
               <span class="pl-card-name">${esc(pl.name || 'Untitled')}</span>
@@ -510,7 +510,7 @@ function renderPractice(skipNavReset) {
     archivedLists.forEach(pl => {
       const songCount = (pl.songs || []).length;
       html += `
-        <div class="pl-card practice-list-card practice-list-card-archived" data-practice-list-id="${esc(pl.id)}">
+        <div class="pl-card practice-list-card practice-list-card-archived" data-practice-list-id="${esc(pl.id)}" tabindex="0" role="button" aria-label="${esc(pl.name || 'Untitled')}">
           <div class="pl-card-info" style="padding-left:4px">
             <div class="pl-card-title-row">
               <span class="pl-card-name" style="opacity:0.6">${esc(pl.name || 'Untitled')}</span>
@@ -530,6 +530,12 @@ function renderPractice(skipNavReset) {
 
   // Wire practice list card clicks
   container.querySelectorAll('.practice-list-card').forEach(card => {
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        card.click();
+      }
+    });
     card.addEventListener('click', (e) => {
       if (e.target.closest('.practice-unarchive-btn')) return;
       const listId = card.dataset.practiceListId;
