@@ -7,11 +7,11 @@
  * @module messages
  */
 
-import * as Store from './store.js?v=20.30';
-import * as Auth from '../auth.js?v=20.30';
-import * as Router from './router.js?v=20.30';
-import * as Sync from './sync.js?v=20.30';
-import { showToast } from './utils.js?v=20.30';
+import * as Store from './store.js?v=20.31';
+import * as Auth from '../auth.js?v=20.31';
+import * as Router from './router.js?v=20.31';
+import * as Sync from './sync.js?v=20.31';
+import { showToast } from './utils.js?v=20.31';
 
 // ─── State ──────────────────────────────────────────────
 
@@ -273,7 +273,7 @@ async function _renderThread(container, messageId) {
   const msg = data.message;
   const replies = data.replies || [];
   const isManager = _canManageMessages();
-  const currentUserId = Auth.getUserId?.() || '';
+  const currentUserId = Auth.getUser?.()?.id || '';
 
   let html = '<div class="msg-thread">';
 

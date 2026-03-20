@@ -6,7 +6,7 @@
  * Drive media files are NOT cached (they're large and user-managed).
  */
 
-const CACHE_NAME = 'catmantrio-v20.30';
+const CACHE_NAME = 'catmantrio-v20.31';
 const SONGS_CACHE = 'catmantrio-songs';
 const PDF_CACHE = 'catmantrio-pdfs';
 
@@ -57,9 +57,10 @@ const SHELL_ASSETS = [
 // Install: cache shell + skipWaiting so new SW activates immediately
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL_ASSETS))
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(SHELL_ASSETS))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 // Activate: remove old caches (keep SONGS_CACHE and PDF_CACHE)
@@ -70,9 +71,8 @@ self.addEventListener('activate', (e) => {
         .filter(k => k !== CACHE_NAME && k !== SONGS_CACHE && k !== PDF_CACHE)
         .map(k => caches.delete(k))
       )
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 // ─── 2A: Audio proxy for iOS Safari ─────────────────────

@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.30';
-import * as Player from '../player.js?v=20.30';
-import * as Metronome from '../metronome.js?v=20.30';
+import * as Store from './store.js?v=20.31';
+import * as Player from '../player.js?v=20.31';
+import * as Metronome from '../metronome.js?v=20.31';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.30');
+  if (!_App) _App = import('../app.js?v=20.31');
   return _App;
 }
 
@@ -210,12 +210,13 @@ function showView(name) {
           try {
             _internalNavigation = true;
             const url = new URL(hash, location.href);
-            window.navigation.navigate(url.href, { history: 'push' });
+            const navResult = window.navigation.navigate(url.href, { history: 'push' });
+            // Reset flag after navigation settles (async — navigate event fires on microtask)
+            navResult.finished.finally(() => { _internalNavigation = false; }).catch(() => { _internalNavigation = false; });
           } catch (_navErr) {
+            _internalNavigation = false;
             // Fallback to History API if Navigation API call fails
             try { history.pushState(null, '', hash); } catch (_) {}
-          } finally {
-            _internalNavigation = false;
           }
         } else {
           try { history.pushState(null, '', hash); } catch (_) {}

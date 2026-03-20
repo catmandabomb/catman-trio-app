@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.30';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.30';
-import * as GitHub from '../github.js?v=20.30';
-import * as Drive from '../drive.js?v=20.30';
-import * as Router from './router.js?v=20.30';
-import * as IDB from '../idb.js?v=20.30';
-import * as OPFS from './opfs.js?v=20.30';
-import * as Auth from '../auth.js?v=20.30';
-import * as Admin from '../admin.js?v=20.30';
-import * as MutationQueue from './mutation-queue.js?v=20.30';
+import * as Store from './store.js?v=20.31';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.31';
+import * as GitHub from '../github.js?v=20.31';
+import * as Drive from '../drive.js?v=20.31';
+import * as Router from './router.js?v=20.31';
+import * as IDB from '../idb.js?v=20.31';
+import * as OPFS from './opfs.js?v=20.31';
+import * as Auth from '../auth.js?v=20.31';
+import * as Admin from '../admin.js?v=20.31';
+import * as MutationQueue from './mutation-queue.js?v=20.31';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -852,6 +852,7 @@ async function saveSongs(toastMsg) {
         return;
       }
       console.warn('D1 save songs failed', e);
+      showToast('Cloud save failed — saved locally only.');
     });
     showToast(toastMsg || 'Saved.');
     return;
@@ -895,6 +896,7 @@ async function saveSetlists(toastMsg) {
         return;
       }
       console.warn('D1 save setlists failed', e);
+      showToast('Cloud save failed — saved locally only.');
     });
     showToast(toastMsg || 'Saved.');
     return;
@@ -938,6 +940,7 @@ async function savePractice(toastMsg) {
         return;
       }
       console.warn('D1 save practice failed', e);
+      showToast('Cloud save failed — saved locally only.');
     });
     showToast(toastMsg || 'Saved.');
     return;
@@ -981,6 +984,7 @@ async function saveWikiCharts(toastMsg) {
         return;
       }
       console.warn('D1 save wikiCharts failed', e);
+      showToast('Cloud save failed — saved locally only.');
     });
     showToast(toastMsg || 'Saved.');
     return;
@@ -1119,8 +1123,10 @@ async function switchOrchestra(orchestraId) {
     } catch (_) {}
 
     // 3. Clear IDB + OPFS
-    try { await IDB.clear?.('songs'); } catch (_) {}
-    try { await IDB.clear?.('setlists'); } catch (_) {}
+    try { await IDB.saveSongs([]); } catch (_) {}
+    try { await IDB.saveSetlists([]); } catch (_) {}
+    try { await IDB.savePractice([]); } catch (_) {}
+    try { await IDB.saveWikiCharts([]); } catch (_) {}
     OPFS.clearAll().catch(() => {}); // fire-and-forget
 
     // 4. Reset poll baseline
@@ -1352,8 +1358,8 @@ async function loadMessages(filters = {}) {
   if (!orchId || !useCloudflare() || !Auth.getToken?.()) return [];
   try {
     const params = new URLSearchParams();
-    if (filters.status) params.set('status', filters.status);
-    if (filters.category) params.set('category', filters.category);
+    if (filters.status && filters.status !== 'all') params.set('status', filters.status);
+    if (filters.category && filters.category !== 'all') params.set('category', filters.category);
     const res = await _workerFetch(`/orchestras/${orchId}/messages?${params}`);
     return res.messages || [];
   } catch { return []; }
