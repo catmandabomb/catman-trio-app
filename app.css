@@ -616,8 +616,8 @@ body.is-mobile .search-refresh-btn { display: none; }
   font-size: 17px;
   font-weight: 400;
   letter-spacing: 0.02em;
-  padding: var(--space-md) var(--space-md) 0 var(--space-sm);
-  gap: 8px;
+  padding: 8px var(--space-md) 0 var(--space-sm);
+  gap: 4px;
 }
 .subheader-text {
   text-align: center;
@@ -631,14 +631,16 @@ body.is-mobile .search-refresh-btn { display: none; }
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
   margin-left: auto;
   min-height: 36px; /* Match icon-btn height so row doesn't shift when + appears */
 }
-#btn-account {
+.admin-buttons .icon-btn {
   width: 32px;
   height: 32px;
+}
+#btn-account {
   padding: 0;
   display: flex;
   align-items: center;
@@ -837,7 +839,7 @@ body.is-mobile .search-refresh-btn { display: none; }
   padding: var(--space-md) var(--space-md) 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   /* Force compositing layer so iOS Safari doesn't bleed the text caret
      through sibling flex children (tag/key pill bars below) */
   transform: translateZ(0);

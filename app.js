@@ -2,27 +2,27 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.31';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.31';
-import * as Modal from './js/modal.js?v=20.31';
-import * as Router from './js/router.js?v=20.31';
-import * as Sync from './js/sync.js?v=20.31';
-import * as Drive from './drive.js?v=20.31';
-import * as GitHub from './github.js?v=20.31';
-import * as Admin from './admin.js?v=20.31';
-import * as Auth from './auth.js?v=20.31';
-import * as Player from './player.js?v=20.31';
-import * as Songs from './js/songs.js?v=20.31';
-import * as Setlists from './js/setlists.js?v=20.31';
-import * as Practice from './js/practice.js?v=20.31';
-import * as Dashboard from './js/dashboard.js?v=20.31';
-import * as Migrate from './js/migrate.js?v=20.31';
-import * as WikiCharts from './js/wikicharts.js?v=20.31';
-import * as IDB from './idb.js?v=20.31';
-import * as Orchestra from './js/orchestra.js?v=20.31';
-import * as Instruments from './js/instruments.js?v=20.31';
-import * as Messages from './js/messages.js?v=20.31';
-import * as MutationQueue from './js/mutation-queue.js?v=20.31';
+import * as Store from './js/store.js?v=20.33';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.33';
+import * as Modal from './js/modal.js?v=20.33';
+import * as Router from './js/router.js?v=20.33';
+import * as Sync from './js/sync.js?v=20.33';
+import * as Drive from './drive.js?v=20.33';
+import * as GitHub from './github.js?v=20.33';
+import * as Admin from './admin.js?v=20.33';
+import * as Auth from './auth.js?v=20.33';
+import * as Player from './player.js?v=20.33';
+import * as Songs from './js/songs.js?v=20.33';
+import * as Setlists from './js/setlists.js?v=20.33';
+import * as Practice from './js/practice.js?v=20.33';
+import * as Dashboard from './js/dashboard.js?v=20.33';
+import * as Migrate from './js/migrate.js?v=20.33';
+import * as WikiCharts from './js/wikicharts.js?v=20.33';
+import * as IDB from './idb.js?v=20.33';
+import * as Orchestra from './js/orchestra.js?v=20.33';
+import * as Instruments from './js/instruments.js?v=20.33';
+import * as Messages from './js/messages.js?v=20.33';
+import * as MutationQueue from './js/mutation-queue.js?v=20.33';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -90,7 +90,7 @@ let _cachedPdfSet = new Set();
     document.body.classList.toggle('authed', loggedIn);
     const isAdmin = loggedIn && Auth.canEditSongs();
     document.body.classList.toggle('is-admin', isAdmin);
-    document.body.classList.toggle('is-mobile', 'ontouchstart' in window || navigator.maxTouchPoints > 0);
+    document.body.classList.toggle('is-mobile', 'ontouchstart' in window || navigator.maxTouchPoints > 0 || _isMobile());
 
     if (loggedIn) {
       if (btn) { btn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
@@ -198,7 +198,7 @@ let _cachedPdfSet = new Set();
       try {
         url = await Drive.fetchFileAsBlob(fileId);
       } catch (firstErr) {
-        console.warn('Drive fetch failed, retrying in 2s:', fileId, firstErr);
+        console.warn('File fetch failed, retrying in 2s:', fileId, firstErr);
         await new Promise(r => setTimeout(r, 2000));
         url = await Drive.fetchFileAsBlob(fileId);
       }
@@ -383,7 +383,7 @@ let _cachedPdfSet = new Set();
   // ─── Sync (delegated to Sync module) ─────────────────────────
   const _tryAutoConfigureGitHub = Sync.tryAutoConfigureGitHub;
 
-  async function _syncAllFromDrive(force) {
+  async function _syncFromCloud(force) {
     const _preSyncCount = _songs.length;
     await Sync.syncAll(force);
     // Start real-time sync polling after first successful sync
@@ -2528,7 +2528,7 @@ let _cachedPdfSet = new Set();
     overlay.querySelector('#welcome-start').addEventListener('click', () => {
       localStorage.setItem('ct_welcome_seen', '1');
       overlay.remove();
-      Admin.showGitHubModal(() => { _syncAllFromDrive(true); });
+      Admin.showGitHubModal(() => { _syncFromCloud(true); });
     });
     overlay.querySelector('#welcome-skip').addEventListener('click', () => {
       localStorage.setItem('ct_welcome_seen', '1');
@@ -2973,7 +2973,7 @@ let _cachedPdfSet = new Set();
           // Data-only refresh — no page reload, UI stays stable
           (async () => {
             try {
-              await _syncAllFromDrive(true);
+              await _syncFromCloud(true);
             } catch (e) {
               console.warn('PTR sync failed', e);
             } finally {
@@ -3255,7 +3255,7 @@ let _cachedPdfSet = new Set();
       _tryAutoConfigureGitHub();
     }
 
-    _syncAllFromDrive();
+    _syncFromCloud();
 
     // ─── Edge Sleeping Tabs / background tab sync-on-wake ────
     // When a tab is frozen (Edge Sleeping Tabs, OS suspend, etc.),
@@ -3268,7 +3268,7 @@ let _cachedPdfSet = new Set();
       const now = Date.now();
       if (now - _lastVisibilitySync < 10000) return;
       _lastVisibilitySync = now;
-      _syncAllFromDrive();
+      _syncFromCloud();
     });
   }
 
@@ -3463,7 +3463,7 @@ function getBlobUrl(driveId) { return _getBlobUrl(driveId); }
 function trackPlayerRef(ref) { _playerRefs.push(ref); }
 function downloadFile(driveId, filename, btnEl) { return _downloadFile(driveId, filename, btnEl); }
 function isPdfCached(driveId) { return _isPdfCached(driveId); }
-function syncAll(force) { return _syncAllFromDrive(force); }
+function syncAll(force) { return _syncFromCloud(force); }
 function checkEmailVerified(featureName) { return _checkEmailVerified(featureName); }
 
 export {

@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.32';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.32';
-import * as GitHub from '../github.js?v=20.32';
-import * as Drive from '../drive.js?v=20.32';
-import * as Router from './router.js?v=20.32';
-import * as IDB from '../idb.js?v=20.32';
-import * as OPFS from './opfs.js?v=20.32';
-import * as Auth from '../auth.js?v=20.32';
-import * as Admin from '../admin.js?v=20.32';
-import * as MutationQueue from './mutation-queue.js?v=20.32';
+import * as Store from './store.js?v=20.33';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.33';
+import * as GitHub from '../github.js?v=20.33';
+import * as Drive from '../drive.js?v=20.33';
+import * as Router from './router.js?v=20.33';
+import * as IDB from '../idb.js?v=20.33';
+import * as OPFS from './opfs.js?v=20.33';
+import * as Auth from '../auth.js?v=20.33';
+import * as Admin from '../admin.js?v=20.33';
+import * as MutationQueue from './mutation-queue.js?v=20.33';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -773,7 +773,7 @@ async function syncAll(force) {
     }
     _markSynced();
   } catch (e) {
-    const backend = _useGitHub ? 'GitHub' : 'Drive';
+    const backend = _useGitHub ? 'GitHub' : _useCF ? 'Cloud' : 'Drive';
     console.warn(`${backend} sync failed, using local cache`, e);
     const msg = String(e.message || e || '');
     // Only toast for actionable errors — routine sync failures are silent
@@ -864,7 +864,7 @@ async function saveSongs(toastMsg) {
         if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
-        console.error(`Drive songs save attempt ${attempt + 1} failed`, e);
+        console.warn(`Drive songs save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
@@ -905,7 +905,7 @@ async function saveSetlists(toastMsg) {
         if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
-        console.error(`Drive setlists save attempt ${attempt + 1} failed`, e);
+        console.warn(`Drive setlists save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }
@@ -946,7 +946,7 @@ async function savePractice(toastMsg) {
         if (toastMsg) showToast(toastMsg);
         return;
       } catch (e) {
-        console.error(`Drive practice save attempt ${attempt + 1} failed`, e);
+        console.warn(`Drive practice save attempt ${attempt + 1} failed`, e);
         if (attempt === 0) await new Promise(r => setTimeout(r, 1000));
       }
     }

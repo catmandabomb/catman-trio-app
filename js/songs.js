@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.31';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.31';
-import * as Modal from './modal.js?v=20.31';
-import * as Router from './router.js?v=20.31';
-import * as Admin from '../admin.js?v=20.31';
-import * as Auth from '../auth.js?v=20.31';
-import * as Sync from './sync.js?v=20.31';
-import * as Drive from '../drive.js?v=20.31';
-import * as GitHub from '../github.js?v=20.31';
-import * as Player from '../player.js?v=20.31';
-import * as PDFViewer from '../pdf-viewer.js?v=20.31';
-import * as Metronome from '../metronome.js?v=20.31';
-import * as App from '../app.js?v=20.31';
-import * as Setlists from './setlists.js?v=20.31';
-import * as Practice from './practice.js?v=20.31';
-import * as Dashboard from './dashboard.js?v=20.31';
-import * as IDB from '../idb.js?v=20.31';
+import * as Store from './store.js?v=20.33';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.33';
+import * as Modal from './modal.js?v=20.33';
+import * as Router from './router.js?v=20.33';
+import * as Admin from '../admin.js?v=20.33';
+import * as Auth from '../auth.js?v=20.33';
+import * as Sync from './sync.js?v=20.33';
+import * as Drive from '../drive.js?v=20.33';
+import * as GitHub from '../github.js?v=20.33';
+import * as Player from '../player.js?v=20.33';
+import * as PDFViewer from '../pdf-viewer.js?v=20.33';
+import * as Metronome from '../metronome.js?v=20.33';
+import * as App from '../app.js?v=20.33';
+import * as Setlists from './setlists.js?v=20.33';
+import * as Practice from './practice.js?v=20.33';
+import * as Dashboard from './dashboard.js?v=20.33';
+import * as IDB from '../idb.js?v=20.33';
 
 // ─── Background audio conversion ────────────────────────────
 // After uploading audio to R2, silently convert to WebM/Opus if the
@@ -447,12 +447,14 @@ function renderList(force) {
 
   if (songs.length === 0) {
     container.innerHTML = '';
-    if (!GitHub.isConfigured() && !Drive.isConfigured()) {
-      empty.innerHTML = '<p id="empty-title">Welcome to Catman Trio</p><p id="empty-sub" class="muted">Connect to GitHub to sync your songs and data.</p><button class="empty-action-btn" id="empty-setup-btn">Setup GitHub</button>';
+    if (!Auth.isLoggedIn()) {
+      empty.innerHTML = '<p id="empty-title">Welcome to Catman Trio</p><p id="empty-sub" class="muted">Log in to access your songs and data.</p>';
       empty.classList.remove('hidden');
-      empty.querySelector('#empty-setup-btn')?.addEventListener('click', () => Admin.showGitHubModal(() => { App.syncAll(true); }));
+    } else if (Store.get('syncing')) {
+      empty.innerHTML = '<p id="empty-title">Loading songs\u2026</p><p id="empty-sub" class="muted">Syncing from the cloud.</p>';
+      empty.classList.remove('hidden');
     } else {
-      empty.innerHTML = '<p id="empty-title">No songs found</p><p id="empty-sub" class="muted">Try syncing to fetch your data.</p><button class="empty-action-btn" id="empty-sync-btn">Sync Now</button>';
+      empty.innerHTML = '<p id="empty-title">No songs yet</p><p id="empty-sub" class="muted">Songs will appear here once synced.</p><button class="empty-action-btn" id="empty-sync-btn">Retry Sync</button>';
       empty.classList.remove('hidden');
       empty.querySelector('#empty-sync-btn')?.addEventListener('click', () => { App.syncAll(true); });
     }
