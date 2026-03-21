@@ -6,23 +6,23 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.40';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.40';
-import * as Modal from './modal.js?v=20.40';
-import * as Router from './router.js?v=20.40';
-import * as Admin from '../admin.js?v=20.40';
-import * as Auth from '../auth.js?v=20.40';
-import * as GitHub from '../github.js?v=20.40';
-import * as Drive from '../drive.js?v=20.40';
-import * as Sync from './sync.js?v=20.40';
-import * as App from '../app.js?v=20.40';
-import * as IDB from '../idb.js?v=20.40';
+import * as Store from './store.js?v=20.41';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.41';
+import * as Modal from './modal.js?v=20.41';
+import * as Router from './router.js?v=20.41';
+import * as Admin from '../admin.js?v=20.41';
+import * as Auth from '../auth.js?v=20.41';
+import * as GitHub from '../github.js?v=20.41';
+import * as Drive from '../drive.js?v=20.41';
+import * as Sync from './sync.js?v=20.41';
+import * as App from '../app.js?v=20.41';
+import * as IDB from '../idb.js?v=20.41';
 
 // ─── renderDashboard ──────────────────────────────────────
 
 function renderDashboard() {
   // Auth guard — only logged-in admins/owners can access dashboard
-  if (!Auth.isLoggedIn() || !Auth.canEditSongs()) {
+  if (!Auth.isLoggedIn() || !Auth.isOwnerOrAdmin()) {
     showToast('Access denied');
     location.hash = '#';
     return;
@@ -64,7 +64,15 @@ function renderDashboard() {
           showToast('Switched to Admin Mode');
         }
         App.updateAuthUI();
-        renderDashboard();
+        // Update button inline — no full re-render needed since dashboard
+        // content doesn't change based on admin/user mode toggle
+        const btn = document.getElementById('dash-toggle-mode');
+        if (btn) {
+          const on = Admin.isAdminModeActive();
+          btn.innerHTML = `<i data-lucide="${on ? 'user' : 'shield'}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${on ? 'User Mode' : 'Admin Mode'}`;
+          btn.title = `Switch to ${on ? 'User Mode' : 'Admin Mode'}`;
+          if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+        }
       });
       wrap.querySelector('#dash-logout')?.addEventListener('click', async () => {
         await Auth.logout();
@@ -328,14 +336,6 @@ function renderDashboard() {
           ${songs.filter(s => (s.assets?.links || []).length).length} songs have links
         </div>
       </div>
-      <div class="dash-alert info">
-        <div class="dash-alert-title">${_codeTag(4501)} Storage</div>
-        <div class="dash-alert-detail">
-          Songs JSON: ~${(JSON.stringify(songs).length / 1024).toFixed(1)} KB ·
-          Setlists JSON: ~${(JSON.stringify(setlists).length / 1024).toFixed(1)} KB ·
-          Practice JSON: ~${(JSON.stringify(practice).length / 1024).toFixed(1)} KB
-        </div>
-      </div>
     </div>
   `;
 
@@ -345,7 +345,7 @@ function renderDashboard() {
     html += `
       <div class="dash-section">
         <div class="dash-section-title">
-          <i data-lucide="database" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Storage
+          <i data-lucide="database" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Data Backend
           <span class="dash-section-badge ${cfActive ? 'ok' : ''}">${cfActive ? 'Cloudflare' : 'GitHub + Drive'}</span>
         </div>
         <div id="dash-migration" class="dash-alert info">
@@ -421,8 +421,8 @@ function renderDashboard() {
     </div>`;
   }
 
-  // Tag Manager — link to subpage (admin only)
-  if (Admin.isEditMode()) {
+  // Tag Manager — link to subpage (admin/owner)
+  if (Auth.isOwnerOrAdmin()) {
     html += `<div class="dash-section" style="text-align:center;padding-top:8px;">
       <button class="btn-ghost" id="dash-open-tag-mgr" style="font-size:15px;">
         <i data-lucide="tags" style="width:16px;height:16px;vertical-align:-2px;margin-right:4px;"></i>Tag Manager
@@ -430,21 +430,6 @@ function renderDashboard() {
     </div>`;
   }
 
-  // Data Management — purge section (owner only)
-  if (Auth.getRole() === 'owner') {
-    html += `
-    <div class="dash-section" style="margin-top:24px;">
-      <div class="dash-section-title" style="color:#e87c6a;">
-        <i data-lucide="shield-alert" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px;"></i>Data Management
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-        <button class="btn-danger" id="dash-purge-practice" style="font-size:13px;padding:10px 16px;">
-          <i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:6px;"></i>Purge All Practice Lists (${totalPracticeLists})
-        </button>
-        <p class="muted" style="font-size:11px;margin:0;padding:0 4px;">Permanently deletes ALL practice lists for ALL users. Syncs to Cloudflare. Cannot be undone.</p>
-      </div>
-    </div>`;
-  }
 
   // ─── God-Mode Extras (owner only, appended below existing sections) ───
 
@@ -592,18 +577,6 @@ function renderDashboard() {
     });
   });
 
-  // Wire purge practice lists button (owner only)
-  document.getElementById('dash-purge-practice')?.addEventListener('click', () => {
-    const count = (Store.get('practice') || []).length;
-    if (count === 0) { showToast('No practice lists to purge.'); return; }
-    Admin.showConfirm('Purge All Practice Lists',
-      `This will permanently delete ALL ${count} practice lists for ALL users. This action cannot be undone. Are you sure?`,
-      async () => {
-        Store.set('practice', []);
-        await Sync.savePractice('All practice lists purged.');
-        renderDashboard();
-      }, 'Purge All');
-  });
 
   // Wire admin upload limit
   document.getElementById('dash-upload-limit')?.addEventListener('change', async (e) => {

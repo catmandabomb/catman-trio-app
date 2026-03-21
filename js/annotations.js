@@ -11,7 +11,7 @@
  * @module annotations
  */
 
-import * as Auth from '../auth.js?v=20.40';
+import * as Auth from '../auth.js?v=20.41';
 
 // ─── Constants ───────────────────────────────────────────────
 const MAX_ANNOTATION_SIZE = 800 * 1024; // 800KB per song per user
@@ -673,10 +673,20 @@ function attachLiveMode(canvas, chartArea, songId, pageNum) {
   if (!canvas || !chartArea) return;
   if (!Auth.isLoggedIn()) return;
   const showDrawings = localStorage.getItem('ct_pref_show_drawings');
-  if (showDrawings === '0') return;
+  if (showDrawings === '0') {
+    // Clean up any leftover overlay from previous song
+    const stale = chartArea.querySelector('.annotation-overlay-lm');
+    if (stale) stale.remove();
+    return;
+  }
 
   const strokes = _loadStrokes(songId, pageNum);
-  if (strokes.length === 0) return;
+  if (strokes.length === 0) {
+    // No annotations for this song — remove any leftover overlay from previous song
+    const stale = chartArea.querySelector('.annotation-overlay-lm');
+    if (stale) stale.remove();
+    return;
+  }
 
   let overlay = chartArea.querySelector('.annotation-overlay-lm');
   if (!overlay) {

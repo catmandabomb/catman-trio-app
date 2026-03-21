@@ -19,5 +19,14 @@ module.exports = defineConfig({
   },
   projects: [
     { name: 'firefox', use: { browserName: 'firefox' } },
+    // Run against production: npx playwright test --project=production
+    {
+      name: 'production',
+      use: {
+        browserName: 'firefox',
+        baseURL: 'https://trio.catmanbeats.com',
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
 });

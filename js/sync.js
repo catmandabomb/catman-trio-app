@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.40';
-import { showToast, isMobile, timeAgo, isHybridKey, ALL_CANONICAL_KEYS, parseKeyField } from './utils.js?v=20.40';
-import * as GitHub from '../github.js?v=20.40';
-import * as Drive from '../drive.js?v=20.40';
-import * as Router from './router.js?v=20.40';
-import * as IDB from '../idb.js?v=20.40';
-import * as OPFS from './opfs.js?v=20.40';
-import * as Auth from '../auth.js?v=20.40';
-import * as Admin from '../admin.js?v=20.40';
-import * as MutationQueue from './mutation-queue.js?v=20.40';
+import * as Store from './store.js?v=20.41';
+import { showToast, showTechnicalToast, isMobile, timeAgo, isHybridKey, ALL_CANONICAL_KEYS, parseKeyField } from './utils.js?v=20.41';
+import * as GitHub from '../github.js?v=20.41';
+import * as Drive from '../drive.js?v=20.41';
+import * as Router from './router.js?v=20.41';
+import * as IDB from '../idb.js?v=20.41';
+import * as OPFS from './opfs.js?v=20.41';
+import * as Auth from '../auth.js?v=20.41';
+import * as Admin from '../admin.js?v=20.41';
+import * as MutationQueue from './mutation-queue.js?v=20.41';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -170,7 +170,7 @@ async function _workerFetch(path, options = {}) {
     // TypeError from fetch() means the request was blocked (Brave Shields, ad blocker, CORS)
     if (err instanceof TypeError && !_braveShieldsToastShown) {
       _braveShieldsToastShown = true;
-      showToast('Network request blocked — if using Brave, try disabling Shields for this site.', 8000);
+      showTechnicalToast('Network request blocked — if using Brave, try disabling Shields for this site.', 8000);
     }
     throw err;
   }
@@ -264,10 +264,10 @@ async function _handleConflict(type, localData, saveFn) {
     const storeKey = type === 'practice' ? 'practice' : type;
     Store.set(storeKey, merged);
     saveFn(merged);
-    showToast('Sync conflict resolved.');
+    showTechnicalToast('Sync conflict resolved.');
   } catch (retryErr) {
     console.error('Conflict resolution failed', retryErr);
-    showToast('Sync conflict — please refresh.');
+    showTechnicalToast('Sync conflict — please refresh.');
   }
 }
 
@@ -301,7 +301,7 @@ async function _saveLocal(songs) {
   try {
     const jsonStr = JSON.stringify(songs);
     await _setCompressed('ct_songs', jsonStr);
-  } catch (e) { console.warn('localStorage save failed (songs)', e); showToast('Storage full — data may not persist.'); }
+  } catch (e) { console.warn('localStorage save failed (songs)', e); showTechnicalToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SONGS', songs });
   }
@@ -392,7 +392,7 @@ async function _saveSetlistsLocal(setlists) {
   try {
     const jsonStr = JSON.stringify(setlists);
     await _setCompressed('ct_setlists', jsonStr);
-  } catch (e) { console.warn('localStorage save failed (setlists)', e); showToast('Storage full — data may not persist.'); }
+  } catch (e) { console.warn('localStorage save failed (setlists)', e); showTechnicalToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_SETLISTS', setlists });
   }
@@ -482,7 +482,7 @@ async function _savePracticeLocal(data) {
   try {
     const jsonStr = JSON.stringify(data);
     await _setCompressed('ct_practice', jsonStr);
-  } catch (e) { console.warn('localStorage save failed (practice)', e); showToast('Storage full — data may not persist.'); }
+  } catch (e) { console.warn('localStorage save failed (practice)', e); showTechnicalToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_PRACTICE', practice: data });
   }
@@ -571,7 +571,7 @@ async function _saveWikiChartsLocal(data) {
   try {
     const jsonStr = JSON.stringify(data);
     await _setCompressed('ct_wikicharts', jsonStr);
-  } catch (e) { console.warn('localStorage save failed (wikiCharts)', e); showToast('Storage full — data may not persist.'); }
+  } catch (e) { console.warn('localStorage save failed (wikiCharts)', e); showTechnicalToast('Storage full — data may not persist.'); }
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CACHE_WIKICHARTS', wikiCharts: data });
   }
@@ -752,7 +752,7 @@ async function syncAll(force) {
     const cooldown = Store.get('MANUAL_SYNC_COOLDOWN_MS');
     let history = Store.get('manualSyncHistory').filter(t => now - t < cooldown);
     if (history.length >= 2) {
-      showToast('Please wait a moment before refreshing again.');
+      showTechnicalToast('Please wait a moment before refreshing again.');
       _syncDone();
       return;
     }
@@ -838,9 +838,9 @@ async function syncAll(force) {
     // Only toast for actionable errors — routine sync failures are silent
     // (data loads from local cache seamlessly)
     if (msg.includes('Decryption failed')) {
-      showToast('Decryption failed — PAT may have changed.', 10000);
+      showTechnicalToast('Decryption failed — PAT may have changed.', 10000);
     } else if (msg.includes('403') || msg.includes('429') || msg.includes('rate')) {
-      showToast('Temporarily rate-limited — try again in a moment.', 6000);
+      showTechnicalToast('Temporarily rate-limited — try again in a moment.', 6000);
     }
   } finally {
     Store.set('syncing', false);

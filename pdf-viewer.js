@@ -22,11 +22,11 @@
  * - attachZoomPan(canvas, containerEl) — attach zoom/pan handlers, returns { destroy, resetZoom, getZoom }
  */
 
-import * as Admin from './admin.js?v=20.40';
-import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.40';
-import * as Metronome from './metronome.js?v=20.40';
-import * as Annotations from './js/annotations.js?v=20.40';
-import * as Auth from './auth.js?v=20.40';
+import * as Admin from './admin.js?v=20.41';
+import { showToast, requestWakeLock, releaseWakeLock } from './js/utils.js?v=20.41';
+import * as Metronome from './metronome.js?v=20.41';
+import * as Annotations from './js/annotations.js?v=20.41';
+import * as Auth from './auth.js?v=20.41';
 
 // PDF.js worker
 if (typeof pdfjsLib !== 'undefined') {
@@ -848,8 +848,15 @@ function attachZoomPan(canvas, containerEl, opts) {
   }
 
   function applyTransform() {
-    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const tf = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    canvas.style.transform = tf;
     canvas.style.transformOrigin = '0 0';
+    // Sync annotation overlay so drawings scale/pan with the PDF
+    const overlay = containerEl.querySelector('.annotation-overlay');
+    if (overlay) {
+      overlay.style.transform = tf;
+      overlay.style.transformOrigin = '0 0';
+    }
     containerEl.classList.toggle('zoomed', zoom > 1.05);
     if (onZoomChange) onZoomChange(zoom);
   }

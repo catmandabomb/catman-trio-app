@@ -2,27 +2,27 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.40';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.40';
-import * as Modal from './js/modal.js?v=20.40';
-import * as Router from './js/router.js?v=20.40';
-import * as Sync from './js/sync.js?v=20.40';
-import * as Drive from './drive.js?v=20.40';
-import * as GitHub from './github.js?v=20.40';
-import * as Admin from './admin.js?v=20.40';
-import * as Auth from './auth.js?v=20.40';
-import * as Player from './player.js?v=20.40';
-import * as Songs from './js/songs.js?v=20.40';
-import * as Setlists from './js/setlists.js?v=20.40';
-import * as Practice from './js/practice.js?v=20.40';
-import * as Dashboard from './js/dashboard.js?v=20.40';
-import * as Migrate from './js/migrate.js?v=20.40';
-import * as WikiCharts from './js/wikicharts.js?v=20.40';
-import * as IDB from './idb.js?v=20.40';
-import * as Orchestra from './js/orchestra.js?v=20.40';
-import * as Instruments from './js/instruments.js?v=20.40';
-import * as Messages from './js/messages.js?v=20.40';
-import * as MutationQueue from './js/mutation-queue.js?v=20.40';
+import * as Store from './js/store.js?v=20.41';
+import { esc, haptic, showToast, showTechnicalToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.41';
+import * as Modal from './js/modal.js?v=20.41';
+import * as Router from './js/router.js?v=20.41';
+import * as Sync from './js/sync.js?v=20.41';
+import * as Drive from './drive.js?v=20.41';
+import * as GitHub from './github.js?v=20.41';
+import * as Admin from './admin.js?v=20.41';
+import * as Auth from './auth.js?v=20.41';
+import * as Player from './player.js?v=20.41';
+import * as Songs from './js/songs.js?v=20.41';
+import * as Setlists from './js/setlists.js?v=20.41';
+import * as Practice from './js/practice.js?v=20.41';
+import * as Dashboard from './js/dashboard.js?v=20.41';
+import * as Migrate from './js/migrate.js?v=20.41';
+import * as WikiCharts from './js/wikicharts.js?v=20.41';
+import * as IDB from './idb.js?v=20.41';
+import * as Orchestra from './js/orchestra.js?v=20.41';
+import * as Instruments from './js/instruments.js?v=20.41';
+import * as Messages from './js/messages.js?v=20.41';
+import * as MutationQueue from './js/mutation-queue.js?v=20.41';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -511,8 +511,12 @@ let _cachedPdfSet = new Set();
 
   function renderAccount() {
     _cleanupPlayers();
-    Store.set('navStack', []);
-    Router.pushNav(() => renderList());
+    const currentView = Store.get('view');
+    // Only push nav entry when entering account fresh (not from settings-back or re-render)
+    if (currentView !== 'account' && currentView !== 'settings') {
+      Store.set('navStack', []);
+      Router.pushNav(() => renderList());
+    }
     // Skip view transition so swap() runs synchronously — ensures topbar buttons
     // injected after showView() aren't removed by an async swap() callback.
     Store.set('skipViewTransition', true);
@@ -527,8 +531,8 @@ let _cachedPdfSet = new Set();
       wrap.id = 'acct-logout-topbar';
       wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
 
-      // Admin mode toggle — only for admin users
-      if (Auth.canEditSongs()) {
+      // Admin mode toggle — only for owner/admin (not conductr)
+      if (Auth.isOwnerOrAdmin()) {
         const adminModeOn = Admin.isAdminModeActive();
         const switchText = adminModeOn ? 'User Mode' : 'Admin Mode';
         const switchIcon = adminModeOn ? 'user' : 'shield';
@@ -966,9 +970,114 @@ let _cachedPdfSet = new Set();
     container.innerHTML = `
       <div class="settings-page">
 
-        <!-- LIVE MODE -->
+        <!-- LIVE MODE (merged — user prefs + orchestra defaults) -->
         <div class="settings-section">
           <div class="settings-section-title"><i data-lucide="monitor-play" style="width:16px;height:16px;"></i> Live Mode</div>
+
+          <div class="settings-subgroup">Auto-Scroll</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Auto-advance timing</div>
+              <div class="settings-hint">Default seconds between auto turns</div>
+            </div>
+            <select class="settings-select" id="pref-lm-auto-advance">
+              ${[5,10,15,20,30,45,60,90,120].map(s => `<option value="${s}" ${String(s) === lmAutoAdvanceDefault ? 'selected' : ''}>${s}s</option>`).join('')}
+            </select>
+          </div>
+
+          ${Auth.canEditSongs() ? `
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Auto-advance between songs<span class="settings-orch-hint">orchestra</span></div>
+                <div class="settings-hint">Delay before advancing to next song (0 = manual)</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="orch-live-auto-advance" min="0" max="30" step="1" value="${Sync.getOrchestraSetting('live_auto_advance_secs', 0)}" style="flex:1;max-width:200px;">
+              <span id="orch-live-auto-advance-val" style="font-size:12px;color:var(--text-2);min-width:48px;">${Sync.getOrchestraSetting('live_auto_advance_secs', 0) == 0 ? 'Manual' : Sync.getOrchestraSetting('live_auto_advance_secs', 0) + 's'}</span>
+            </div>
+          </div>
+          ` : ''}
+
+          <div class="settings-subgroup">Display</div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Dark mode default</div>
+              <div class="settings-hint">Start Live Mode with inverted colors</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-dark-default" ${lmDarkDefault ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          ${Auth.canEditSongs() ? `
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Default theme<span class="settings-orch-hint">orchestra</span></div>
+                <div class="settings-hint">Theme when entering Live Mode</div>
+              </div>
+            </div>
+            <select class="settings-select" id="orch-live-theme" style="width:100%;max-width:200px;">
+              <option value="dark" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'dark' ? 'selected' : ''}>Dark</option>
+              <option value="light" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'light' ? 'selected' : ''}>Light</option>
+            </select>
+          </div>
+          ` : ''}
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Half-page turns default</div>
+              <div class="settings-hint">Start with half-page mode on</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-half-default" ${lmHalfDefault ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          ${Auth.canEditSongs() ? `
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="settings-row-label">
+                <div class="settings-label">Default font size<span class="settings-orch-hint">orchestra</span></div>
+                <div class="settings-hint">Chart text size in Live Mode</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="range" id="orch-live-fontsize" min="14" max="36" step="2" value="${Sync.getOrchestraSetting('live_font_size', 22)}" style="flex:1;max-width:200px;">
+              <span id="orch-live-fontsize-val" style="font-size:12px;color:var(--text-2);min-width:32px;">${Sync.getOrchestraSetting('live_font_size', 22)}px</span>
+            </div>
+          </div>
+          ` : ''}
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Stage red mode</div>
+              <div class="settings-hint">Deep red tint — preserves night vision on dark stages</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-stage-red" ${lmStageRedMode ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Rehearsal notes overlay</div>
+              <div class="settings-hint">Show song notes on charts during rehearsal</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-lm-rehearsal-notes" ${lmRehearsalNotes ? 'checked' : ''}>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-subgroup">Controls</div>
 
           <div class="settings-row">
             <div class="settings-row-label">
@@ -991,38 +1100,6 @@ let _cachedPdfSet = new Set();
               <option value="4" ${lmAutoHideDelay === '4' ? 'selected' : ''}>4s</option>
               <option value="6" ${lmAutoHideDelay === '6' ? 'selected' : ''}>6s</option>
               <option value="10" ${lmAutoHideDelay === '10' ? 'selected' : ''}>10s</option>
-            </select>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
-              <div class="settings-label">Dark mode default</div>
-              <div class="settings-hint">Start Live Mode with inverted colors</div>
-            </div>
-            <label class="settings-toggle">
-              <input type="checkbox" id="pref-lm-dark-default" ${lmDarkDefault ? 'checked' : ''}>
-              <span class="settings-toggle-track"></span>
-            </label>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
-              <div class="settings-label">Half-page turns default</div>
-              <div class="settings-hint">Start with half-page mode on</div>
-            </div>
-            <label class="settings-toggle">
-              <input type="checkbox" id="pref-lm-half-default" ${lmHalfDefault ? 'checked' : ''}>
-              <span class="settings-toggle-track"></span>
-            </label>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
-              <div class="settings-label">Auto-advance timing</div>
-              <div class="settings-hint">Default seconds between auto turns</div>
-            </div>
-            <select class="settings-select" id="pref-lm-auto-advance">
-              ${[5,10,15,20,30,45,60,90,120].map(s => `<option value="${s}" ${String(s) === lmAutoAdvanceDefault ? 'selected' : ''}>${s}s</option>`).join('')}
             </select>
           </div>
 
@@ -1083,24 +1160,10 @@ let _cachedPdfSet = new Set();
 
           <div class="settings-row">
             <div class="settings-row-label">
-              <div class="settings-label">Stage red mode</div>
-              <div class="settings-hint">Deep red tint — preserves night vision on dark stages</div>
+              <div class="settings-label">Page turner setup</div>
+              <div class="settings-hint">Configure Bluetooth page turner buttons</div>
             </div>
-            <label class="settings-toggle">
-              <input type="checkbox" id="pref-lm-stage-red" ${lmStageRedMode ? 'checked' : ''}>
-              <span class="settings-toggle-track"></span>
-            </label>
-          </div>
-
-          <div class="settings-row">
-            <div class="settings-row-label">
-              <div class="settings-label">Rehearsal notes overlay</div>
-              <div class="settings-hint">Show song notes on charts during rehearsal</div>
-            </div>
-            <label class="settings-toggle">
-              <input type="checkbox" id="pref-lm-rehearsal-notes" ${lmRehearsalNotes ? 'checked' : ''}>
-              <span class="settings-toggle-track"></span>
-            </label>
+            <button class="settings-clear-btn" id="orch-page-turner-btn"><i data-lucide="bluetooth" style="width:13px;height:13px;vertical-align:-2px;"></i> Configure</button>
           </div>
         </div>
 
@@ -1228,6 +1291,17 @@ let _cachedPdfSet = new Set();
               <input type="checkbox" id="pref-push-enabled" ${_getPref('push_enabled', '0') === '1' ? 'checked' : ''}${
                 typeof Notification === 'undefined' || Notification.permission === 'denied' ? ' disabled' : ''
               }>
+              <span class="settings-toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-row-label">
+              <div class="settings-label">Show technical toasts</div>
+              <div class="settings-hint">Show sync conflict, storage, and network diagnostic messages</div>
+            </div>
+            <label class="settings-toggle">
+              <input type="checkbox" id="pref-show-technical-toasts" ${_getPref('show_technical_toasts', '0') === '1' ? 'checked' : ''}>
               <span class="settings-toggle-track"></span>
             </label>
           </div>
@@ -1454,59 +1528,18 @@ let _cachedPdfSet = new Set();
             </div>
             <button class="settings-clear-btn" id="orch-required-fields-btn"><i data-lucide="list-checks" style="width:13px;height:13px;vertical-align:-2px;"></i> Configure</button>
           </div>
-        </div>
 
-        <!-- LIVE MODE SETTINGS (conductr/admin/owner) -->
-        <div class="settings-section">
-          <div class="settings-section-title"><i data-lucide="radio" style="width:16px;height:16px;"></i> Live Mode</div>
-
-          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div class="settings-row-label">
-                <div class="settings-label">Default theme</div>
-                <div class="settings-hint">Theme when entering Live Mode</div>
-              </div>
-            </div>
-            <select class="settings-select" id="orch-live-theme" style="width:100%;max-width:200px;">
-              <option value="dark" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'dark' ? 'selected' : ''}>Dark</option>
-              <option value="light" ${Sync.getOrchestraSetting('live_default_theme', 'dark') === 'light' ? 'selected' : ''}>Light</option>
-            </select>
-          </div>
-
-          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div class="settings-row-label">
-                <div class="settings-label">Default font size</div>
-                <div class="settings-hint">Chart text size in Live Mode</div>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input type="range" id="orch-live-fontsize" min="14" max="36" step="2" value="${Sync.getOrchestraSetting('live_font_size', 22)}" style="flex:1;max-width:200px;">
-              <span id="orch-live-fontsize-val" style="font-size:12px;color:var(--text-2);min-width:32px;">${Sync.getOrchestraSetting('live_font_size', 22)}px</span>
-            </div>
-          </div>
-
-          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div class="settings-row-label">
-                <div class="settings-label">Auto-advance between songs</div>
-                <div class="settings-hint">Delay before advancing to next song (0 = manual)</div>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input type="range" id="orch-live-auto-advance" min="0" max="30" step="1" value="${Sync.getOrchestraSetting('live_auto_advance_secs', 0)}" style="flex:1;max-width:200px;">
-              <span id="orch-live-auto-advance-val" style="font-size:12px;color:var(--text-2);min-width:48px;">${Sync.getOrchestraSetting('live_auto_advance_secs', 0) == 0 ? 'Manual' : Sync.getOrchestraSetting('live_auto_advance_secs', 0) + 's'}</span>
-            </div>
-          </div>
+          <div class="settings-subgroup" style="margin-top:20px;color:#e87c6a;">Danger Zone</div>
 
           <div class="settings-row">
             <div class="settings-row-label">
-              <div class="settings-label">Page turner setup</div>
-              <div class="settings-hint">Configure Bluetooth page turner buttons</div>
+              <div class="settings-label">Purge all practice lists</div>
+              <div class="settings-hint">Permanently deletes ALL practice lists for ALL users</div>
             </div>
-            <button class="settings-clear-btn" id="orch-page-turner-btn"><i data-lucide="bluetooth" style="width:13px;height:13px;vertical-align:-2px;"></i> Configure</button>
+            <button class="settings-clear-btn" id="pref-purge-practice" style="color:#e87c6a;border-color:rgba(232,124,106,0.3);"><i data-lucide="trash-2" style="width:13px;height:13px;vertical-align:-2px;"></i> Purge</button>
           </div>
         </div>
+
         ` : ''}
 
         <!-- DATA & STORAGE -->
@@ -1558,6 +1591,35 @@ let _cachedPdfSet = new Set();
 
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
+    // Wire collapsible sections — tap title to toggle
+    // Use title text as key (role-independent, survives section reordering)
+    container.querySelectorAll('.settings-section-title').forEach(title => {
+      title.addEventListener('click', () => {
+        const section = title.closest('.settings-section');
+        if (section) {
+          section.classList.toggle('collapsed');
+          const key = title.textContent.trim().replace(/\s+/g, '_').toLowerCase();
+          const collapsed = JSON.parse(localStorage.getItem('ct_pref_collapsed_settings') || '{}');
+          if (section.classList.contains('collapsed')) {
+            collapsed[key] = true;
+          } else {
+            delete collapsed[key];
+          }
+          localStorage.setItem('ct_pref_collapsed_settings', JSON.stringify(collapsed));
+        }
+      });
+    });
+    // Restore collapsed state
+    const _collapsedMap = JSON.parse(localStorage.getItem('ct_pref_collapsed_settings') || '{}');
+    // Migrate old array format to new object format
+    if (Array.isArray(_collapsedMap)) { localStorage.removeItem('ct_pref_collapsed_settings'); }
+    else {
+      container.querySelectorAll('.settings-section-title').forEach(title => {
+        const key = title.textContent.trim().replace(/\s+/g, '_').toLowerCase();
+        if (_collapsedMap[key]) title.closest('.settings-section')?.classList.add('collapsed');
+      });
+    }
+
     // Wire toggle handlers — each saves immediately
     const wire = (id, key) => {
       const el = container.querySelector('#' + id);
@@ -1576,6 +1638,8 @@ let _cachedPdfSet = new Set();
     wire('pref-lm-show-redmode', 'live_show_redmode');
     wire('pref-lm-stage-red', 'lm_stage_red');
     wire('pref-lm-rehearsal-notes', 'lm_rehearsal_notes');
+    // Notifications toggles
+    wire('pref-show-technical-toasts', 'show_technical_toasts');
     // Annotations toggles
     wire('pref-show-drawings', 'show_drawings');
     wire('pref-show-text-overlay', 'show_text_overlay');
@@ -1714,6 +1778,20 @@ let _cachedPdfSet = new Set();
     // Required song fields button → show popup
     container.querySelector('#orch-required-fields-btn')?.addEventListener('click', () => {
       _showRequiredFieldsPopup();
+    });
+
+    // Purge all practice lists (conductr+)
+    container.querySelector('#pref-purge-practice')?.addEventListener('click', () => {
+      const count = (Store.get('practice') || []).length;
+      if (count === 0) { showToast('No practice lists to purge.'); return; }
+      Admin.showConfirm('Purge All Practice Lists',
+        `This will permanently delete ALL ${count} practice list${count !== 1 ? 's' : ''} for ALL users. This action cannot be undone. Are you sure?`,
+        async () => {
+          Store.set('practice', []);
+          await Sync.savePractice('All practice lists purged.');
+          showToast('All practice lists purged.');
+          renderSettings();
+        }, 'Purge All');
     });
 
     // Page turner setup button → show modal
@@ -2784,7 +2862,7 @@ let _cachedPdfSet = new Set();
     // Title click: admin on song list → dashboard; non-admin on song list → refresh; other views → home
     document.getElementById('topbar-title').addEventListener('click', () => {
       const onSongList = Store.get('view') === 'list';
-      const isAdmin = Auth.isLoggedIn() && Auth.canEditSongs();
+      const isAdmin = Auth.isLoggedIn() && Auth.isOwnerOrAdmin();
       if (onSongList && isAdmin) {
         renderDashboard();
       } else if (onSongList && Auth.isLoggedIn()) {
@@ -3543,18 +3621,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Wire GitHub callbacks
-  GitHub.setOnFlushError((msg) => showToast(msg, 4000));
+  GitHub.setOnFlushError((msg) => showTechnicalToast(msg, 4000));
   GitHub.setOnFlushSuccess(() => { localStorage.setItem('ct_last_synced', Date.now().toString()); });
-  GitHub.setOnRateLimitWarning((msg) => showToast(msg, 5000));
+  GitHub.setOnRateLimitWarning((msg) => showTechnicalToast(msg, 5000));
   GitHub.setOnDataChanged((types) => {
-    showToast('Data synced from another tab — pull down to refresh', 3000);
+    showTechnicalToast('Data synced from another tab — pull down to refresh', 3000);
   });
   GitHub.setOnMergeApplied((type, mergedData) => {
     // Update in-memory data when a merge was applied during write
     if (type === 'songs')    { Store.set('songs', mergedData); }
     if (type === 'setlists') { Store.set('setlists', mergedData); }
     if (type === 'practice') { Store.set('practice', mergedData); }
-    showToast('Sync conflict auto-resolved', 2000);
+    showTechnicalToast('Sync conflict auto-resolved', 2000);
   });
 
   // ─── Cross-tab auth sync (G4) ──────────────────────────────

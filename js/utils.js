@@ -7,7 +7,7 @@
  * @module utils
  */
 
-import * as Store from './store.js?v=20.40';
+import * as Store from './store.js?v=20.41';
 
 // ─── HTML / String helpers ──────────────────────────────────
 
@@ -150,6 +150,15 @@ function showToast(msg, duration = 3000) {
     el.classList.remove('show');
     setTimeout(() => el.classList.add('hidden'), 200);
   }, duration));
+}
+
+/**
+ * Show a technical/diagnostic toast. Hidden by default unless the user
+ * has enabled "Show technical toasts" in settings.
+ */
+function showTechnicalToast(msg, duration = 3000) {
+  if (localStorage.getItem('ct_pref_show_technical_toasts') !== '1') return;
+  showToast(msg, duration);
 }
 
 /**
@@ -581,4 +590,4 @@ document.addEventListener('visibilitychange', () => {
 
 // ─── Public API ─────────────────────────────────────────────
 
-export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, ALL_CANONICAL_KEYS, normalizeKey, parseKeyField, songMatchesKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock };
+export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, showTechnicalToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, ALL_CANONICAL_KEYS, normalizeKey, parseKeyField, songMatchesKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock };

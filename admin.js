@@ -5,15 +5,15 @@
  * Generates 4-digit hex IDs for new songs (e.g. "3f9a").
  */
 
-import * as Modal from './js/modal.js?v=20.27';
-import * as Drive from './drive.js?v=20.27';
-import * as GitHub from './github.js?v=20.27';
-import * as Utils from './js/utils.js?v=20.27';
-import * as Auth from './auth.js?v=20.27';
+import * as Modal from './js/modal.js?v=20.41';
+import * as Drive from './drive.js?v=20.41';
+import * as GitHub from './github.js?v=20.41';
+import * as Utils from './js/utils.js?v=20.41';
+import * as Auth from './auth.js?v=20.41';
 // Lazy import to break circular dependency (admin ↔ app)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('./app.js?v=20.27');
+  if (!_App) _App = import('./app.js?v=20.41');
   return _App;
 }
 
@@ -57,7 +57,7 @@ function resetAdminMode(active) {
 }
 
 /** Expose internal toggle state for dashboard UI */
-function isAdminModeActive() { return _adminModeActive; }
+function isAdminModeActive() { console.log('[ADMIN] isAdminModeActive →', _adminModeActive); return _adminModeActive; }
 
 // ─── ID generation ────────────────────────────────────────
 
