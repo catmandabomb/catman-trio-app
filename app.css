@@ -3283,11 +3283,8 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 8px;
+  margin-right: 38px; /* clear the fixed practice jump bar */
   overflow: hidden;
-}
-/* On mobile, crop right side to avoid overlap with practice jump bar */
-@media (max-width: 767px) {
-  .practice-accordion-item { margin-right: 36px; }
 }
 
 .practice-accordion-header {
