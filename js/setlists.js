@@ -5,21 +5,21 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.41';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.41';
-import * as Modal from './modal.js?v=20.41';
-import * as Router from './router.js?v=20.41';
-import * as Admin from '../admin.js?v=20.41';
-import * as Auth from '../auth.js?v=20.41';
-import * as Sync from './sync.js?v=20.41';
-import * as WikiCharts from './wikicharts.js?v=20.41';
-import * as Drive from '../drive.js?v=20.41';
-import * as GitHub from '../github.js?v=20.41';
-import * as Player from '../player.js?v=20.41';
-import * as PDFViewer from '../pdf-viewer.js?v=20.41';
-import * as App from '../app.js?v=20.41';
-import * as Songs from './songs.js?v=20.41';
-import * as Annotations from './annotations.js?v=20.41';
+import * as Store from './store.js?v=20.42';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.42';
+import * as Modal from './modal.js?v=20.42';
+import * as Router from './router.js?v=20.42';
+import * as Admin from '../admin.js?v=20.42';
+import * as Auth from '../auth.js?v=20.42';
+import * as Sync from './sync.js?v=20.42';
+import * as WikiCharts from './wikicharts.js?v=20.42';
+import * as Drive from '../drive.js?v=20.42';
+import * as GitHub from '../github.js?v=20.42';
+import * as Player from '../player.js?v=20.42';
+import * as PDFViewer from '../pdf-viewer.js?v=20.42';
+import * as App from '../app.js?v=20.42';
+import * as Songs from './songs.js?v=20.42';
+import * as Annotations from './annotations.js?v=20.42';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -359,7 +359,7 @@ function renderSetlists(skipNavReset) {
   // Add "New Setlist" to topbar right (admin only)
   if (Admin.isEditMode()) {
     _injectTopbarActions('setlists-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn" id="btn-new-setlist"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New Setlist</button>`,
+      `<button class="btn-ghost topbar-nav-btn" id="btn-new-setlist" aria-label="New Setlist" title="New Setlist"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">New Setlist</span></button>`,
       () => {
         document.getElementById('btn-new-setlist')?.addEventListener('click', () => {
           if (!Drive.isWriteConfigured() && !GitHub.isConfigured()) {
@@ -546,7 +546,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
   const isAdmin = Admin.isEditMode();
   if (isAdmin) {
     _injectTopbarActions('setlist-detail-topbar-actions',
-      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Copy</button>`,
+      `<button class="btn-ghost topbar-nav-btn btn-edit-setlist" aria-label="Edit setlist" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Edit</span></button><button class="btn-ghost topbar-nav-btn btn-duplicate-setlist" aria-label="Copy setlist" title="Copy"><i data-lucide="copy" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Copy</span></button>`,
       (wrap) => {
         wrap.querySelector('.btn-edit-setlist')?.addEventListener('click', () => {
           renderSetlistEdit(setlist, false);

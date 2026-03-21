@@ -2,27 +2,27 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.41';
-import { esc, haptic, showToast, showTechnicalToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.41';
-import * as Modal from './js/modal.js?v=20.41';
-import * as Router from './js/router.js?v=20.41';
-import * as Sync from './js/sync.js?v=20.41';
-import * as Drive from './drive.js?v=20.41';
-import * as GitHub from './github.js?v=20.41';
-import * as Admin from './admin.js?v=20.41';
-import * as Auth from './auth.js?v=20.41';
-import * as Player from './player.js?v=20.41';
-import * as Songs from './js/songs.js?v=20.41';
-import * as Setlists from './js/setlists.js?v=20.41';
-import * as Practice from './js/practice.js?v=20.41';
-import * as Dashboard from './js/dashboard.js?v=20.41';
-import * as Migrate from './js/migrate.js?v=20.41';
-import * as WikiCharts from './js/wikicharts.js?v=20.41';
-import * as IDB from './idb.js?v=20.41';
-import * as Orchestra from './js/orchestra.js?v=20.41';
-import * as Instruments from './js/instruments.js?v=20.41';
-import * as Messages from './js/messages.js?v=20.41';
-import * as MutationQueue from './js/mutation-queue.js?v=20.41';
+import * as Store from './js/store.js?v=20.42';
+import { esc, haptic, showToast, showTechnicalToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.42';
+import * as Modal from './js/modal.js?v=20.42';
+import * as Router from './js/router.js?v=20.42';
+import * as Sync from './js/sync.js?v=20.42';
+import * as Drive from './drive.js?v=20.42';
+import * as GitHub from './github.js?v=20.42';
+import * as Admin from './admin.js?v=20.42';
+import * as Auth from './auth.js?v=20.42';
+import * as Player from './player.js?v=20.42';
+import * as Songs from './js/songs.js?v=20.42';
+import * as Setlists from './js/setlists.js?v=20.42';
+import * as Practice from './js/practice.js?v=20.42';
+import * as Dashboard from './js/dashboard.js?v=20.42';
+import * as Migrate from './js/migrate.js?v=20.42';
+import * as WikiCharts from './js/wikicharts.js?v=20.42';
+import * as IDB from './idb.js?v=20.42';
+import * as Orchestra from './js/orchestra.js?v=20.42';
+import * as Instruments from './js/instruments.js?v=20.42';
+import * as Messages from './js/messages.js?v=20.42';
+import * as MutationQueue from './js/mutation-queue.js?v=20.42';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -63,6 +63,66 @@ let _cachedPdfSet = new Set();
     _cleanupPlayers();
   }
 
+  // ─── Dynamic topbar observer ──────────────────────────────
+  // ResizeObserver toggles .topbar-compact on #topbar when buttons
+  // would crowd the title below a comfortable reading width.
+  // Also watches for DOM mutations in .topbar-right (button injection/removal).
+  let _topbarObserver = null;
+  let _topbarMutationObserver = null;
+
+  function _initTopbarObserver() {
+    const topbar = document.getElementById('topbar');
+    const rowTop = topbar?.querySelector('.topbar-row-top');
+    const title = document.getElementById('topbar-title');
+    const topbarRight = topbar?.querySelector('.topbar-right');
+    if (!topbar || !rowTop || !title || !topbarRight) return;
+
+    // Minimum title width (px) before compact mode kicks in.
+    // Below this, button labels are hidden (icon-only) to free space.
+    const MIN_TITLE_WIDTH = 80;
+    // Dead-band gap (px) — title must exceed MIN + extraNeeded + DEAD_BAND to exit compact.
+    // Prevents oscillation at edge-case viewport widths.
+    const DEAD_BAND = 30;
+    let _rafId = 0;
+
+    function _checkOverflow() {
+      _rafId = 0;
+      const isCompact = topbar.classList.contains('topbar-compact');
+      const titleWidth = title.offsetWidth;
+
+      if (!isCompact && titleWidth < MIN_TITLE_WIDTH) {
+        // Title is too small — go compact (hide button labels)
+        topbar.classList.add('topbar-compact');
+      } else if (isCompact) {
+        // We're in compact mode — check if we can exit.
+        // Only count visible labels (not inside hidden parents).
+        const labels = [...topbarRight.querySelectorAll('.topbar-btn-label')]
+          .filter(el => el.closest('.hidden') === null);
+        const extraNeeded = labels.length * 40;
+        if (titleWidth > MIN_TITLE_WIDTH + extraNeeded + DEAD_BAND) {
+          topbar.classList.remove('topbar-compact');
+        }
+      }
+    }
+
+    function _scheduleCheck() {
+      if (!_rafId) _rafId = requestAnimationFrame(_checkOverflow);
+    }
+
+    // ResizeObserver: fires on container resize (viewport change, orientation, etc.)
+    if (typeof ResizeObserver !== 'undefined') {
+      _topbarObserver = new ResizeObserver(_scheduleCheck);
+      _topbarObserver.observe(rowTop);
+    }
+
+    // MutationObserver: fires when buttons are injected/removed from .topbar-right
+    _topbarMutationObserver = new MutationObserver(_scheduleCheck);
+    _topbarMutationObserver.observe(topbarRight, { childList: true, subtree: true });
+
+    // Also check on initial load
+    _scheduleCheck();
+  }
+
   /**
    * Destroy player instances and stop audio WITHOUT revoking the blob cache.
    * Use this on view transitions — the LRU cache handles memory management.
@@ -93,7 +153,7 @@ let _cachedPdfSet = new Set();
     document.body.classList.toggle('is-mobile', 'ontouchstart' in window || navigator.maxTouchPoints > 0 || _isMobile());
 
     if (loggedIn) {
-      if (btn) { btn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
+      if (btn) { btn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Log Out</span>'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
       addBtn?.classList.toggle('hidden', !Auth.canEditSongs());
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
@@ -108,7 +168,7 @@ let _cachedPdfSet = new Set();
       // Offline queue button: visible when there are pending mutations
       offlineQueueBtn?.classList.toggle('hidden', MutationQueue.getPendingCount() === 0);
     } else {
-      if (btn) { btn.innerHTML = '<i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
+      if (btn) { btn.innerHTML = '<i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Log In</span>'; btn.title = 'Log In'; btn.setAttribute('aria-label', 'Log In'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
       addBtn?.classList.add('hidden');
       accountBtn?.classList.add('hidden');
       messagesBtn?.classList.add('hidden');
@@ -529,7 +589,8 @@ let _cachedPdfSet = new Set();
       topbarRight.querySelector('#acct-logout-topbar')?.remove();
       const wrap = document.createElement('span');
       wrap.id = 'acct-logout-topbar';
-      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      wrap.className = 'topbar-actions-wrap';
+      wrap.style.cssText = 'display:flex;align-items:center;';
 
       // Admin mode toggle — only for owner/admin (not conductr)
       if (Auth.isOwnerOrAdmin()) {
@@ -541,7 +602,7 @@ let _cachedPdfSet = new Set();
         modeBtn.id = 'acct-toggle-mode';
         modeBtn.title = `Switch to ${switchText}`;
         modeBtn.setAttribute('aria-label', `Switch to ${switchText}`);
-        modeBtn.innerHTML = `<i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}`;
+        modeBtn.innerHTML = `<i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">${switchText}</span>`;
         modeBtn.addEventListener('click', () => {
           if (Admin.isAdminModeActive()) {
             Admin.exitEditMode();
@@ -560,7 +621,7 @@ let _cachedPdfSet = new Set();
       logoutBtn.className = 'btn-ghost topbar-nav-btn';
       logoutBtn.title = 'Log Out';
       logoutBtn.setAttribute('aria-label', 'Log Out');
-      logoutBtn.innerHTML = 'Log Out <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-left:4px;"></i>';
+      logoutBtn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Log Out</span>';
       logoutBtn.addEventListener('click', async () => {
         Sync.stopSyncPolling();
         await Auth.logout();
@@ -2761,6 +2822,13 @@ let _cachedPdfSet = new Set();
 
     // Navigation API progressive enhancement (replaces popstate on supporting browsers)
     Router.initNavigationAPI?.();
+
+    // ─── Dynamic topbar sizing (ResizeObserver) ──────────────────
+    // Watches .topbar-row-top and toggles #topbar.topbar-compact when
+    // buttons crowd the title below a readable width. This replaces
+    // hardcoded media-query breakpoints with content-aware sizing that
+    // adapts to any combination of injected action buttons.
+    _initTopbarObserver();
 
     // Feature 2: beforeinstallprompt handler
     window.addEventListener('beforeinstallprompt', (e) => {

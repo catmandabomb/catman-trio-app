@@ -84,10 +84,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.41" as="style">
+  <link rel="preload" href="app.css?v=20.42" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.41">
-  <link rel="stylesheet" href="app.css?v=20.41" />
+  <link rel="modulepreload" href="app.js?v=20.42">
+  <link rel="stylesheet" href="app.css?v=20.42" />
 
   <script src="lib/pdf.min.js" defer></script>
   <script src="lib/Sortable.min.js" defer></script>
@@ -117,13 +117,13 @@
       <div id="topbar-title" role="button" tabindex="0" onclick=""><span class="title-catman"><span style="color:rgb(215,175,90)">C</span><span style="color:rgb(220,184,105)">a</span><span style="color:rgb(225,193,120)">t</span><span style="color:rgb(230,202,135)">m</span><span style="color:rgb(235,211,150)">a</span><span style="color:rgb(240,220,165)">n</span></span><span class="title-trio"><span style="color:rgb(220,184,105)">T</span><span style="color:rgb(225,193,120)">r</span><span style="color:rgb(230,202,135)">i</span><span style="color:rgb(235,211,150)">o</span><span id="admin-version-badge" class="admin-version-badge hidden"></span></span></div>
       <div class="topbar-right">
         <button id="btn-wikicharts" class="btn-ghost topbar-nav-btn" title="WikiCharts" aria-label="WikiCharts">
-          <i data-lucide="music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Charts
+          <i data-lucide="music" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Charts</span>
         </button>
         <button id="btn-practice" class="btn-ghost topbar-nav-btn" title="Practice lists" aria-label="Practice lists">
-          <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Practice
+          <i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Practice</span>
         </button>
         <button id="btn-setlists" class="btn-ghost topbar-nav-btn" title="Setlists" aria-label="Setlists">
-          <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Setlists
+          <i data-lucide="list-music" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Setlists</span>
         </button>
         <button id="btn-topbar-refresh" class="icon-btn topbar-refresh-btn hidden" title="Sync" aria-label="Refresh">
           <i data-lucide="refresh-cw"></i>
@@ -151,9 +151,9 @@
         <span class="subheader-text">Rep. Repo. <span style="font-size:0.85em;vertical-align:-1px">&#x1F918;</span></span>
         <span id="admin-buttons" class="admin-buttons">
           <button id="btn-install-app" class="btn-ghost topbar-nav-btn btn-install-app hidden" title="Install app" aria-label="Install app">
-            <i data-lucide="download" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Install
+            <i data-lucide="download" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Install</span>
           </button>
-          <button id="btn-auth-toggle" class="btn-ghost topbar-nav-btn" title="Log In" aria-label="Log In"><i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log In</button>
+          <button id="btn-auth-toggle" class="btn-ghost topbar-nav-btn" title="Log In" aria-label="Log In"><i data-lucide="log-in" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Log In</span></button>
           <button id="btn-offline-queue" class="icon-btn hidden" aria-label="Pending changes" title="Pending offline changes">
             <i data-lucide="cloud-off"></i><span id="offline-queue-badge" class="offline-queue-badge hidden"></span>
           </button>
@@ -481,6 +481,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.41"></script>
+  <script type="module" src="app.js?v=20.42"></script>
 </body>
 </html>

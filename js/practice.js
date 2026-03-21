@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.41';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.41';
-import * as Modal from './modal.js?v=20.41';
-import * as Router from './router.js?v=20.41';
-import * as Sync from './sync.js?v=20.41';
-import * as Drive from '../drive.js?v=20.41';
-import * as GitHub from '../github.js?v=20.41';
-import * as Admin from '../admin.js?v=20.41';
-import * as Auth from '../auth.js?v=20.41';
-import * as Player from '../player.js?v=20.41';
-import * as Metronome from '../metronome.js?v=20.41';
-import * as PDFViewer from '../pdf-viewer.js?v=20.41';
-import * as App from '../app.js?v=20.41';
+import * as Store from './store.js?v=20.42';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.42';
+import * as Modal from './modal.js?v=20.42';
+import * as Router from './router.js?v=20.42';
+import * as Sync from './sync.js?v=20.42';
+import * as Drive from '../drive.js?v=20.42';
+import * as GitHub from '../github.js?v=20.42';
+import * as Admin from '../admin.js?v=20.42';
+import * as Auth from '../auth.js?v=20.42';
+import * as Player from '../player.js?v=20.42';
+import * as Metronome from '../metronome.js?v=20.42';
+import * as PDFViewer from '../pdf-viewer.js?v=20.42';
+import * as App from '../app.js?v=20.42';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];
@@ -238,7 +238,8 @@ function _injectTopbarActions(id, innerHtml, onReady) {
   topbarRight.querySelector(`#${id}`)?.remove();
   const wrap = document.createElement('div');
   wrap.id = id;
-  wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+  wrap.className = 'topbar-actions-wrap';
+  wrap.style.cssText = 'display:flex;align-items:center;';
   wrap.innerHTML = innerHtml;
   topbarRight.appendChild(wrap);
   if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
@@ -456,7 +457,7 @@ function renderPractice(skipNavReset) {
 
   // Add "New List" to topbar right
   _injectTopbarActions('practice-topbar-actions',
-    `<button class="btn-ghost topbar-nav-btn" id="btn-new-practice-list"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>New List</button>`,
+    `<button class="btn-ghost topbar-nav-btn" id="btn-new-practice-list" aria-label="New practice list" title="New List"><i data-lucide="plus" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">New List</span></button>`,
     () => {
       document.getElementById('btn-new-practice-list')?.addEventListener('click', () => {
         const uid = _userId();
@@ -588,10 +589,10 @@ function renderPracticeListDetail(practiceList, skipNavPush) {
   // Topbar actions
   let plTopbarHtml = '';
   if (Admin.isEditMode()) {
-    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-edit-practice-list"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Edit</button>`;
+    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-edit-practice-list" aria-label="Edit practice list" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Edit</span></button>`;
   }
   if (Admin.isEditMode() || _userId() === practiceList.createdBy) {
-    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" style="color:#e87c6a;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Delete</button>`;
+    plTopbarHtml += `<button class="btn-ghost topbar-nav-btn btn-delete-practice-list-top" aria-label="Delete practice list" title="Delete" style="color:#e87c6a;"><i data-lucide="trash-2" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Delete</span></button>`;
   }
   _injectTopbarActions('practice-list-detail-topbar-actions', plTopbarHtml, (wrap) => {
     wrap.querySelector('.btn-edit-practice-list')?.addEventListener('click', () => {

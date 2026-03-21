@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.41';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs, ALL_CANONICAL_KEYS, parseKeyField, songMatchesKey } from './utils.js?v=20.41';
-import * as Modal from './modal.js?v=20.41';
-import * as Router from './router.js?v=20.41';
-import * as Admin from '../admin.js?v=20.41';
-import * as Auth from '../auth.js?v=20.41';
-import * as Sync from './sync.js?v=20.41';
-import * as Drive from '../drive.js?v=20.41';
-import * as GitHub from '../github.js?v=20.41';
-import * as Player from '../player.js?v=20.41';
-import * as PDFViewer from '../pdf-viewer.js?v=20.41';
-import * as Metronome from '../metronome.js?v=20.41';
-import * as App from '../app.js?v=20.41';
-import * as Setlists from './setlists.js?v=20.41';
-import * as Practice from './practice.js?v=20.41';
-import * as Dashboard from './dashboard.js?v=20.41';
-import * as IDB from '../idb.js?v=20.41';
+import * as Store from './store.js?v=20.42';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs, ALL_CANONICAL_KEYS, parseKeyField, songMatchesKey } from './utils.js?v=20.42';
+import * as Modal from './modal.js?v=20.42';
+import * as Router from './router.js?v=20.42';
+import * as Admin from '../admin.js?v=20.42';
+import * as Auth from '../auth.js?v=20.42';
+import * as Sync from './sync.js?v=20.42';
+import * as Drive from '../drive.js?v=20.42';
+import * as GitHub from '../github.js?v=20.42';
+import * as Player from '../player.js?v=20.42';
+import * as PDFViewer from '../pdf-viewer.js?v=20.42';
+import * as Metronome from '../metronome.js?v=20.42';
+import * as App from '../app.js?v=20.42';
+import * as Setlists from './setlists.js?v=20.42';
+import * as Practice from './practice.js?v=20.42';
+import * as Dashboard from './dashboard.js?v=20.42';
+import * as IDB from '../idb.js?v=20.42';
 
 // ─── Background audio conversion ────────────────────────────
 // After uploading audio to R2, silently convert to WebM/Opus if the
@@ -891,11 +891,12 @@ function renderDetail(song, skipNavPush) {
       topbarRight.querySelector('#song-detail-topbar-actions')?.remove();
       const wrap = document.createElement('div');
       wrap.id = 'song-detail-topbar-actions';
-      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      wrap.className = 'topbar-actions-wrap';
+      wrap.style.cssText = 'display:flex;align-items:center;';
       if (Admin.isEditMode()) {
-        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-setlist"><i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Setlist</button>`;
+        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-setlist" aria-label="Add to Setlist" title="Add to Setlist"><i data-lucide="list-plus" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Add to Setlist</span></button>`;
       } else {
-        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-practice-list"><i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Add to Practice</button>`;
+        wrap.innerHTML = `<button class="btn-ghost topbar-nav-btn btn-add-to-practice-list" aria-label="Add to Practice" title="Add to Practice"><i data-lucide="notebook-pen" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Add to Practice</span></button>`;
       }
       topbarRight.appendChild(wrap);
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });

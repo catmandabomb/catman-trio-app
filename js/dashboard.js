@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.41';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.41';
-import * as Modal from './modal.js?v=20.41';
-import * as Router from './router.js?v=20.41';
-import * as Admin from '../admin.js?v=20.41';
-import * as Auth from '../auth.js?v=20.41';
-import * as GitHub from '../github.js?v=20.41';
-import * as Drive from '../drive.js?v=20.41';
-import * as Sync from './sync.js?v=20.41';
-import * as App from '../app.js?v=20.41';
-import * as IDB from '../idb.js?v=20.41';
+import * as Store from './store.js?v=20.42';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.42';
+import * as Modal from './modal.js?v=20.42';
+import * as Router from './router.js?v=20.42';
+import * as Admin from '../admin.js?v=20.42';
+import * as Auth from '../auth.js?v=20.42';
+import * as GitHub from '../github.js?v=20.42';
+import * as Drive from '../drive.js?v=20.42';
+import * as Sync from './sync.js?v=20.42';
+import * as App from '../app.js?v=20.42';
+import * as IDB from '../idb.js?v=20.42';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -48,10 +48,11 @@ function renderDashboard() {
       const switchIcon = adminModeOn ? 'user' : 'shield';
       const wrap = document.createElement('div');
       wrap.id = 'dash-topbar-actions';
-      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      wrap.className = 'topbar-actions-wrap';
+      wrap.style.cssText = 'display:flex;align-items:center;';
       wrap.innerHTML = `
-        <button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${switchText}</button>
-        <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out</button>
+        <button class="btn-ghost topbar-nav-btn" id="dash-toggle-mode" title="Switch to ${switchText}" aria-label="Switch to ${switchText}"><i data-lucide="${switchIcon}" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">${switchText}</span></button>
+        <button class="btn-ghost topbar-nav-btn" id="dash-logout" title="Log Out" aria-label="Log Out"><i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">Log Out</span></button>
       `;
       topbarRight.appendChild(wrap);
       if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [wrap] });
@@ -69,8 +70,10 @@ function renderDashboard() {
         const btn = document.getElementById('dash-toggle-mode');
         if (btn) {
           const on = Admin.isAdminModeActive();
-          btn.innerHTML = `<i data-lucide="${on ? 'user' : 'shield'}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>${on ? 'User Mode' : 'Admin Mode'}`;
-          btn.title = `Switch to ${on ? 'User Mode' : 'Admin Mode'}`;
+          const modeLabel = on ? 'User Mode' : 'Admin Mode';
+          btn.innerHTML = `<i data-lucide="${on ? 'user' : 'shield'}" style="width:14px;height:14px;vertical-align:-2px;"></i><span class="topbar-btn-label">${modeLabel}</span>`;
+          btn.title = `Switch to ${modeLabel}`;
+          btn.setAttribute('aria-label', `Switch to ${modeLabel}`);
           if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
         }
       });

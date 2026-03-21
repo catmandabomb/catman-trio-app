@@ -405,8 +405,6 @@ a { color: inherit; text-decoration: none; }
 }
 @media (max-width: 380px) {
   .volume-slider { width: 80px; }
-  .topbar-nav-btn { padding: 2px 4px; font-size: 10px; }
-  .topbar-right { gap: 4px; }
   .modal-overlay { padding: 12px; }
   .modal { padding: 20px; }
   .modal-actions { flex-wrap: wrap; }
@@ -454,6 +452,36 @@ body:not(.authed) .search-sort-btn { display: none; }
   box-sizing: border-box;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Label inside nav/action buttons — hidden in compact mode */
+.topbar-btn-label { pointer-events: none; }
+/* Wrapper for injected topbar action buttons */
+.topbar-actions-wrap { gap: 8px; }
+
+/* ─── Dynamic topbar compact mode (ResizeObserver-driven) ──── */
+/* When topbar-row-top overflows, JS adds .topbar-compact to #topbar.
+   This hides button text labels, leaving icon-only for nav buttons,
+   and shrinks injected action buttons for sub-views. */
+#topbar.topbar-compact .topbar-btn-label { display: none; }
+#topbar.topbar-compact .topbar-nav-btn {
+  padding: 4px 6px;
+  min-width: 28px;
+  justify-content: center;
+}
+#topbar.topbar-compact .topbar-nav-btn svg { margin-right: 0; }
+#topbar.topbar-compact .topbar-right { gap: 4px; }
+#topbar.topbar-compact .topbar-actions-wrap { gap: 4px; }
+/* In compact mode, shrink injected action button text too */
+#topbar.topbar-compact [id$='-topbar-actions'] .topbar-nav-btn {
+  font-size: 10px;
+  padding: 2px 4px;
+}
+/* Ensure title doesn't get too crushed */
+#topbar.topbar-compact #topbar-title:not(.title-home) {
+  font-size: 14px;
 }
 
 /* ═══════════════════════════════════════════
