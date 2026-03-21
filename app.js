@@ -2,27 +2,27 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.34';
-import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.34';
-import * as Modal from './js/modal.js?v=20.34';
-import * as Router from './js/router.js?v=20.34';
-import * as Sync from './js/sync.js?v=20.34';
-import * as Drive from './drive.js?v=20.34';
-import * as GitHub from './github.js?v=20.34';
-import * as Admin from './admin.js?v=20.34';
-import * as Auth from './auth.js?v=20.34';
-import * as Player from './player.js?v=20.34';
-import * as Songs from './js/songs.js?v=20.34';
-import * as Setlists from './js/setlists.js?v=20.34';
-import * as Practice from './js/practice.js?v=20.34';
-import * as Dashboard from './js/dashboard.js?v=20.34';
-import * as Migrate from './js/migrate.js?v=20.34';
-import * as WikiCharts from './js/wikicharts.js?v=20.34';
-import * as IDB from './idb.js?v=20.34';
-import * as Orchestra from './js/orchestra.js?v=20.34';
-import * as Instruments from './js/instruments.js?v=20.34';
-import * as Messages from './js/messages.js?v=20.34';
-import * as MutationQueue from './js/mutation-queue.js?v=20.34';
+import * as Store from './js/store.js?v=20.35';
+import { esc, haptic, showToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.35';
+import * as Modal from './js/modal.js?v=20.35';
+import * as Router from './js/router.js?v=20.35';
+import * as Sync from './js/sync.js?v=20.35';
+import * as Drive from './drive.js?v=20.35';
+import * as GitHub from './github.js?v=20.35';
+import * as Admin from './admin.js?v=20.35';
+import * as Auth from './auth.js?v=20.35';
+import * as Player from './player.js?v=20.35';
+import * as Songs from './js/songs.js?v=20.35';
+import * as Setlists from './js/setlists.js?v=20.35';
+import * as Practice from './js/practice.js?v=20.35';
+import * as Dashboard from './js/dashboard.js?v=20.35';
+import * as Migrate from './js/migrate.js?v=20.35';
+import * as WikiCharts from './js/wikicharts.js?v=20.35';
+import * as IDB from './idb.js?v=20.35';
+import * as Orchestra from './js/orchestra.js?v=20.35';
+import * as Instruments from './js/instruments.js?v=20.35';
+import * as Messages from './js/messages.js?v=20.35';
+import * as MutationQueue from './js/mutation-queue.js?v=20.35';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -94,7 +94,7 @@ let _cachedPdfSet = new Set();
 
     if (loggedIn) {
       if (btn) { btn.innerHTML = '<i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"></i>Log Out'; btn.title = 'Log Out'; btn.setAttribute('aria-label', 'Log Out'); if (typeof lucide !== 'undefined') lucide.createIcons({attrs:{class:'lucide-icon'}}); }
-      addBtn?.classList.toggle('hidden', !Auth.canEditSongs() || !Admin.isAdminModeActive());
+      addBtn?.classList.toggle('hidden', !Auth.canEditSongs());
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
@@ -2764,10 +2764,18 @@ let _cachedPdfSet = new Set();
         showToast('Logged out');
       } else {
         // Show login modal
-        Admin.showLoginModal(() => {
+        Admin.showLoginModal(async () => {
           Admin.resetAdminMode();
           _updateAuthUI();
+          // Show loading skeleton while cloud sync runs
+          Store.set('syncing', true);
           renderList();
+          // Fetch all data from cloud immediately after login
+          try {
+            await _syncFromCloud(true);
+          } catch (e) { console.warn('Post-login sync failed:', e); }
+          Store.set('syncing', false);
+          renderList(true);
           Sync.startSyncPolling();
         });
       }

@@ -631,7 +631,7 @@ body.is-mobile .search-refresh-btn { display: none; }
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   flex-shrink: 0;
   margin-left: auto;
   min-height: 36px; /* Match icon-btn height so row doesn't shift when + appears */
@@ -639,6 +639,9 @@ body.is-mobile .search-refresh-btn { display: none; }
 .admin-buttons .icon-btn {
   width: 32px;
   height: 32px;
+}
+.admin-buttons .btn-ghost {
+  margin-right: 2px;
 }
 #btn-account {
   padding: 0;
@@ -5667,7 +5670,8 @@ body:not(.authed) #search-bar input {
 }
 body:not(.authed) #tag-filter-bar,
 body:not(.authed) #key-filter-bar,
-body:not(.authed) #btn-refresh {
+body:not(.authed) #btn-refresh,
+body:not(.authed) #btn-add-song {
   display: none !important;
 }
 body:not(.authed) #song-list,

@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.34';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.34';
-import * as GitHub from '../github.js?v=20.34';
-import * as Drive from '../drive.js?v=20.34';
-import * as Router from './router.js?v=20.34';
-import * as IDB from '../idb.js?v=20.34';
-import * as OPFS from './opfs.js?v=20.34';
-import * as Auth from '../auth.js?v=20.34';
-import * as Admin from '../admin.js?v=20.34';
-import * as MutationQueue from './mutation-queue.js?v=20.34';
+import * as Store from './store.js?v=20.35';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.35';
+import * as GitHub from '../github.js?v=20.35';
+import * as Drive from '../drive.js?v=20.35';
+import * as Router from './router.js?v=20.35';
+import * as IDB from '../idb.js?v=20.35';
+import * as OPFS from './opfs.js?v=20.35';
+import * as Auth from '../auth.js?v=20.35';
+import * as Admin from '../admin.js?v=20.35';
+import * as MutationQueue from './mutation-queue.js?v=20.35';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
