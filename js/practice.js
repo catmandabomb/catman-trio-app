@@ -6,19 +6,19 @@
  *   loadPracticeInstant, savePractice, migratePracticeData,
  *   enterPracticeMode, showPracticeListPicker, showBatchPracticeListPicker
  * ─────────────────────────────────────────────────────────────── */
-import * as Store from './store.js?v=20.38';
-import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.38';
-import * as Modal from './modal.js?v=20.38';
-import * as Router from './router.js?v=20.38';
-import * as Sync from './sync.js?v=20.38';
-import * as Drive from '../drive.js?v=20.38';
-import * as GitHub from '../github.js?v=20.38';
-import * as Admin from '../admin.js?v=20.38';
-import * as Auth from '../auth.js?v=20.38';
-import * as Player from '../player.js?v=20.38';
-import * as Metronome from '../metronome.js?v=20.38';
-import * as PDFViewer from '../pdf-viewer.js?v=20.38';
-import * as App from '../app.js?v=20.38';
+import * as Store from './store.js?v=20.39';
+import { esc, deepClone, showToast, haptic, parseTimeSig, isIOS, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock } from './utils.js?v=20.39';
+import * as Modal from './modal.js?v=20.39';
+import * as Router from './router.js?v=20.39';
+import * as Sync from './sync.js?v=20.39';
+import * as Drive from '../drive.js?v=20.39';
+import * as GitHub from '../github.js?v=20.39';
+import * as Admin from '../admin.js?v=20.39';
+import * as Auth from '../auth.js?v=20.39';
+import * as Player from '../player.js?v=20.39';
+import * as Metronome from '../metronome.js?v=20.39';
+import * as PDFViewer from '../pdf-viewer.js?v=20.39';
+import * as App from '../app.js?v=20.39';
 
 // ─── Module state ─────────────────────────────────────────
 let _practice              = [];

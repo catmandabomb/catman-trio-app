@@ -3283,7 +3283,7 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 8px;
-  margin-right: 38px; /* clear the fixed practice jump bar */
+  margin-right: 46px; /* clear the fixed practice jump bar with breathing room */
   overflow: hidden;
 }
 
