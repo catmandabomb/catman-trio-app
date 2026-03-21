@@ -9,7 +9,7 @@
  */
 
 import * as Store from './store.js?v=20.40';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.40';
+import { showToast, isMobile, timeAgo, isHybridKey, ALL_CANONICAL_KEYS, parseKeyField } from './utils.js?v=20.40';
 import * as GitHub from '../github.js?v=20.40';
 import * as Drive from '../drive.js?v=20.40';
 import * as Router from './router.js?v=20.40';
@@ -789,7 +789,7 @@ async function syncAll(force) {
       _saveLocal(songs);
       const activeKeys = Store.get('activeKeys');
       if (activeKeys.length) {
-        const validKeys = new Set(songs.map(s => (s.key || '').trim()).filter(k => k && !isHybridKey(k)));
+        const validKeys = new Set(ALL_CANONICAL_KEYS);
         Store.set('activeKeys', activeKeys.filter(k => validKeys.has(k)));
       }
     } else if (songs !== null && songs.length === 0 && _existingSongs.length > 0) {

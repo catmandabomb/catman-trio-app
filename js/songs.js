@@ -6,7 +6,7 @@
  */
 
 import * as Store from './store.js?v=20.40';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.40';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs, ALL_CANONICAL_KEYS, parseKeyField, songMatchesKey } from './utils.js?v=20.40';
 import * as Modal from './modal.js?v=20.40';
 import * as Router from './router.js?v=20.40';
 import * as Admin from '../admin.js?v=20.40';
@@ -260,12 +260,21 @@ function allKeys() {
   _invalidateCache();
   if (!_cachedAllKeys) {
     const songs = Store.get('songs');
+    // Count songs per canonical key (a song can count for multiple keys)
     const counts = {};
+    for (const k of ALL_CANONICAL_KEYS) counts[k] = 0;
     for (let i = 0; i < songs.length; i++) {
-      const k = (songs[i].key || '').trim();
-      if (k && !_isHybridKey(k)) counts[k] = (counts[k] || 0) + 1;
+      const parsed = parseKeyField(songs[i].key);
+      for (const k of parsed) {
+        if (counts[k] !== undefined) counts[k]++;
+      }
     }
-    _cachedAllKeys = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
+    // All 24 keys, ordered by frequency (highest first), then by canonical order for ties
+    _cachedAllKeys = [...ALL_CANONICAL_KEYS].sort((a, b) => {
+      const diff = counts[b] - counts[a];
+      if (diff !== 0) return diff;
+      return ALL_CANONICAL_KEYS.indexOf(a) - ALL_CANONICAL_KEYS.indexOf(b);
+    });
   }
   return _cachedAllKeys;
 }
@@ -277,7 +286,7 @@ function filteredSongs() {
 
   let list = _sortedSongs();
   if (activeTags.length) list = list.filter(s => activeTags.every(t => (s.tags || []).includes(t)));
-  if (activeKeys.length) list = list.filter(s => s.key && activeKeys.includes(s.key.trim()));
+  if (activeKeys.length) list = list.filter(s => s.key && activeKeys.some(k => songMatchesKey(s.key, k)));
   if (searchText) {
     const q = searchText.toLowerCase();
     list = list.filter(s =>

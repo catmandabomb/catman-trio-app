@@ -270,6 +270,126 @@ function isHybridKey(k) {
   return low === 'multiple' || low === 'various' || low === 'hybrid' || low === 'mixed';
 }
 
+/**
+ * The 24 canonical keys: 12 major + 12 minor.
+ * Ordered by circle of fifths (C, G, D, A, E, B, F#/Gb, Db, Ab, Eb, Bb, F).
+ */
+const CANONICAL_MAJOR = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F'];
+const CANONICAL_MINOR = ['Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'Ebm', 'Bbm', 'Fm', 'Cm', 'Gm', 'Dm'];
+const ALL_CANONICAL_KEYS = [...CANONICAL_MAJOR, ...CANONICAL_MINOR];
+
+/** Enharmonic equivalents → canonical name */
+const _enharmonicMap = {
+  // Major
+  'C#': 'Db', 'D#': 'Eb', 'E#': 'F', 'Fb': 'E', 'Gb': 'F#', 'G#': 'Ab', 'A#': 'Bb', 'B#': 'C', 'Cb': 'B',
+  // Minor
+  'C#m': 'C#m', 'Dbm': 'C#m', 'D#m': 'Ebm', 'Fbm': 'Em', 'Gbm': 'F#m', 'G#m': 'G#m', 'Abm': 'G#m', 'A#m': 'Bbm', 'B#m': 'Cm', 'Cbm': 'Bm', 'E#m': 'Fm',
+};
+
+/**
+ * Normalize a single key name to its canonical form.
+ * e.g. "Db" → "Db", "C#" → "Db", "Gbm" → "F#m", "E" → "E", "Em" → "Em"
+ * @param {string} raw - A single key like "C#", "Ebmaj", "Fm", "Amin", "E"
+ * @returns {string|null} Canonical key or null if unrecognized
+ */
+function normalizeKey(raw) {
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Extract root note: A-G with optional # or b
+  const rootMatch = s.match(/^([A-Ga-g][#b]?)/);
+  if (!rootMatch) return null;
+  let root = rootMatch[1];
+  root = root.charAt(0).toUpperCase() + root.slice(1); // Capitalize root
+
+  // Extract quality from the remainder
+  const remainder = s.slice(rootMatch[0].length).toLowerCase().trim();
+  let isMinor = false;
+  if (remainder === 'm' || remainder === 'min' || remainder === 'minor' || remainder.startsWith('min')) {
+    isMinor = true;
+  }
+  // "maj" or "major" or empty = major
+
+  const key = isMinor ? root + 'm' : root;
+  // Normalize enharmonics
+  if (_enharmonicMap[key]) return _enharmonicMap[key];
+  // Check if it's already canonical
+  if (ALL_CANONICAL_KEYS.includes(key)) return key;
+  return null;
+}
+
+/**
+ * Parse a song's key field into an array of canonical keys.
+ * Handles slash-separated multi-keys, "maj/min" suffixes, etc.
+ * e.g. "E maj/min" → ["E", "Em"]
+ *      "F#min/Ebmaj" → ["F#m", "Eb"]
+ *      "C" → ["C"]
+ *      "Multiple" → []
+ * @param {string} keyField - The song's key field
+ * @returns {string[]} Array of canonical key names
+ */
+function parseKeyField(keyField) {
+  if (!keyField) return [];
+  const s = keyField.trim();
+  if (!s) return [];
+
+  // Reject non-key strings
+  const low = s.toLowerCase();
+  if (low === 'multiple' || low === 'various' || low === 'hybrid' || low === 'mixed' || low === 'n/a' || low === 'none') return [];
+
+  const results = new Set();
+
+  // Special case: "X maj/min" or "X major/minor" → both major and minor of same root
+  const majMinMatch = s.match(/^([A-Ga-g][#b]?)\s*maj(?:or)?\s*\/\s*min(?:or)?$/i);
+  if (majMinMatch) {
+    let root = majMinMatch[1];
+    root = root.charAt(0).toUpperCase() + root.slice(1);
+    const major = normalizeKey(root);
+    const minor = normalizeKey(root + 'm');
+    if (major) results.add(major);
+    if (minor) results.add(minor);
+    return [...results];
+  }
+
+  // Split on "/" and parse each part
+  const parts = s.split('/');
+  // Track the last known root for parts that are just qualities
+  let lastRoot = null;
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    // Check if this part is just a quality (min/minor/maj/major) without a root
+    const qualOnly = trimmed.match(/^(min|minor|maj|major)$/i);
+    if (qualOnly && lastRoot) {
+      const isMinor = qualOnly[1].toLowerCase().startsWith('min');
+      const key = normalizeKey(lastRoot + (isMinor ? 'min' : ''));
+      if (key) results.add(key);
+      continue;
+    }
+
+    const key = normalizeKey(trimmed);
+    if (key) {
+      results.add(key);
+      // Extract root for context
+      const rm = trimmed.match(/^([A-Ga-g][#b]?)/);
+      if (rm) lastRoot = rm[1].charAt(0).toUpperCase() + rm[1].slice(1);
+    }
+  }
+  return [...results];
+}
+
+/**
+ * Check if a song's key field matches a canonical key filter.
+ * @param {string} songKey - The song's raw key field
+ * @param {string} filterKey - A canonical key like "E" or "F#m"
+ * @returns {boolean}
+ */
+function songMatchesKey(songKey, filterKey) {
+  return parseKeyField(songKey).includes(filterKey);
+}
+
 // ─── Duplicate detection (Levenshtein) ──────────────────────
 
 /**
@@ -461,4 +581,4 @@ document.addEventListener('visibilitychange', () => {
 
 // ─── Public API ─────────────────────────────────────────────
 
-export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock };
+export { esc, highlight, deepClone, timeAgo, gradientText, parseDurationInput, formatDuration, haptic, showToast, fallbackCopy, isIOS, isMobile, isPWAInstalled, detectPlatform, getOrderedCharts, getChartOrderNum, isHybridKey, ALL_CANONICAL_KEYS, normalizeKey, parseKeyField, songMatchesKey, levenshtein, findSimilarSongsSync, findSimilarSongsAsync, parseTimeSig, safeRender, createDirtyTracker, trackFormInputs, requestWakeLock, releaseWakeLock };

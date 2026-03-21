@@ -4,18 +4,84 @@
 
 const { describe, it, beforeEach, assert } = require('./test-runner');
 
-// ─── Replicate song filter logic for testing ─────────────────
+// ─── Key parsing (replicated from utils.js) ──────────────────
 
-function isHybridKey(k) {
-  if (k.includes('/')) return true;
-  const low = k.toLowerCase();
-  return low === 'multiple' || low === 'various' || low === 'hybrid' || low === 'mixed';
+const CANONICAL_MAJOR = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F'];
+const CANONICAL_MINOR = ['Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'Ebm', 'Bbm', 'Fm', 'Cm', 'Gm', 'Dm'];
+const ALL_CANONICAL_KEYS = [...CANONICAL_MAJOR, ...CANONICAL_MINOR];
+
+const _enharmonicMap = {
+  'C#': 'Db', 'D#': 'Eb', 'E#': 'F', 'Fb': 'E', 'Gb': 'F#', 'G#': 'Ab', 'A#': 'Bb', 'B#': 'C', 'Cb': 'B',
+  'C#m': 'C#m', 'Dbm': 'C#m', 'D#m': 'Ebm', 'Fbm': 'Em', 'Gbm': 'F#m', 'G#m': 'G#m', 'Abm': 'G#m', 'A#m': 'Bbm', 'B#m': 'Cm', 'Cbm': 'Bm', 'E#m': 'Fm',
+};
+
+function normalizeKey(raw) {
+  let s = raw.trim();
+  if (!s) return null;
+  const rootMatch = s.match(/^([A-Ga-g][#b]?)/);
+  if (!rootMatch) return null;
+  let root = rootMatch[1];
+  root = root.charAt(0).toUpperCase() + root.slice(1);
+  const remainder = s.slice(rootMatch[0].length).toLowerCase().trim();
+  let isMinor = false;
+  if (remainder === 'm' || remainder === 'min' || remainder === 'minor' || remainder.startsWith('min')) {
+    isMinor = true;
+  }
+  const key = isMinor ? root + 'm' : root;
+  if (_enharmonicMap[key]) return _enharmonicMap[key];
+  if (ALL_CANONICAL_KEYS.includes(key)) return key;
+  return null;
 }
+
+function parseKeyField(keyField) {
+  if (!keyField) return [];
+  const s = keyField.trim();
+  if (!s) return [];
+  const low = s.toLowerCase();
+  if (low === 'multiple' || low === 'various' || low === 'hybrid' || low === 'mixed' || low === 'n/a' || low === 'none') return [];
+  const results = new Set();
+  const majMinMatch = s.match(/^([A-Ga-g][#b]?)\s*maj(?:or)?\s*\/\s*min(?:or)?$/i);
+  if (majMinMatch) {
+    let root = majMinMatch[1];
+    root = root.charAt(0).toUpperCase() + root.slice(1);
+    const major = normalizeKey(root);
+    const minor = normalizeKey(root + 'm');
+    if (major) results.add(major);
+    if (minor) results.add(minor);
+    return [...results];
+  }
+  const parts = s.split('/');
+  let lastRoot = null;
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const qualOnly = trimmed.match(/^(min|minor|maj|major)$/i);
+    if (qualOnly && lastRoot) {
+      const isMinor = qualOnly[1].toLowerCase().startsWith('min');
+      const key = normalizeKey(lastRoot + (isMinor ? 'min' : ''));
+      if (key) results.add(key);
+      continue;
+    }
+    const key = normalizeKey(trimmed);
+    if (key) {
+      results.add(key);
+      const rm = trimmed.match(/^([A-Ga-g][#b]?)/);
+      if (rm) lastRoot = rm[1].charAt(0).toUpperCase() + rm[1].slice(1);
+    }
+  }
+  return [...results];
+}
+
+function songMatchesKey(songKey, filterKey) {
+  return parseKeyField(songKey).includes(filterKey);
+}
+
+// ─── Replicate song filter logic for testing ─────────────────
 
 function filteredSongs(songs, activeTags, activeKeys, searchText) {
   let list = [...songs];
   if (activeTags.length) list = list.filter(s => activeTags.every(t => (s.tags || []).includes(t)));
-  if (activeKeys.length) list = list.filter(s => s.key && activeKeys.includes(s.key.trim()));
+  if (activeKeys.length) list = list.filter(s => s.key && activeKeys.some(k => songMatchesKey(s.key, k)));
   if (searchText) {
     const q = searchText.toLowerCase();
     list = list.filter(s =>
@@ -31,11 +97,18 @@ function filteredSongs(songs, activeTags, activeKeys, searchText) {
 
 function getAllKeys(songs) {
   const counts = {};
+  for (const k of ALL_CANONICAL_KEYS) counts[k] = 0;
   for (let i = 0; i < songs.length; i++) {
-    const k = (songs[i].key || '').trim();
-    if (k && !isHybridKey(k)) counts[k] = (counts[k] || 0) + 1;
+    const parsed = parseKeyField(songs[i].key);
+    for (const k of parsed) {
+      if (counts[k] !== undefined) counts[k]++;
+    }
   }
-  return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b));
+  return [...ALL_CANONICAL_KEYS].sort((a, b) => {
+    const diff = counts[b] - counts[a];
+    if (diff !== 0) return diff;
+    return ALL_CANONICAL_KEYS.indexOf(a) - ALL_CANONICAL_KEYS.indexOf(b);
+  });
 }
 
 // ─── Test data ───────────────────────────────────────────────
@@ -86,12 +159,12 @@ describe('Songs — tag filtering', () => {
 describe('Songs — key filtering', () => {
   it('filters by single key', () => {
     const result = filteredSongs(SONGS, [], ['C'], '');
-    assert.equal(result.length, 2); // Hallelujah, Another C Song
+    assert.equal(result.length, 3); // Hallelujah, Another C Song, Multi Key (C/Am → C + Am)
   });
 
   it('filters by multiple keys', () => {
     const result = filteredSongs(SONGS, [], ['C', 'F'], '');
-    assert.equal(result.length, 3); // Yesterday, Hallelujah, Another C Song
+    assert.equal(result.length, 4); // Yesterday, Hallelujah, Another C Song, Multi Key
   });
 
   it('excludes songs with no key', () => {
@@ -102,6 +175,11 @@ describe('Songs — key filtering', () => {
   it('no matches returns empty', () => {
     const result = filteredSongs(SONGS, [], ['Eb'], '');
     assert.equal(result.length, 0);
+  });
+
+  it('multi-key song matches any of its keys', () => {
+    const result = filteredSongs(SONGS, [], ['Am'], '');
+    assert.ok(result.some(s => s.id === '7')); // C/Am → matches Am
   });
 });
 
@@ -182,37 +260,103 @@ describe('Songs — combined filters', () => {
   });
 });
 
-describe('Songs — getAllKeys', () => {
-  it('extracts unique keys', () => {
+describe('Songs — getAllKeys (24 canonical)', () => {
+  it('always returns exactly 24 keys', () => {
+    const keys = getAllKeys(SONGS);
+    assert.equal(keys.length, 24);
+  });
+
+  it('includes all major and minor keys', () => {
     const keys = getAllKeys(SONGS);
     assert.ok(keys.includes('C'));
-    assert.ok(keys.includes('F'));
-    assert.ok(keys.includes('Bm'));
-    assert.ok(keys.includes('Bb'));
+    assert.ok(keys.includes('Am'));
+    assert.ok(keys.includes('F#'));
+    assert.ok(keys.includes('Ebm'));
   });
 
-  it('excludes hybrid keys', () => {
+  it('parses multi-key fields into canonical keys', () => {
     const keys = getAllKeys(SONGS);
-    assert.notOk(keys.includes('C/Am'));
+    // C/Am song contributes to both C and Am counts
+    assert.ok(keys.includes('C'));
+    assert.ok(keys.includes('Am'));
   });
 
-  it('excludes empty keys', () => {
+  it('sorts by frequency (C has 3 songs, should be first)', () => {
     const keys = getAllKeys(SONGS);
-    assert.notOk(keys.includes(''));
+    assert.equal(keys[0], 'C'); // Hallelujah, Another C Song, Multi Key (C/Am)
   });
 
-  it('sorts by frequency then alphabetically', () => {
-    const keys = getAllKeys(SONGS);
-    // C appears twice, should be first
-    assert.equal(keys[0], 'C');
+  it('returns 24 even for empty songs list', () => {
+    assert.equal(getAllKeys([]).length, 24);
   });
 
-  it('returns empty for no songs', () => {
-    assert.deepEqual(getAllKeys([]), []);
+  it('returns 24 even for songs with no keys', () => {
+    assert.equal(getAllKeys([{ id: '1', key: '' }]).length, 24);
+  });
+});
+
+describe('Songs — key parsing', () => {
+  it('parses simple major key', () => {
+    assert.deepEqual(parseKeyField('C'), ['C']);
   });
 
-  it('returns empty for songs with no keys', () => {
-    assert.deepEqual(getAllKeys([{ id: '1', key: '' }]), []);
+  it('parses simple minor key', () => {
+    assert.deepEqual(parseKeyField('Am'), ['Am']);
+  });
+
+  it('parses slash-separated keys', () => {
+    const result = parseKeyField('C/Am');
+    assert.ok(result.includes('C'));
+    assert.ok(result.includes('Am'));
+  });
+
+  it('parses "E maj/min"', () => {
+    const result = parseKeyField('E maj/min');
+    assert.ok(result.includes('E'));
+    assert.ok(result.includes('Em'));
+  });
+
+  it('parses "F#min/Ebmaj"', () => {
+    const result = parseKeyField('F#min/Ebmaj');
+    assert.ok(result.includes('F#m'));
+    assert.ok(result.includes('Eb'));
+  });
+
+  it('normalizes enharmonics: C# → Db', () => {
+    assert.deepEqual(parseKeyField('C#'), ['Db']);
+  });
+
+  it('normalizes enharmonics: Gb → F#', () => {
+    assert.deepEqual(parseKeyField('Gb'), ['F#']);
+  });
+
+  it('rejects "Multiple"', () => {
+    assert.deepEqual(parseKeyField('Multiple'), []);
+  });
+
+  it('rejects "Various"', () => {
+    assert.deepEqual(parseKeyField('Various'), []);
+  });
+
+  it('rejects empty/null', () => {
+    assert.deepEqual(parseKeyField(''), []);
+    assert.deepEqual(parseKeyField(null), []);
+  });
+
+  it('songMatchesKey works for direct key', () => {
+    assert.ok(songMatchesKey('C', 'C'));
+    assert.notOk(songMatchesKey('C', 'Am'));
+  });
+
+  it('songMatchesKey works for multi-key', () => {
+    assert.ok(songMatchesKey('C/Am', 'C'));
+    assert.ok(songMatchesKey('C/Am', 'Am'));
+    assert.notOk(songMatchesKey('C/Am', 'E'));
+  });
+
+  it('songMatchesKey works for maj/min', () => {
+    assert.ok(songMatchesKey('E maj/min', 'E'));
+    assert.ok(songMatchesKey('E maj/min', 'Em'));
   });
 });
 
@@ -238,7 +382,7 @@ describe('Songs — edge cases', () => {
   it('trims key whitespace for matching', () => {
     const songs = [{ id: '1', title: 'Test', key: ' C ' }];
     const result = filteredSongs(songs, [], ['C'], '');
-    assert.equal(result.length, 1);
+    assert.equal(result.length, 1); // parseKeyField trims whitespace
   });
 });
 
