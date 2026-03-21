@@ -3285,6 +3285,10 @@ textarea.form-input {
   margin-bottom: 8px;
   overflow: hidden;
 }
+/* On mobile, crop right side to avoid overlap with practice jump bar */
+@media (max-width: 767px) {
+  .practice-accordion-item { margin-right: 36px; }
+}
 
 .practice-accordion-header {
   display: flex;
@@ -6351,7 +6355,7 @@ body:not(.authed) #ptr-indicator {
 /* ─── Practice jump-to-song sidebar ────────────────────────── */
 .practice-jump-bar {
   position: fixed;
-  right: 6px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
