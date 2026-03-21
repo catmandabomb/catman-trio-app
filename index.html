@@ -84,10 +84,10 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@600;700&display=swap" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&display=swap" />
 
-  <link rel="preload" href="app.css?v=20.35" as="style">
+  <link rel="preload" href="app.css?v=20.36" as="style">
   <link rel="preload" href="lucide.min.js" as="script">
-  <link rel="modulepreload" href="app.js?v=20.35">
-  <link rel="stylesheet" href="app.css?v=20.35" />
+  <link rel="modulepreload" href="app.js?v=20.36">
+  <link rel="stylesheet" href="app.css?v=20.36" />
 
   <script src="lib/pdf.min.js" defer></script>
   <script src="lib/Sortable.min.js" defer></script>
@@ -176,12 +176,10 @@
             <i data-lucide="x" style="width:14px;height:14px;"></i>
           </button>
         </div>
-        <button id="btn-sort-toggle" class="icon-btn search-refresh-btn" title="Sort: A-Z" aria-label="Change sort order">
+        <button id="btn-sort-toggle" class="icon-btn search-sort-btn" title="Sort: A-Z" aria-label="Change sort order">
           <i data-lucide="arrow-down-a-z"></i>
         </button>
-        <button id="btn-refresh" class="icon-btn search-refresh-btn" title="Sync from Drive" aria-label="Refresh">
-          <i data-lucide="refresh-cw"></i>
-        </button>
+        <!-- Refresh button removed — sync is automatic, manual sync in footer -->
       </div>
       <div id="tag-filter-bar"></div>
       <div id="key-filter-bar" class="key-filter-bar"></div>
@@ -216,6 +214,7 @@
               <a href="#" class="footer-link" role="button" data-footer-nav="list">Songs</a>
               <a href="#" class="footer-link" role="button" data-footer-nav="setlists">Setlists</a>
               <a href="#" class="footer-link" role="button" data-footer-nav="practice">Practice</a>
+              <a href="#" class="footer-link" role="button" data-footer-nav="sync">Sync</a>
               <a href="#" class="footer-link" role="button" data-footer-nav="dashboard">Dashboard</a>
             </div>
             <div class="footer-col">
@@ -482,6 +481,6 @@
   <div id="toast" class="hidden" role="status" aria-live="polite"></div>
 
   <script src="lucide.min.js"></script>
-  <script type="module" src="app.js?v=20.35"></script>
+  <script type="module" src="app.js?v=20.36"></script>
 </body>
 </html>

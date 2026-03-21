@@ -428,23 +428,23 @@ a { color: inherit; text-decoration: none; }
   margin-left: auto;
 }
 
-.search-refresh-btn {
+.search-sort-btn {
   width: 36px;
   height: 36px;
   opacity: 0.7;
   flex-shrink: 0;
 }
-.search-refresh-btn:hover {
+.search-sort-btn:hover {
   opacity: 1;
 }
 /* Hide refresh button on touch devices — pull-to-refresh replaces it */
 @media (pointer: coarse) {
-  .search-refresh-btn { display: none; }
+  .search-sort-btn { display: none; }
 }
 @media (hover: none) {
-  .search-refresh-btn { display: none; }
+  .search-sort-btn { display: none; }
 }
-body.is-mobile .search-refresh-btn { display: none; }
+body.is-mobile .search-sort-btn { display: none; }
 
 .topbar-nav-btn {
   padding: 3px 5px;
@@ -5670,7 +5670,6 @@ body:not(.authed) #search-bar input {
 }
 body:not(.authed) #tag-filter-bar,
 body:not(.authed) #key-filter-bar,
-body:not(.authed) #btn-refresh,
 body:not(.authed) #btn-add-song {
   display: none !important;
 }
@@ -6531,7 +6530,7 @@ body:not(.authed) #search-bar {
 body:not(.authed) #search-input {
   pointer-events: none;
 }
-body:not(.authed) #search-bar .search-refresh-btn {
+body:not(.authed) #search-bar .search-sort-btn {
   pointer-events: none;
 }
 

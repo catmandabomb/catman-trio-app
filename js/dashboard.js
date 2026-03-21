@@ -6,17 +6,17 @@
  * All state read from Store; no local state variables.
  */
 
-import * as Store from './store.js?v=20.35';
-import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.35';
-import * as Modal from './modal.js?v=20.35';
-import * as Router from './router.js?v=20.35';
-import * as Admin from '../admin.js?v=20.35';
-import * as Auth from '../auth.js?v=20.35';
-import * as GitHub from '../github.js?v=20.35';
-import * as Drive from '../drive.js?v=20.35';
-import * as Sync from './sync.js?v=20.35';
-import * as App from '../app.js?v=20.35';
-import * as IDB from '../idb.js?v=20.35';
+import * as Store from './store.js?v=20.36';
+import { esc, showToast, isMobile, detectPlatform, timeAgo, safeRender } from './utils.js?v=20.36';
+import * as Modal from './modal.js?v=20.36';
+import * as Router from './router.js?v=20.36';
+import * as Admin from '../admin.js?v=20.36';
+import * as Auth from '../auth.js?v=20.36';
+import * as GitHub from '../github.js?v=20.36';
+import * as Drive from '../drive.js?v=20.36';
+import * as Sync from './sync.js?v=20.36';
+import * as App from '../app.js?v=20.36';
+import * as IDB from '../idb.js?v=20.36';
 
 // ─── renderDashboard ──────────────────────────────────────
 
@@ -2523,13 +2523,10 @@ async function runDiagnostics(container) {
     return { status: 'pass', detail: 'Correctly inside scroll wrapper' };
   });
 
-  await _test(SEC10, 'Refresh button hidden on mobile', async () => {
+  await _test(SEC10, 'Sync button removed from search bar', async () => {
     const btn = document.getElementById('btn-refresh');
-    if (!btn) return { status: 'fail', detail: 'Refresh button not found' };
-    if (!isMobile()) return { status: 'skip', detail: 'Not a mobile device' };
-    const style = getComputedStyle(btn);
-    if (style.display === 'none') return { status: 'pass', detail: 'Hidden via CSS (display:none)' };
-    return { status: 'fail', detail: `Visible on mobile — display: ${style.display}` };
+    if (!btn) return { status: 'pass', detail: 'Refresh button correctly removed (sync is in footer)' };
+    return { status: 'fail', detail: 'btn-refresh still exists in DOM — should be removed' };
   });
 
   await _test(SEC10, 'Song list element exists', async () => {

@@ -5,23 +5,23 @@
  * All state via Store. Cross-module refs resolved at call time.
  */
 
-import * as Store from './store.js?v=20.35';
-import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.35';
-import * as Modal from './modal.js?v=20.35';
-import * as Router from './router.js?v=20.35';
-import * as Admin from '../admin.js?v=20.35';
-import * as Auth from '../auth.js?v=20.35';
-import * as Sync from './sync.js?v=20.35';
-import * as Drive from '../drive.js?v=20.35';
-import * as GitHub from '../github.js?v=20.35';
-import * as Player from '../player.js?v=20.35';
-import * as PDFViewer from '../pdf-viewer.js?v=20.35';
-import * as Metronome from '../metronome.js?v=20.35';
-import * as App from '../app.js?v=20.35';
-import * as Setlists from './setlists.js?v=20.35';
-import * as Practice from './practice.js?v=20.35';
-import * as Dashboard from './dashboard.js?v=20.35';
-import * as IDB from '../idb.js?v=20.35';
+import * as Store from './store.js?v=20.36';
+import { esc, deepClone, highlight, haptic, showToast, gradientText as _gradientText, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, isHybridKey as _isHybridKey, isIOS as _isIOS, findSimilarSongsAsync, findSimilarSongsSync, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.36';
+import * as Modal from './modal.js?v=20.36';
+import * as Router from './router.js?v=20.36';
+import * as Admin from '../admin.js?v=20.36';
+import * as Auth from '../auth.js?v=20.36';
+import * as Sync from './sync.js?v=20.36';
+import * as Drive from '../drive.js?v=20.36';
+import * as GitHub from '../github.js?v=20.36';
+import * as Player from '../player.js?v=20.36';
+import * as PDFViewer from '../pdf-viewer.js?v=20.36';
+import * as Metronome from '../metronome.js?v=20.36';
+import * as App from '../app.js?v=20.36';
+import * as Setlists from './setlists.js?v=20.36';
+import * as Practice from './practice.js?v=20.36';
+import * as Dashboard from './dashboard.js?v=20.36';
+import * as IDB from '../idb.js?v=20.36';
 
 // ─── Background audio conversion ────────────────────────────
 // After uploading audio to R2, silently convert to WebM/Opus if the
@@ -454,9 +454,8 @@ function renderList(force) {
       empty.innerHTML = '<p id="empty-title">Loading songs\u2026</p><p id="empty-sub" class="muted">Syncing from the cloud.</p>';
       empty.classList.remove('hidden');
     } else {
-      empty.innerHTML = '<p id="empty-title">No songs yet</p><p id="empty-sub" class="muted">Songs will appear here once synced.</p><button class="empty-action-btn" id="empty-sync-btn">Retry Sync</button>';
+      empty.innerHTML = '<p id="empty-title">No songs yet</p><p id="empty-sub" class="muted">Songs will appear once data is synced.</p>';
       empty.classList.remove('hidden');
-      empty.querySelector('#empty-sync-btn')?.addEventListener('click', () => { App.syncAll(true); });
     }
     return;
   }
@@ -609,6 +608,12 @@ function renderList(force) {
           } else {
             Practice.renderPractice();
           }
+        } else if (target === 'sync') {
+          if (!Auth.isLoggedIn()) {
+            showToast('Log in to sync');
+            return;
+          }
+          App.syncAll(true);
         } else if (target === 'dashboard') {
           if (!Auth.isLoggedIn() || !Auth.canEditSongs()) {
             showToast('Log in as admin to access Dashboard');
