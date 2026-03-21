@@ -11,9 +11,10 @@ let _available = false;
 async function open() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) { reject(new Error('IndexedDB not supported')); return; }
-    const req = indexedDB.open('catmantrio-db', 5);
+    const req = indexedDB.open('catmantrio-db', 6);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
+      const tx = e.target.transaction;
       if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('setlists')) db.createObjectStore('setlists', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('practice')) db.createObjectStore('practice', { keyPath: 'id' });
@@ -22,10 +23,26 @@ async function open() {
       if (!db.objectStoreNames.contains('pendingWrites')) db.createObjectStore('pendingWrites', { keyPath: 'type' });
       // v3: audio file cache for offline playback
       if (!db.objectStoreNames.contains('audioCache')) db.createObjectStore('audioCache', { keyPath: 'fileId' });
-      // v4: WikiCharts store
-      if (!db.objectStoreNames.contains('wikiCharts')) db.createObjectStore('wikiCharts', { keyPath: 'id' });
       // v5: mutation queue for offline discrete mutations (FIFO, auto-increment)
       if (!db.objectStoreNames.contains('mutationQueue')) db.createObjectStore('mutationQueue', { autoIncrement: true });
+      // v6: Rename wikiCharts → sheets (migrate data, drop old store)
+      if (!db.objectStoreNames.contains('sheets')) db.createObjectStore('sheets', { keyPath: 'id' });
+      if (db.objectStoreNames.contains('wikiCharts') && e.oldVersion < 6) {
+        const oldStore = tx.objectStore('wikiCharts');
+        const cursorReq = oldStore.openCursor();
+        cursorReq.onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (cursor) {
+            tx.objectStore('sheets').put(cursor.value);
+            cursor.continue();
+          } else {
+            // All data migrated — delete old store
+            if (db.objectStoreNames.contains('wikiCharts')) db.deleteObjectStore('wikiCharts');
+          }
+        };
+      } else if (db.objectStoreNames.contains('wikiCharts')) {
+        db.deleteObjectStore('wikiCharts');
+      }
     };
     req.onsuccess = (e) => { _db = e.target.result; _available = true;
         _db.onversionchange = () => { _db.close(); _available = false; };
@@ -72,8 +89,8 @@ async function loadSetlists() { return _loadAll('setlists'); }
 async function saveSetlists(setlists) { return _saveAll('setlists', setlists); }
 async function loadPractice() { return _loadAll('practice'); }
 async function savePractice(practice) { return _saveAll('practice', practice); }
-async function loadWikiCharts() { return _loadAll('wikiCharts'); }
-async function saveWikiCharts(wikiCharts) { return _saveAll('wikiCharts', wikiCharts); }
+async function loadSheets() { return _loadAll('sheets'); }
+async function saveSheets(sheets) { return _saveAll('sheets', sheets); }
 
 async function getMeta(key) {
   if (!_db) return null;
@@ -385,7 +402,7 @@ async function countMutations() {
 
 async function clearAll() {
   if (!_db) return;
-  const stores = ['songs', 'setlists', 'practice', 'wikiCharts', 'meta', 'pendingWrites', 'audioCache', 'mutationQueue'];
+  const stores = ['songs', 'setlists', 'practice', 'sheets', 'meta', 'pendingWrites', 'audioCache', 'mutationQueue'];
   return new Promise((resolve, reject) => {
     try {
       const tx = _db.transaction(stores, 'readwrite');
@@ -408,7 +425,7 @@ async function getStorageInfo() {
       } catch (_) { resolve(0); }
     });
   };
-  return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice'), wikiCharts: await count('wikiCharts') };
+  return { songs: await count('songs'), setlists: await count('setlists'), practice: await count('practice'), sheets: await count('sheets') };
 }
 
-export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadWikiCharts, saveWikiCharts, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize, enqueueMutation, getAllMutations, dequeueMutation, updateMutation, clearMutationQueue, countMutations };
+export { open, isAvailable, loadSongs, saveSongs, loadSetlists, saveSetlists, loadPractice, savePractice, loadSheets, saveSheets, getMeta, setMeta, clearAll, getStorageInfo, savePendingWrite, loadPendingWrites, clearPendingWrite, clearAllPendingWrites, cacheAudio, getCachedAudio, removeCachedAudio, listCachedAudio, clearAudioCache, getAudioCacheSize, enqueueMutation, getAllMutations, dequeueMutation, updateMutation, clearMutationQueue, countMutations };

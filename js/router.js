@@ -7,14 +7,14 @@
  * @module router
  */
 
-import * as Store from './store.js?v=20.42';
-import * as Player from '../player.js?v=20.42';
-import * as Metronome from '../metronome.js?v=20.42';
+import * as Store from './store.js?v=20.43';
+import * as Player from '../player.js?v=20.43';
+import * as Metronome from '../metronome.js?v=20.43';
 
 // Lazy import to break circular dep (app.js imports router.js)
 let _App = null;
 function _getApp() {
-  if (!_App) _App = import('../app.js?v=20.42');
+  if (!_App) _App = import('../app.js?v=20.43');
   return _App;
 }
 
@@ -70,8 +70,8 @@ function viewToHash(viewName, params) {
     case 'messages': return '#messages';
     case 'account': return '#account';
     case 'settings': return '#settings';
-    case 'wikicharts': return '#wikicharts';
-    case 'wikichart-detail': return params?.wikiChartId ? `#wikichart/${params.wikiChartId}` : '#wikicharts';
+    case 'sheets': return '#sheets';
+    case 'sheet-detail': return params?.sheetId ? `#sheet/${params.sheetId}` : '#sheets';
     case 'orchestra': return '#orchestra';
     case 'orchestra-detail': return params?.orchestraId ? `#orchestra/${params.orchestraId}` : '#orchestra';
     default: return '#';
@@ -106,8 +106,11 @@ function resolveHash(hash) {
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
-    case 'wikicharts': return { view: 'wikicharts' };
-    case 'wikichart': return { view: 'wikichart-detail', wikiChartId: parts[1] };
+    case 'sheets': return { view: 'sheets' };
+    case 'sheet': return { view: 'sheet-detail', sheetId: parts[1] };
+    // Backwards compat: old WikiCharts routes → new Sheets routes
+    case 'wikicharts': return { view: 'sheets' };
+    case 'wikichart': return { view: 'sheet-detail', sheetId: parts[1] };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
     case 'orchestra': return parts[1] ? { view: 'orchestra-detail', orchestraId: parts[1] } : { view: 'orchestra' };
@@ -161,9 +164,9 @@ function showView(name) {
         _callHook('cleanupPractice');
         document.body.classList.remove('practice-mode-active');
       }
-      // Clean up WikiCharts auto-scroll when leaving wikichart views
-      if ((currentView === 'wikicharts' || currentView === 'wikichart-detail') && !name.startsWith('wikichart')) {
-        _callHook('cleanupWikiCharts');
+      // Clean up Sheets auto-scroll when leaving sheet views
+      if ((currentView === 'sheets' || currentView === 'sheet-detail') && !name.startsWith('sheet')) {
+        _callHook('cleanupSheets');
       }
       // Clean up live mode classes inside transition to avoid layout jitter
       if (name !== 'setlist-live') {
@@ -173,7 +176,7 @@ function showView(name) {
       // Hide volume slider when leaving detail view (songs.js shows it when audio exists)
       if (name !== 'detail') _getApp().then(App => App.showVolume && App.showVolume(false));
       // Remove view-specific topbar buttons when leaving
-      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions, #wikicharts-topbar-actions, #wikichart-detail-topbar-actions, #messages-topbar-actions').forEach(el => el.remove());
+      document.querySelectorAll('#acct-logout-topbar, #dash-topbar-actions, #setlists-topbar-actions, #setlist-detail-topbar-actions, #practice-topbar-actions, #practice-list-detail-topbar-actions, #song-detail-topbar-actions, #sheets-topbar-actions, #sheet-detail-topbar-actions, #messages-topbar-actions').forEach(el => el.remove());
       // Tuning fork wrap: only remove when NOT entering practice-detail (it injects its own)
       if (name !== 'practice-detail') document.getElementById('tuning-fork-wrap')?.remove();
       _viewEls.forEach(v => v.classList.remove('active'));
@@ -229,8 +232,8 @@ function showView(name) {
       document.getElementById('btn-setlists')?.setAttribute('aria-current', 'page');
     } else if (name === 'practice' || name === 'practice-detail' || name === 'practice-edit') {
       document.getElementById('btn-practice')?.setAttribute('aria-current', 'page');
-    } else if (name === 'wikicharts' || name === 'wikichart-detail') {
-      document.getElementById('btn-wikicharts')?.setAttribute('aria-current', 'page');
+    } else if (name === 'sheets' || name === 'sheet-detail') {
+      document.getElementById('btn-sheets')?.setAttribute('aria-current', 'page');
     } else if (name === 'messages') {
       document.getElementById('btn-messages')?.setAttribute('aria-current', 'page');
     }
@@ -297,7 +300,7 @@ function setTopbar(title, showBack, isHtml, isHome) {
   document.getElementById('btn-back')?.classList.toggle('hidden', !showBack);
   document.getElementById('btn-setlists')?.classList.toggle('hidden', showBack);
   document.getElementById('btn-practice')?.classList.toggle('hidden', showBack);
-  document.getElementById('btn-wikicharts')?.classList.toggle('hidden', showBack);
+  document.getElementById('btn-sheets')?.classList.toggle('hidden', showBack);
 }
 
 /**

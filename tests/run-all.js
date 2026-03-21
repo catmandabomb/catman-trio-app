@@ -21,7 +21,7 @@ const testFiles = [
   './router.test.js',
   './utils.test.js',
   './setlists.test.js',
-  './wikicharts.test.js',
+  './sheets.test.js',
   './player.test.js',
   './pdf-viewer.test.js',
   './sync.test.js',

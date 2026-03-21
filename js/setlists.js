@@ -5,21 +5,21 @@
  * via Sync.saveSetlists(). Navigation via Router helpers.
  */
 
-import * as Store from './store.js?v=20.42';
-import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.42';
-import * as Modal from './modal.js?v=20.42';
-import * as Router from './router.js?v=20.42';
-import * as Admin from '../admin.js?v=20.42';
-import * as Auth from '../auth.js?v=20.42';
-import * as Sync from './sync.js?v=20.42';
-import * as WikiCharts from './wikicharts.js?v=20.42';
-import * as Drive from '../drive.js?v=20.42';
-import * as GitHub from '../github.js?v=20.42';
-import * as Player from '../player.js?v=20.42';
-import * as PDFViewer from '../pdf-viewer.js?v=20.42';
-import * as App from '../app.js?v=20.42';
-import * as Songs from './songs.js?v=20.42';
-import * as Annotations from './annotations.js?v=20.42';
+import * as Store from './store.js?v=20.43';
+import { esc, showToast, haptic, deepClone, formatDuration as _formatDuration, fallbackCopy as _fallbackCopy, getOrderedCharts as _getOrderedCharts, getChartOrderNum as _getChartOrderNum, safeRender, createDirtyTracker, trackFormInputs } from './utils.js?v=20.43';
+import * as Modal from './modal.js?v=20.43';
+import * as Router from './router.js?v=20.43';
+import * as Admin from '../admin.js?v=20.43';
+import * as Auth from '../auth.js?v=20.43';
+import * as Sync from './sync.js?v=20.43';
+import * as Sheets from './sheets.js?v=20.43';
+import * as Drive from '../drive.js?v=20.43';
+import * as GitHub from '../github.js?v=20.43';
+import * as Player from '../player.js?v=20.43';
+import * as PDFViewer from '../pdf-viewer.js?v=20.43';
+import * as App from '../app.js?v=20.43';
+import * as Songs from './songs.js?v=20.43';
+import * as Annotations from './annotations.js?v=20.43';
 
 // ─── Local state (synced to/from Store) ───────────────────────
 let _setlists          = [];
@@ -603,7 +603,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
               </span>
               ${entry.notes ? `<span class="setlist-song-comment">${esc(entry.notes)}</span>` : ''}
               ${entry.comment ? `<span class="setlist-song-comment">${esc(entry.comment)}</span>` : ''}
-              ${entry.wikiChartId ? `<span class="setlist-song-comment" style="color:var(--accent);font-style:normal;"><i data-lucide="music" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"></i>WikiChart linked${entry.keyOverride ? ' (Key: ' + esc(entry.keyOverride) + ')' : ''}</span>` : ''}
+              ${entry.wikiChartId ? `<span class="setlist-song-comment" style="color:var(--accent);font-style:normal;"><i data-lucide="music" style="width:12px;height:12px;vertical-align:-1px;margin-right:3px;"></i>Sheet linked${entry.keyOverride ? ' (Key: ' + esc(entry.keyOverride) + ')' : ''}</span>` : ''}
             </div>
             ${entry.wikiChartId && (Auth.canEditSetlists()) ? `<button class="icon-btn ft-key-btn" data-idx="${i}" aria-label="Set key override" title="Key override"><i data-lucide="key" style="width:14px;height:14px;"></i></button>` : ''}
             ${isAdmin ? `<button class="icon-btn ft-edit-btn" data-idx="${i}" aria-label="Edit freetext song" title="Edit"><i data-lucide="pencil" style="width:14px;height:14px;"></i></button>` : ''}
@@ -761,7 +761,7 @@ function renderSetlistDetail(setlist, skipNavPush) {
     _prefetchSetlistForOffline(setlist, _songs);
   });
 
-  // Wire Key Override buttons (Feature 22 — freetext entries with WikiChart)
+  // Wire Key Override buttons (Feature 22 — freetext entries with Sheet)
   container.querySelectorAll('.ft-key-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1464,10 +1464,10 @@ function _renderLiveMode(setlist) {
           _pages.push({ type: 'loading', songIdx: si, song, chartDriveId: chart.r2FileId || chart.driveId, chartName: chart.name });
         });
       } else if (song._wikiChartId) {
-        // Freetext song with linked WikiChart — render chord grid
-        const wc = (Store.get('wikiCharts') || []).find(c => c.id === song._wikiChartId);
+        // Freetext song with linked Sheet — render chord grid
+        const wc = (Store.get('sheets') || []).find(c => c.id === song._wikiChartId);
         if (wc) {
-          _pages.push({ type: 'wikichart', songIdx: si, song, wikiChart: wc, keyOverride: song._keyOverride || null });
+          _pages.push({ type: 'sheet', songIdx: si, song, sheet: wc, keyOverride: song._keyOverride || null });
         } else {
           _pages.push({ type: 'metadata', songIdx: si, song });
         }
@@ -2068,11 +2068,11 @@ function _renderLiveMode(setlist) {
         ${song.notes ? `<div class="lm-notes">${esc(song.notes)}</div>` : ''}
       `;
       return Promise.resolve();
-    } else if (page.type === 'wikichart') {
-      // Linked WikiChart — render chord grid in Live Mode
-      const wc = page.wikiChart;
+    } else if (page.type === 'sheet') {
+      // Linked Sheet — render chord grid in Live Mode
+      const wc = page.sheet;
       const _orchFontSize = parseInt(Sync.getOrchestraSetting('live_font_size', '0'), 10) || undefined;
-      metaArea.innerHTML = WikiCharts.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode, keyOverride: page.keyOverride || undefined, fontSize: _orchFontSize });
+      metaArea.innerHTML = Sheets.renderChordGrid(wc, { liveMode: true, darkMode: _darkMode, keyOverride: page.keyOverride || undefined, fontSize: _orchFontSize });
       return Promise.resolve();
     }
     return Promise.resolve();
@@ -3049,7 +3049,7 @@ const KEY_OPTIONS = ['', 'C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb',
   'Cm', 'C#m', 'Dbm', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gbm', 'Gm', 'G#m', 'Abm', 'Am', 'A#m', 'Bbm', 'Bm'];
 
 function _showKeyOverrideModal(entry, setlist) {
-  const wcs = Store.get('wikiCharts') || [];
+  const wcs = Store.get('sheets') || [];
   const wc = wcs.find(c => c.id === entry.wikiChartId);
   const chartKey = wc ? wc.key : '';
 
@@ -3065,7 +3065,7 @@ function _showKeyOverrideModal(entry, setlist) {
     content: `
       <h3>Key Override</h3>
       <p style="color:var(--text-2);font-size:13px;margin-bottom:12px;">
-        Override the display key for <strong>${esc(wc ? wc.title : 'WikiChart')}</strong> in this setlist.
+        Override the display key for <strong>${esc(wc ? wc.title : 'Sheet')}</strong> in this setlist.
         ${chartKey ? 'Original key: <strong>' + esc(chartKey) + '</strong>' : ''}
       </p>
       <div class="form-field">
@@ -3242,51 +3242,51 @@ function _showSetlistNotesModal(setlist) {
   }
 }
 
-// ─── WIKICHART HELPERS FOR FREETEXT LINKING ─────────────────────
+// ─── SHEET HELPERS FOR FREETEXT LINKING ─────────────────────
 
-function _getWikiChartTitle(wcId) {
-  const wcs = Store.get('wikiCharts') || [];
+function _getSheetTitle(wcId) {
+  const wcs = Store.get('sheets') || [];
   const wc = wcs.find(c => c.id === wcId);
   return wc ? wc.title : '(deleted)';
 }
 
-function _showWikiChartPicker(onSelect) {
-  const wcs = (Store.get('wikiCharts') || []).slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  if (!wcs.length) { showToast('No WikiCharts created yet.'); return; }
+function _showSheetPicker(onSelect) {
+  const wcs = (Store.get('sheets') || []).slice().sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  if (!wcs.length) { showToast('No Sheets created yet.'); return; }
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   let listHtml = wcs.map(wc => `
-    <div class="wc-picker-row" data-wc-id="${esc(wc.id)}" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);">
+    <div class="sh-picker-row" data-sh-id="${esc(wc.id)}" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);">
       <strong>${esc(wc.title)}</strong>
       <span style="color:var(--muted);font-size:12px;margin-left:8px;">${wc.key ? esc(wc.key) : ''}${wc.key && wc.bpm ? ' · ' : ''}${wc.bpm ? wc.bpm + ' bpm' : ''}</span>
     </div>`).join('');
   overlay.innerHTML = `
     <div class="modal" style="max-height:70vh;overflow-y:auto;">
-      <h2>Link WikiChart</h2>
-      <input class="form-input" id="wc-picker-search" type="text" placeholder="Search charts…" style="margin-bottom:8px;" />
-      <div id="wc-picker-list">${listHtml}</div>
-      <div class="modal-actions"><button class="btn-secondary" id="wc-picker-cancel">Cancel</button></div>
+      <h2>Link Sheet</h2>
+      <input class="form-input" id="sh-picker-search" type="text" placeholder="Search charts…" style="margin-bottom:8px;" />
+      <div id="sh-picker-list">${listHtml}</div>
+      <div class="modal-actions"><button class="btn-secondary" id="sh-picker-cancel">Cancel</button></div>
     </div>`;
   document.body.appendChild(overlay);
-  const searchInput = overlay.querySelector('#wc-picker-search');
+  const searchInput = overlay.querySelector('#sh-picker-search');
   searchInput.focus();
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.toLowerCase().trim();
-    overlay.querySelectorAll('.wc-picker-row').forEach(row => {
+    overlay.querySelectorAll('.sh-picker-row').forEach(row => {
       const title = (row.querySelector('strong')?.textContent || '').toLowerCase();
       row.style.display = title.includes(q) ? '' : 'none';
     });
   });
-  overlay.querySelectorAll('.wc-picker-row').forEach(row => {
+  overlay.querySelectorAll('.sh-picker-row').forEach(row => {
     row.addEventListener('click', () => {
-      const wcId = row.dataset.wcId;
+      const wcId = row.dataset.shId;
       overlay.remove();
       if (onSelect) onSelect(wcId);
     });
   });
-  overlay.querySelector('#wc-picker-cancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#sh-picker-cancel').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.remove(); });
 }
@@ -3319,12 +3319,12 @@ function _showFreetextEditModal(entry, onSave) {
         <label class="form-label" for="ft-notes">Notes <span class="muted" style="font-weight:400">(optional)</span></label>
         <textarea class="form-input" id="ft-notes" rows="3" placeholder="Chord changes, arrangement notes…" maxlength="2000">${esc(entry.notes || '')}</textarea>
       </div>
-      ${Auth.canEditSongs() ? `<div class="form-field" id="ft-wikichart-field">
-        <label class="form-label">Linked WikiChart</label>
+      ${Auth.canEditSongs() ? `<div class="form-field" id="ft-sheet-field">
+        <label class="form-label">Linked Sheet</label>
         <div style="display:flex;gap:8px;align-items:center;">
-          <span id="ft-wc-label" style="flex:1;font-size:13px;color:var(--muted);">${entry.wikiChartId ? esc(_getWikiChartTitle(entry.wikiChartId)) : 'None'}</span>
-          <button class="btn-secondary" id="ft-link-wc" type="button" style="font-size:12px;padding:4px 10px;">${entry.wikiChartId ? 'Change' : 'Link'}</button>
-          ${entry.wikiChartId ? '<button class="btn-secondary" id="ft-unlink-wc" type="button" style="font-size:12px;padding:4px 10px;">Unlink</button>' : ''}
+          <span id="ft-sh-label" style="flex:1;font-size:13px;color:var(--muted);">${entry.wikiChartId ? esc(_getSheetTitle(entry.wikiChartId)) : 'None'}</span>
+          <button class="btn-secondary" id="ft-link-sh" type="button" style="font-size:12px;padding:4px 10px;">${entry.wikiChartId ? 'Change' : 'Link'}</button>
+          ${entry.wikiChartId ? '<button class="btn-secondary" id="ft-unlink-sh" type="button" style="font-size:12px;padding:4px 10px;">Unlink</button>' : ''}
         </div>
       </div>` : ''}
       <div class="modal-actions">
@@ -3335,7 +3335,7 @@ function _showFreetextEditModal(entry, onSave) {
   `;
   document.body.appendChild(overlay);
 
-  let _linkedWikiChartId = entry.wikiChartId || null;
+  let _linkedSheetId = entry.wikiChartId || null;
 
   const titleInput = overlay.querySelector('#ft-title');
   titleInput.focus();
@@ -3346,25 +3346,25 @@ function _showFreetextEditModal(entry, onSave) {
     if (triggerEl && triggerEl.isConnected) triggerEl.focus();
   }
 
-  // WikiChart link/unlink (admin only)
-  const linkBtn = overlay.querySelector('#ft-link-wc');
+  // Sheet link/unlink (admin only)
+  const linkBtn = overlay.querySelector('#ft-link-sh');
   if (linkBtn) {
     linkBtn.addEventListener('click', () => {
-      _showWikiChartPicker((wcId) => {
-        _linkedWikiChartId = wcId;
-        const label = overlay.querySelector('#ft-wc-label');
-        if (label) label.textContent = _getWikiChartTitle(wcId);
+      _showSheetPicker((shId) => {
+        _linkedSheetId = shId;
+        const label = overlay.querySelector('#ft-sh-label');
+        if (label) label.textContent = _getSheetTitle(shId);
         linkBtn.textContent = 'Change';
         // Add unlink button if not present
-        if (!overlay.querySelector('#ft-unlink-wc')) {
+        if (!overlay.querySelector('#ft-unlink-sh')) {
           const unlinkBtn = document.createElement('button');
           unlinkBtn.className = 'btn-secondary';
-          unlinkBtn.id = 'ft-unlink-wc';
+          unlinkBtn.id = 'ft-unlink-sh';
           unlinkBtn.type = 'button';
           unlinkBtn.style.cssText = 'font-size:12px;padding:4px 10px;';
           unlinkBtn.textContent = 'Unlink';
           unlinkBtn.addEventListener('click', () => {
-            _linkedWikiChartId = null;
+            _linkedSheetId = null;
             if (label) label.textContent = 'None';
             linkBtn.textContent = 'Link';
             unlinkBtn.remove();
@@ -3374,11 +3374,11 @@ function _showFreetextEditModal(entry, onSave) {
       });
     });
   }
-  const unlinkBtn = overlay.querySelector('#ft-unlink-wc');
+  const unlinkBtn = overlay.querySelector('#ft-unlink-sh');
   if (unlinkBtn) {
     unlinkBtn.addEventListener('click', () => {
-      _linkedWikiChartId = null;
-      const label = overlay.querySelector('#ft-wc-label');
+      _linkedSheetId = null;
+      const label = overlay.querySelector('#ft-sh-label');
       if (label) label.textContent = 'None';
       if (linkBtn) linkBtn.textContent = 'Link';
       unlinkBtn.remove();
@@ -3393,7 +3393,7 @@ function _showFreetextEditModal(entry, onSave) {
     const bpmVal = parseInt(overlay.querySelector('#ft-bpm').value, 10);
     entry.bpm = (bpmVal > 0 && bpmVal <= 400) ? bpmVal : '';
     entry.notes = overlay.querySelector('#ft-notes').value.trim();
-    entry.wikiChartId = _linkedWikiChartId || undefined;
+    entry.wikiChartId = _linkedSheetId || undefined;
     _closeModal();
     if (onSave) onSave();
   });

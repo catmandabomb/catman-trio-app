@@ -275,7 +275,7 @@ describe('MutationQueue: badge formatting', () => {
 
 describe('MutationQueue: body key mapping', () => {
   function bodyKey(type) {
-    return type === 'wikicharts' ? 'wikiCharts' : type;
+    return type; // All types now use same key
   }
 
   it('maps songs to songs', () => {
@@ -290,8 +290,8 @@ describe('MutationQueue: body key mapping', () => {
     assert.equal(bodyKey('practice'), 'practice');
   });
 
-  it('maps wikicharts to wikiCharts (camelCase)', () => {
-    assert.equal(bodyKey('wikicharts'), 'wikiCharts');
+  it('maps sheets to sheets', () => {
+    assert.equal(bodyKey('sheets'), 'sheets');
   });
 });
 
@@ -622,13 +622,9 @@ describe('MutationQueue: edge cases', () => {
     assert.equal(formatBadge(99), '99');
   });
 
-  it('body key mapping only transforms wikicharts', () => {
-    function bodyKey(type) {
-      return type === 'wikicharts' ? 'wikiCharts' : type;
-    }
-    // Verify all 4 types have correct body key for API payload
-    const types = ['songs', 'setlists', 'practice', 'wikicharts'];
-    const expected = ['songs', 'setlists', 'practice', 'wikiCharts'];
-    types.forEach((t, i) => assert.equal(bodyKey(t), expected[i]));
+  it('body key mapping is identity for all types', () => {
+    function bodyKey(type) { return type; }
+    const types = ['songs', 'setlists', 'practice', 'sheets'];
+    types.forEach(t => assert.equal(bodyKey(t), t));
   });
 });

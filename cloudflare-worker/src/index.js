@@ -18,7 +18,7 @@
  *   GET/POST /data/songs       — D1 songs CRUD (auth, write=admin/owner)
  *   GET/POST /data/setlists    — D1 setlists CRUD (auth, write=admin/owner)
  *   GET/POST /data/practice    — D1 practice CRUD (auth, write=non-guest)
- *   GET/POST /data/wikicharts  — D1 wiki charts CRUD (auth, write=non-guest)
+ *   GET/POST /data/sheets      — D1 sheets CRUD (auth, write=non-guest) [/data/wikicharts still works]
  *   GET/POST /orchestras       — Orchestra CRUD (auth)
  *   GET/POST/DELETE /orchestras/:id/members — Orchestra membership (conductr/owner/admin)
  *   GET     /instruments       — Instrument hierarchy (auth)
@@ -1385,19 +1385,19 @@ export default {
       return respond(await AppData.savePractice(request, env, currentUser, _orchId));
     }
 
-    // GET /data/wikicharts — list wiki charts (scoped)
-    if (path === '/data/wikicharts' && method === 'GET') {
-      return respond(await AppData.listWikiCharts(env, _orchId));
+    // GET /data/sheets (or /data/wikicharts for backwards compat) — list sheets (scoped)
+    if ((path === '/data/sheets' || path === '/data/wikicharts') && method === 'GET') {
+      return respond(await AppData.listSheets(env, _orchId));
     }
-    // POST /data/wikicharts — save wiki charts
-    if (path === '/data/wikicharts' && method === 'POST') {
+    // POST /data/sheets (or /data/wikicharts for backwards compat) — save sheets
+    if ((path === '/data/sheets' || path === '/data/wikicharts') && method === 'POST') {
       if (currentUser.role === 'guest') {
-        return respond(json({ error: 'Guests cannot create wiki charts' }, 403));
+        return respond(json({ error: 'Guests cannot create sheets' }, 403));
       }
       if (!_orchId && !['owner', 'admin'].includes(currentUser.role)) {
         return respond(json({ error: 'No active orchestra — join or switch to an orchestra first' }, 403));
       }
-      return respond(await AppData.saveWikiCharts(request, env, currentUser, _orchId));
+      return respond(await AppData.saveSheets(request, env, currentUser, _orchId));
     }
 
     // GET /data/changes — lightweight timestamp check for polling sync (scoped)

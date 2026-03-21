@@ -102,7 +102,7 @@ describe('Service Worker — shell assets', () => {
 
   it('includes all JS modules', () => {
     const jsModules = ['/js/store.js', '/js/utils.js', '/js/modal.js', '/js/router.js',
-      '/js/sync.js', '/js/songs.js', '/js/setlists.js', '/js/practice.js', '/js/wikicharts.js',
+      '/js/sync.js', '/js/songs.js', '/js/setlists.js', '/js/practice.js', '/js/sheets.js',
       '/js/orchestra.js', '/js/instruments.js', '/js/messages.js', '/js/annotations.js', '/js/opfs.js'];
     jsModules.forEach(mod => assert.includes(SHELL_ASSETS, mod, `Missing: ${mod}`));
   });

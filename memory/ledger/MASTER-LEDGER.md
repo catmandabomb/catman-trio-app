@@ -1,6 +1,6 @@
 # MASTER LEDGER — Catman Trio App
 
-**Last updated**: v20.40 (2026-03-20)
+**Last updated**: v20.42 (2026-03-21)
 
 ---
 
@@ -34,6 +34,11 @@ Vanilla JS PWA for a working band. Offline-first, mobile-first, dark theme. Clou
 | Client error reporting | v20.28 | `app.js` POST /client-errors |
 | SW health check + version-aware cache bust | v20.28 | `service-worker.js` |
 | Key pills (24 canonical, enharmonic normalization) | v20.40 | `js/utils.js` parseKeyField() |
+| Dashboard reorg + admin toggle fix | v20.41 | `js/dashboard.js` |
+| Settings overhaul (collapsible, purge, technical toasts) | v20.41 | `app.js`, `js/utils.js` |
+| PDF annotation zoom sync + bleed fix | v20.41 | `pdf-viewer.js`, `js/annotations.js` |
+| Nav hardening (account navStack fix) | v20.41 | `app.js` |
+| Dynamic header button sizing (ResizeObserver) | v20.42 | `app.js`, `app.css` |
 | Compressed localStorage (gz: prefix) | v20.34 | `js/sync.js` |
 | Cross-tab auth sync | v20.20+ | `auth.js` storage event |
 | Practice detail deep links (#practice/:id) | v20.29 | `js/practice.js` |
@@ -44,14 +49,17 @@ Vanilla JS PWA for a working band. Offline-first, mobile-first, dark theme. Clou
 |---|---|---|
 | Migration 0015 (orchestra_messages) | Code complete | Needs `wrangler d1 migrations apply` on prod |
 
+### Approved — Not Yet Started
+
+| Feature | Context | Source |
+|---|---|---|
+| Rename WikiCharts to Sheets | Full rename of area + references across JS/CSS/HTML/routes/API/Worker | User approved v20.41 session |
+| AI song detection (auto key/BPM/duration) | MusicBrainz or similar API for new song form + WikiChart quicktext | v20.40, `CLAUDE/song-detection-research.md` |
+
 ### Parked
 
 | Feature | Context | Source |
 |---|---|---|
-| Rename WikiCharts to Sheets | User wants full rename of area + references | User request |
-| Practice Session Timer/Stats | No timer tracking exists | v20.28 handoff |
-| AI song detection (auto key/BPM/duration) | MusicBrainz or similar API for new song form + WikiChart quicktext | v20.40, `CLAUDE/song-detection-research.md` |
-| Dynamic header button sizing | Resize nav buttons based on available space | v20.40, research agent launched |
 | Stage Red Theme | CSS custom property swap for Live Mode | v20.28 handoff |
 | Setlist Intelligence | Last-played tracking, duplicate detection, key transition warnings | v20.28 handoff |
 | OPFS Write Buffer | Crash-resilient alternative to localStorage | v20.28 handoff |
@@ -68,7 +76,6 @@ Vanilla JS PWA for a working band. Offline-first, mobile-first, dark theme. Clou
 | Bug | Severity | Source | Effort |
 |---|---|---|---|
 | Auth init race condition | MEDIUM | v20.33+ | App renders logged-out skeleton before checking cached session |
-| Dead toggles: `ct_pref_date_format`, `ct_pref_notif_sync_conflict` | LOW | v20.28+ | 15 min cleanup |
 | CSP inline handler warning (`onclick=""` on topbar-title) | LOW | v20.33 | Cosmetic |
 | Samsung DeX falsely detected as mobile | MEDIUM | Android audit | 30 min |
 | No viewport resize handler (foldables, DeX) | MEDIUM | Android audit | 2 hr |
@@ -81,6 +88,12 @@ Vanilla JS PWA for a working band. Offline-first, mobile-first, dark theme. Clou
 
 | Bug | Fixed in | Notes |
 |---|---|---|
+| Dead toggles (ct_pref_date_format, ct_pref_notif_sync_conflict) | v20.42 | Already removed from source, confirmed clean |
+| Dashboard admin toggle stuck bug | v20.41 | Inline button update instead of re-render |
+| PDF annotation zoom desync | v20.41 | Transform synced to overlay in applyTransform() |
+| PDF annotation bleed between songs | v20.41 | Stale overlay cleanup in attachLiveMode() |
+| Account/settings navStack wipe | v20.41 | Only wipe on fresh entry |
+| admin.js stale v20.27 imports | v20.41 | Updated to current version |
 | Sort button invisible on mobile | v20.40 | Removed inherited CSS hide rules |
 | + button missing after app reopen | v20.40 | Changed to `Auth.canEditSongs()` |
 | Sync replaces data with empty arrays | v20.40 | Never overwrite local with empty API response |
@@ -169,10 +182,16 @@ Vanilla JS PWA for a working band. Offline-first, mobile-first, dark theme. Clou
 
 ---
 
-## Next Priorities (from v20.40 handoff)
+## NUKED Features (User explicitly killed)
 
-1. Verify v20.40 fixes on user's iPad (sort button, + button, key pills)
-2. AI song detection planning (API integration + UX)
-3. Dynamic header button sizing (use research results)
-4. Auth init race condition fix
-5. Continue region-by-region bug hunt
+| Feature | Reason | Date |
+|---|---|---|
+| Practice Session Timer/Stats | "100% not something I want for this app" | v20.41 session |
+
+## Next Priorities (from v20.42 handoff)
+
+1. **Rename WikiCharts → Sheets** — APPROVED, full rename across codebase
+2. **AI Song Detection** — plan + research complete, ready to build
+3. **Migration 0015 deploy** — needs user's Cloudflare auth
+4. **Auth init race condition fix** — renders logged-out before checking session
+5. **Sheets entry UX research** — cross-comparison with other apps (background)

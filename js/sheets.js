@@ -1,42 +1,42 @@
 /**
- * wikicharts.js — Text-based chord chart creation & display
+ * sheets.js — Text-based chord chart creation & display
  *
- * Full WikiChart system: list, detail, create/edit views with
+ * Full Sheets system: list, detail, create/edit views with
  * transposition, Nashville numbers, auto-scroll teleprompter,
  * chord diagrams, and more.
  *
- * Permissions: ALL logged-in users can create/edit/delete their own WikiCharts.
- * Admins can edit/delete any WikiChart.
- * Only admins can link WikiCharts to setlist freetext entries.
+ * Permissions: ALL logged-in users can create/edit/delete their own Sheets.
+ * Admins can edit/delete any Sheet.
+ * Only admins can link Sheets to setlist freetext entries.
  *
- * @module wikicharts
+ * @module sheets
  */
 
-import * as Store from './store.js?v=20.42';
-import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.42';
-import * as Modal from './modal.js?v=20.42';
-import * as Router from './router.js?v=20.42';
-import * as Admin from '../admin.js?v=20.42';
-import * as Auth from '../auth.js?v=20.42';
-import * as Sync from './sync.js?v=20.42';
+import * as Store from './store.js?v=20.43';
+import { esc, showToast, haptic, deepClone, safeRender, requestWakeLock, releaseWakeLock } from './utils.js?v=20.43';
+import * as Modal from './modal.js?v=20.43';
+import * as Router from './router.js?v=20.43';
+import * as Admin from '../admin.js?v=20.43';
+import * as Auth from '../auth.js?v=20.43';
+import * as Sync from './sync.js?v=20.43';
 
 // ─── Constants ──────────────────────────────────────────────
 
 const SECTION_TYPES = ['INTRO', 'VERSE', 'PRE-CHORUS', 'CHORUS', 'BRIDGE', 'SOLO', 'OUTRO', 'INTERLUDE', 'TAG', 'TURNAROUND', 'BREAK', 'VAMP', 'CODA'];
 const SECTION_COLORS = {
-  'INTRO':       'var(--wc-intro)',
-  'VERSE':       'var(--wc-verse)',
-  'PRE-CHORUS':  'var(--wc-prechorus)',
-  'CHORUS':      'var(--wc-chorus)',
-  'BRIDGE':      'var(--wc-bridge)',
-  'SOLO':        'var(--wc-solo)',
-  'OUTRO':       'var(--wc-outro)',
-  'INTERLUDE':   'var(--wc-interlude)',
-  'TAG':         'var(--wc-tag)',
-  'TURNAROUND':  'var(--wc-turnaround)',
-  'BREAK':       'var(--wc-break)',
-  'VAMP':        'var(--wc-vamp)',
-  'CODA':        'var(--wc-coda)',
+  'INTRO':       'var(--sh-intro)',
+  'VERSE':       'var(--sh-verse)',
+  'PRE-CHORUS':  'var(--sh-prechorus)',
+  'CHORUS':      'var(--sh-chorus)',
+  'BRIDGE':      'var(--sh-bridge)',
+  'SOLO':        'var(--sh-solo)',
+  'OUTRO':       'var(--sh-outro)',
+  'INTERLUDE':   'var(--sh-interlude)',
+  'TAG':         'var(--sh-tag)',
+  'TURNAROUND':  'var(--sh-turnaround)',
+  'BREAK':       'var(--sh-break)',
+  'VAMP':        'var(--sh-vamp)',
+  'CODA':        'var(--sh-coda)',
 };
 
 const STRUCTURE_TAGS = [
@@ -93,20 +93,20 @@ const CHORD_DIAGRAMS = {
 
 // ─── Local state ────────────────────────────────────────────
 
-let _wikiCharts = [];
-let _activeWikiChart = null;
+let _sheets = [];
+let _activeSheet = null;
 let _scrollRaf = null;
-let _scrollSpeed = (() => { try { return parseFloat(localStorage.getItem('ct_pref_wc_scroll_speed')) || 1; } catch (_) { return 1; } })();
+let _scrollSpeed = (() => { try { return parseFloat(localStorage.getItem('ct_pref_sh_scroll_speed')) || 1; } catch (_) { return 1; } })();
 let _scrolling = false;
 
 // Persist transpose/nashville state across back-forward nav for same chart
 let _detailState = { chartId: null, transposeSemitones: 0, showNashville: false };
 
 // Feature 17: Condensed view toggle
-let _condensedView = (() => { try { return localStorage.getItem('ct_pref_wc_condensed') === 'true'; } catch (_) { return false; } })();
+let _condensedView = (() => { try { return localStorage.getItem('ct_pref_sh_condensed') === 'true'; } catch (_) { return false; } })();
 
 // Feature 24: Slash notation toggle
-let _showSlashes = (() => { try { return localStorage.getItem('ct_pref_wc_slashes') === 'true'; } catch (_) { return false; } })();
+let _showSlashes = (() => { try { return localStorage.getItem('ct_pref_sh_slashes') === 'true'; } catch (_) { return false; } })();
 
 // Feature 21: Section highlighting (IntersectionObserver)
 let _sectionObserver = null;
@@ -128,7 +128,7 @@ let _playbackBars = [];       // resolved flat bar sequence from form resolution
 let _playbackSectionMap = []; // maps each bar in _playbackBars to { sectionIdx, barIdx }
 let _playbackChart = null;
 let _playbackLastVoicing = null;
-let _playbackMuteMetro = (() => { try { return localStorage.getItem('ct_pref_wc_playback_mute_metro') === 'true'; } catch (_) { return false; } })();
+let _playbackMuteMetro = (() => { try { return localStorage.getItem('ct_pref_sh_playback_mute_metro') === 'true'; } catch (_) { return false; } })();
 let _playbackRenderCallback = null; // re-render detail view
 
 // Section loop state
@@ -137,14 +137,14 @@ let _loopSectionIdx = -1; // -1 = no loop active
 // ─── ID generation ──────────────────────────────────────────
 
 function _generateId() {
-  const existing = new Set((_wikiCharts || []).map(c => c.id));
+  const existing = new Set((_sheets || []).map(c => c.id));
   let attempts = 0;
   while (attempts < 1000) {
     const id = 'wc_' + Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
     if (!existing.has(id)) return id;
     attempts++;
   }
-  throw new Error('Could not generate unique WikiChart ID');
+  throw new Error('Could not generate unique Sheet ID');
 }
 
 function _generateSectionId() {
@@ -154,16 +154,16 @@ function _generateSectionId() {
 // ─── State helpers ──────────────────────────────────────────
 
 function _syncFromStore() {
-  _wikiCharts = Store.get('wikiCharts') || [];
+  _sheets = Store.get('sheets') || [];
 }
 
 function _syncToStore() {
-  Store.set('wikiCharts', _wikiCharts);
+  Store.set('sheets', _sheets);
 }
 
-async function _saveWikiCharts(toastMsg) {
+async function _saveSheets(toastMsg) {
   _syncToStore();
-  return Sync.saveWikiCharts(toastMsg);
+  return Sync.saveSheets(toastMsg);
 }
 
 // ─── Transposition engine ───────────────────────────────────
@@ -446,10 +446,10 @@ function _canDelete(chart) {
 // LIST VIEW
 // ═══════════════════════════════════════════════════════════
 
-function renderWikiChartsList(opts) {
+function renderSheetsList(opts) {
   _syncFromStore();
-  _showView('wikicharts');
-  _setTopbar('WikiCharts', true);
+  _showView('sheets');
+  _setTopbar('Sheets', true);
   _setRouteParams({});
   _pushNav(() => {
     // Back goes to song list
@@ -457,19 +457,19 @@ function renderWikiChartsList(opts) {
     Router.setTopbar('', false, false, true);
   });
 
-  const container = document.getElementById('wikicharts-list');
+  const container = document.getElementById('sheets-list');
   if (!container) return;
 
   // Inject topbar action buttons synchronously (matches setlists/practice pattern)
-  document.getElementById('wikicharts-topbar-actions')?.remove();
+  document.getElementById('sheets-topbar-actions')?.remove();
   const topbar = document.querySelector('.topbar-right');
   if (topbar && Auth.isLoggedIn()) {
     const actionsWrap = document.createElement('span');
-    actionsWrap.id = 'wikicharts-topbar-actions';
-    actionsWrap.innerHTML = `<button id="btn-add-wikichart" class="icon-btn" aria-label="New WikiChart" title="New WikiChart"><i data-lucide="plus"></i></button>`;
+    actionsWrap.id = 'sheets-topbar-actions';
+    actionsWrap.innerHTML = `<button id="btn-add-sheet" class="icon-btn" aria-label="New Sheet" title="New Sheet"><i data-lucide="plus"></i></button>`;
     topbar.prepend(actionsWrap);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
-    actionsWrap.querySelector('#btn-add-wikichart').addEventListener('click', () => {
+    actionsWrap.querySelector('#btn-add-sheet').addEventListener('click', () => {
       _renderCreateEdit(null);
     });
   }
@@ -479,7 +479,7 @@ function renderWikiChartsList(opts) {
   let activeTag = '';
 
   function _render() {
-    let charts = [..._wikiCharts].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    let charts = [..._sheets].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
     if (searchText) {
       const q = searchText.toLowerCase();
@@ -494,29 +494,29 @@ function renderWikiChartsList(opts) {
     }
 
     let html = `
-      <div class="wc-search-bar">
+      <div class="sh-search-bar">
         <div class="search-input-wrap">
           <i data-lucide="search" class="search-icon"></i>
-          <input type="text" id="wc-search" placeholder="Search charts…" value="${esc(searchText)}" autocomplete="off" maxlength="100" />
+          <input type="text" id="sh-search" placeholder="Search charts…" value="${esc(searchText)}" autocomplete="off" maxlength="100" />
         </div>
       </div>
     `;
 
     // Structure tag filter chips
-    const usedTags = [...new Set(_wikiCharts.map(c => c.structureTag).filter(Boolean))].sort();
+    const usedTags = [...new Set(_sheets.map(c => c.structureTag).filter(Boolean))].sort();
     if (usedTags.length) {
-      html += `<div class="wc-tag-bar">`;
+      html += `<div class="sh-tag-bar">`;
       for (const tag of usedTags) {
         const isActive = tag === activeTag;
-        html += `<button class="wc-tag-chip ${isActive ? 'active' : ''}" data-tag="${esc(tag)}">${esc(tag)}</button>`;
+        html += `<button class="sh-tag-chip ${isActive ? 'active' : ''}" data-tag="${esc(tag)}">${esc(tag)}</button>`;
       }
       html += `</div>`;
     }
 
     if (charts.length === 0) {
-      html += `<div class="empty-state"><p>${searchText || activeTag ? 'No matching charts.' : 'No WikiCharts yet.'}</p><p class="muted">${Auth.isLoggedIn() ? 'Tap + to create your first chord chart.' : 'Log in to create chord charts.'}</p></div>`;
+      html += `<div class="empty-state"><p>${searchText || activeTag ? 'No matching charts.' : 'No Sheets yet.'}</p><p class="muted">${Auth.isLoggedIn() ? 'Tap + to create your first chord chart.' : 'Log in to create chord charts.'}</p></div>`;
     } else {
-      html += `<div class="wc-list">`;
+      html += `<div class="sh-list">`;
       for (const chart of charts) {
         const meta = [];
         if (chart.key) meta.push(chart.key);
@@ -525,13 +525,13 @@ function renderWikiChartsList(opts) {
         if (chart.feel) meta.push(chart.feel);
         const sectionCount = (chart.sections || []).length;
         html += `
-          <div class="wc-list-row" data-id="${esc(chart.id)}" tabindex="0" role="button" aria-label="${esc(chart.title || 'Untitled')}">
-            <div class="wc-list-info">
-              <span class="wc-list-title">${esc(chart.title || 'Untitled')}</span>
-              ${meta.length ? `<span class="wc-list-meta">${meta.map(m => esc(m)).join(' · ')}</span>` : ''}
-              ${chart.structureTag ? `<span class="wc-list-tag">${esc(chart.structureTag)}</span>` : ''}
+          <div class="sh-list-row" data-id="${esc(chart.id)}" tabindex="0" role="button" aria-label="${esc(chart.title || 'Untitled')}">
+            <div class="sh-list-info">
+              <span class="sh-list-title">${esc(chart.title || 'Untitled')}</span>
+              ${meta.length ? `<span class="sh-list-meta">${meta.map(m => esc(m)).join(' · ')}</span>` : ''}
+              ${chart.structureTag ? `<span class="sh-list-tag">${esc(chart.structureTag)}</span>` : ''}
             </div>
-            <span class="wc-list-sections">${sectionCount} section${sectionCount !== 1 ? 's' : ''}</span>
+            <span class="sh-list-sections">${sectionCount} section${sectionCount !== 1 ? 's' : ''}</span>
           </div>`;
       }
       html += `</div>`;
@@ -541,14 +541,14 @@ function renderWikiChartsList(opts) {
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire search
-    const searchInput = container.querySelector('#wc-search');
+    const searchInput = container.querySelector('#sh-search');
     searchInput?.addEventListener('input', () => {
       searchText = searchInput.value;
       _render();
     });
 
     // Wire tag chips
-    container.querySelectorAll('.wc-tag-chip').forEach(btn => {
+    container.querySelectorAll('.sh-tag-chip').forEach(btn => {
       btn.addEventListener('click', () => {
         activeTag = activeTag === btn.dataset.tag ? '' : btn.dataset.tag;
         _render();
@@ -556,7 +556,7 @@ function renderWikiChartsList(opts) {
     });
 
     // Wire row clicks
-    container.querySelectorAll('.wc-list-row').forEach(row => {
+    container.querySelectorAll('.sh-list-row').forEach(row => {
       row.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -564,8 +564,8 @@ function renderWikiChartsList(opts) {
         }
       });
       row.addEventListener('click', () => {
-        const chart = _wikiCharts.find(c => c.id === row.dataset.id);
-        if (chart) renderWikiChartDetail(chart);
+        const chart = _sheets.find(c => c.id === row.dataset.id);
+        if (chart) renderSheetDetail(chart);
       });
     });
   }
@@ -577,22 +577,22 @@ function renderWikiChartsList(opts) {
 // DETAIL VIEW
 // ═══════════════════════════════════════════════════════════
 
-function renderWikiChartDetail(chart, opts) {
+function renderSheetDetail(chart, opts) {
   _syncFromStore();
   // Refresh chart reference from store
-  const freshChart = _wikiCharts.find(c => c.id === chart.id);
-  if (!freshChart) { showToast('Chart not found.'); renderWikiChartsList(); return; }
+  const freshChart = _sheets.find(c => c.id === chart.id);
+  if (!freshChart) { showToast('Chart not found.'); renderSheetsList(); return; }
   chart = freshChart;
 
-  _activeWikiChart = chart;
-  Store.set('activeWikiChart', chart);
-  _showView('wikichart-detail');
+  _activeSheet = chart;
+  Store.set('activeSheet', chart);
+  _showView('sheet-detail');
   requestWakeLock();
-  _setTopbar(chart.title || 'WikiChart', true);
-  _setRouteParams({ wikiChartId: chart.id });
-  _pushNav(() => renderWikiChartsList());
+  _setTopbar(chart.title || 'Sheet', true);
+  _setRouteParams({ sheetId: chart.id });
+  _pushNav(() => renderSheetsList());
 
-  const container = document.getElementById('wikichart-detail-content');
+  const container = document.getElementById('sheet-detail-content');
   if (!container) return;
 
   // State — restore from module cache if same chart, else reset
@@ -601,106 +601,106 @@ function renderWikiChartDetail(chart, opts) {
   }
   let transposeSemitones = _detailState.transposeSemitones;
   let showNashville = _detailState.showNashville;
-  let fontSize = parseInt(localStorage.getItem('ct_pref_wc_fontsize') || '18', 10);
+  let fontSize = parseInt(localStorage.getItem('ct_pref_sh_fontsize') || '18', 10);
 
   // Inject topbar actions synchronously (matches setlists/practice pattern)
-  document.getElementById('wikichart-detail-topbar-actions')?.remove();
+  document.getElementById('sheet-detail-topbar-actions')?.remove();
   const topbar = document.querySelector('.topbar-right');
   if (topbar) {
     const actionsWrap = document.createElement('span');
-    actionsWrap.id = 'wikichart-detail-topbar-actions';
+    actionsWrap.id = 'sheet-detail-topbar-actions';
     let btns = '';
     if (_canEdit(chart)) {
-      btns += `<button id="wc-btn-edit" class="icon-btn" aria-label="Edit" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>`;
+      btns += `<button id="sh-btn-edit" class="icon-btn" aria-label="Edit" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>`;
     }
-    btns += `<span class="wc-export-wrap" style="position:relative;display:inline-block;">
-      <button id="wc-btn-export" class="icon-btn" aria-label="Export" title="Export"><i data-lucide="download" style="width:16px;height:16px;"></i></button>
-      <div id="wc-export-menu" class="wc-export-menu hidden">
-        <button class="wc-export-opt" data-fmt="ascii">ASCII (grid)</button>
-        <button class="wc-export-opt" data-fmt="chordpro">ChordPro</button>
-        <button class="wc-export-opt" data-fmt="condensed">Condensed text</button>
+    btns += `<span class="sh-export-wrap" style="position:relative;display:inline-block;">
+      <button id="sh-btn-export" class="icon-btn" aria-label="Export" title="Export"><i data-lucide="download" style="width:16px;height:16px;"></i></button>
+      <div id="sh-export-menu" class="sh-export-menu hidden">
+        <button class="sh-export-opt" data-fmt="ascii">ASCII (grid)</button>
+        <button class="sh-export-opt" data-fmt="chordpro">ChordPro</button>
+        <button class="sh-export-opt" data-fmt="condensed">Condensed text</button>
       </div>
     </span>`;
-    btns += `<button id="wc-btn-duplicate" class="icon-btn" aria-label="Duplicate" title="Duplicate"><i data-lucide="copy" style="width:16px;height:16px;"></i></button>`;
+    btns += `<button id="sh-btn-duplicate" class="icon-btn" aria-label="Duplicate" title="Duplicate"><i data-lucide="copy" style="width:16px;height:16px;"></i></button>`;
     if (_canEdit(chart) && chart.versions && chart.versions.length) {
-      btns += `<button id="wc-btn-history" class="icon-btn" aria-label="History" title="Version history"><i data-lucide="history" style="width:16px;height:16px;"></i></button>`;
+      btns += `<button id="sh-btn-history" class="icon-btn" aria-label="History" title="Version history"><i data-lucide="history" style="width:16px;height:16px;"></i></button>`;
     }
     actionsWrap.innerHTML = btns;
     topbar.prepend(actionsWrap);
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [actionsWrap] });
 
-    actionsWrap.querySelector('#wc-btn-edit')?.addEventListener('click', () => _renderCreateEdit(chart));
+    actionsWrap.querySelector('#sh-btn-edit')?.addEventListener('click', () => _renderCreateEdit(chart));
     // Export menu toggle
-    actionsWrap.querySelector('#wc-btn-export')?.addEventListener('click', (e) => {
+    actionsWrap.querySelector('#sh-btn-export')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      const menu = actionsWrap.querySelector('#wc-export-menu');
+      const menu = actionsWrap.querySelector('#sh-export-menu');
       if (menu) menu.classList.toggle('hidden');
     });
-    actionsWrap.querySelectorAll('.wc-export-opt').forEach(btn => {
+    actionsWrap.querySelectorAll('.sh-export-opt').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const fmt = btn.dataset.fmt;
-        actionsWrap.querySelector('#wc-export-menu')?.classList.add('hidden');
+        actionsWrap.querySelector('#sh-export-menu')?.classList.add('hidden');
         _exportToClipboard(chart, transposeSemitones, fmt);
       });
     });
     // Close export menu on outside click
     document.addEventListener('click', () => {
-      actionsWrap.querySelector('#wc-export-menu')?.classList.add('hidden');
+      actionsWrap.querySelector('#sh-export-menu')?.classList.add('hidden');
     }, { once: false });
-    actionsWrap.querySelector('#wc-btn-duplicate')?.addEventListener('click', () => _duplicateChart(chart));
-    actionsWrap.querySelector('#wc-btn-history')?.addEventListener('click', () => _showVersionHistory(chart));
+    actionsWrap.querySelector('#sh-btn-duplicate')?.addEventListener('click', () => _duplicateChart(chart));
+    actionsWrap.querySelector('#sh-btn-history')?.addEventListener('click', () => _showVersionHistory(chart));
   }
 
   function _render() {
     const useFlats = FLAT_KEYS.has(chart.key || 'C');
     const displayKey = transposeSemitones !== 0 ? _transposeChord(chart.key, transposeSemitones, useFlats) : chart.key;
-    let html = `<div class="wc-detail" style="--wc-font-size: ${fontSize}px">`;
+    let html = `<div class="sh-detail" style="--sh-font-size: ${fontSize}px">`;
 
     // Header
-    html += `<div class="wc-header">`;
-    html += `<h2 class="wc-title">${esc(chart.title || 'Untitled')}</h2>`;
+    html += `<div class="sh-header">`;
+    html += `<h2 class="sh-title">${esc(chart.title || 'Untitled')}</h2>`;
     const meta = [];
-    if (displayKey) meta.push('<span class="wc-key">Key: ' + esc(displayKey) + '</span>');
+    if (displayKey) meta.push('<span class="sh-key">Key: ' + esc(displayKey) + '</span>');
     if (chart.bpm) meta.push(esc(chart.bpm) + ' BPM');
     if (chart.timeSig) meta.push(esc(chart.timeSig));
     if (chart.feel) meta.push(esc(chart.feel));
-    if (meta.length) html += `<div class="wc-meta">${meta.join(' · ')}</div>`;
-    if (chart.structureTag) html += `<span class="wc-structure-tag">${esc(chart.structureTag)}</span>`;
+    if (meta.length) html += `<div class="sh-meta">${meta.join(' · ')}</div>`;
+    if (chart.structureTag) html += `<span class="sh-structure-tag">${esc(chart.structureTag)}</span>`;
     html += `</div>`;
 
     // Controls bar
-    html += `<div class="wc-controls">`;
-    html += `<div class="wc-transpose">
-      <button class="btn-ghost wc-ctrl-btn" id="wc-transpose-down" title="Transpose down">-1</button>
-      <span class="wc-transpose-label">${transposeSemitones === 0 ? 'Original' : (transposeSemitones > 0 ? '+' : '') + transposeSemitones}</span>
-      <button class="btn-ghost wc-ctrl-btn" id="wc-transpose-up" title="Transpose up">+1</button>
+    html += `<div class="sh-controls">`;
+    html += `<div class="sh-transpose">
+      <button class="btn-ghost sh-ctrl-btn" id="sh-transpose-down" title="Transpose down">-1</button>
+      <span class="sh-transpose-label">${transposeSemitones === 0 ? 'Original' : (transposeSemitones > 0 ? '+' : '') + transposeSemitones}</span>
+      <button class="btn-ghost sh-ctrl-btn" id="sh-transpose-up" title="Transpose up">+1</button>
     </div>`;
-    html += `<button class="btn-ghost wc-ctrl-btn ${showNashville ? 'active' : ''}" id="wc-nashville" title="Nashville numbers">Nash.</button>`;
-    html += `<div class="wc-font-ctrl">
-      <label class="wc-ctrl-label">Font</label>
-      <input type="range" id="wc-font-slider" min="14" max="32" value="${fontSize}" class="wc-slider" />
+    html += `<button class="btn-ghost sh-ctrl-btn ${showNashville ? 'active' : ''}" id="sh-nashville" title="Nashville numbers">Nash.</button>`;
+    html += `<div class="sh-font-ctrl">
+      <label class="sh-ctrl-label">Font</label>
+      <input type="range" id="sh-font-slider" min="14" max="32" value="${fontSize}" class="sh-slider" />
     </div>`;
     // Condensed view toggle (Feature 17)
-    html += `<button class="btn-ghost wc-ctrl-btn ${_condensedView ? 'active' : ''}" id="wc-condensed" title="Condensed view">Compact</button>`;
+    html += `<button class="btn-ghost sh-ctrl-btn ${_condensedView ? 'active' : ''}" id="sh-condensed" title="Condensed view">Compact</button>`;
     // Slash notation toggle (Feature 24)
-    html += `<button class="btn-ghost wc-ctrl-btn ${_showSlashes ? 'active' : ''}" id="wc-slashes" title="Show beat slashes">Slashes</button>`;
+    html += `<button class="btn-ghost sh-ctrl-btn ${_showSlashes ? 'active' : ''}" id="sh-slashes" title="Show beat slashes">Slashes</button>`;
     // Auto-scroll
-    html += `<button class="btn-ghost wc-ctrl-btn" id="wc-autoscroll" title="Auto-scroll teleprompter">
+    html += `<button class="btn-ghost sh-ctrl-btn" id="sh-autoscroll" title="Auto-scroll teleprompter">
       <i data-lucide="${_scrolling ? 'pause' : 'play'}" style="width:14px;height:14px;"></i>
     </button>`;
     // Metronome (Feature 21)
-    html += `<button class="btn-ghost wc-ctrl-btn ${_metronomeActive ? 'active' : ''}" id="wc-metronome" title="Metronome">
-      <span class="wc-metro-icon"><i data-lucide="timer" style="width:14px;height:14px;"></i></span>
-      <span class="wc-metro-dot" id="wc-metro-dot"></span>
+    html += `<button class="btn-ghost sh-ctrl-btn ${_metronomeActive ? 'active' : ''}" id="sh-metronome" title="Metronome">
+      <span class="sh-metro-icon"><i data-lucide="timer" style="width:14px;height:14px;"></i></span>
+      <span class="sh-metro-dot" id="sh-metro-dot"></span>
     </button>`;
     // Playback engine controls
-    html += `<span class="wc-playback-group">`;
-    html += `<button class="btn-ghost wc-ctrl-btn wc-playback-btn ${_playbackActive ? 'active' : ''}" id="wc-playback" title="${_playbackActive ? 'Stop playback' : 'Play chords'}">
+    html += `<span class="sh-playback-group">`;
+    html += `<button class="btn-ghost sh-ctrl-btn sh-playback-btn ${_playbackActive ? 'active' : ''}" id="sh-playback" title="${_playbackActive ? 'Stop playback' : 'Play chords'}">
       <i data-lucide="${_playbackActive ? 'stop-circle' : 'play-circle'}" style="width:14px;height:14px;"></i>
     </button>`;
     if (_playbackActive) {
-      html += `<button class="btn-ghost wc-ctrl-btn wc-mute-metro ${_playbackMuteMetro ? 'active' : ''}" id="wc-mute-metro" title="${_playbackMuteMetro ? 'Unmute metronome' : 'Mute metronome'}">
+      html += `<button class="btn-ghost sh-ctrl-btn sh-mute-metro ${_playbackMuteMetro ? 'active' : ''}" id="sh-mute-metro" title="${_playbackMuteMetro ? 'Unmute metronome' : 'Mute metronome'}">
         <i data-lucide="${_playbackMuteMetro ? 'volume-x' : 'volume-2'}" style="width:14px;height:14px;"></i>
       </button>`;
     }
@@ -708,13 +708,13 @@ function renderWikiChartDetail(chart, opts) {
     html += `</div>`;
 
     // Sections grid
-    const _showSectionColors = (() => { try { return localStorage.getItem('ct_pref_wc_section_colors') !== '0'; } catch (_) { return true; } })();
-    html += `<div class="wc-sections" id="wc-sections-container">`;
+    const _showSectionColors = (() => { try { return localStorage.getItem('ct_pref_sh_section_colors') !== '0'; } catch (_) { return true; } })();
+    html += `<div class="sh-sections" id="sh-sections-container">`;
     const _allSections = chart.sections || [];
     for (let _si = 0; _si < _allSections.length; _si++) {
       const section = _allSections[_si];
       const displaySection = transposeSemitones !== 0 ? _transposeSection(section, transposeSemitones, useFlats) : section;
-      const color = _showSectionColors ? (SECTION_COLORS[section.type] || 'var(--wc-verse)') : 'var(--border)';
+      const color = _showSectionColors ? (SECTION_COLORS[section.type] || 'var(--sh-verse)') : 'var(--border)';
       const hasEndings = section.endings && section.endings.length > 0;
       const hasRepeat = section.repeat > 1;
       const isLooping = _loopSectionIdx === _si;
@@ -732,43 +732,43 @@ function renderWikiChartDetail(chart, opts) {
         });
         const label = section.label || section.type;
         const repeat = hasRepeat ? `, x${section.repeat}` : '';
-        html += `<div class="wc-section wc-section-condensed ${isLooping ? 'wc-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
-        html += `<span class="wc-section-type wc-condensed-label" style="color: ${color}">${esc(label)}:</span> `;
-        html += `<span class="wc-condensed-chords">${chords.map(c => esc(c)).join(' | ')}</span>`;
-        html += `<span class="wc-condensed-meta">(${bars.length} bar${bars.length !== 1 ? 's' : ''}${repeat})</span>`;
+        html += `<div class="sh-section sh-section-condensed ${isLooping ? 'sh-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
+        html += `<span class="sh-section-type sh-condensed-label" style="color: ${color}">${esc(label)}:</span> `;
+        html += `<span class="sh-condensed-chords">${chords.map(c => esc(c)).join(' | ')}</span>`;
+        html += `<span class="sh-condensed-meta">(${bars.length} bar${bars.length !== 1 ? 's' : ''}${repeat})</span>`;
         html += `</div>`;
       } else {
         // ─── Expanded: full grid (default) ───
-        html += `<div class="wc-section ${hasEndings ? 'wc-section-with-endings' : ''} ${isLooping ? 'wc-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
-        html += `<div class="wc-section-header">
-          <span class="wc-section-type" style="color: ${color}">${esc(section.label || section.type)}</span>
-          ${hasRepeat ? `<span class="wc-section-repeat">×${section.repeat}</span>` : ''}
-          <button class="wc-loop-btn ${isLooping ? 'active' : ''}" data-si="${_si}" title="${isLooping ? 'Stop loop' : 'Loop this section'}" aria-label="${isLooping ? 'Stop loop' : 'Loop this section'}">
+        html += `<div class="sh-section ${hasEndings ? 'sh-section-with-endings' : ''} ${isLooping ? 'sh-section-looping' : ''}" data-section-idx="${_si}" style="border-left-color: ${color}">`;
+        html += `<div class="sh-section-header">
+          <span class="sh-section-type" style="color: ${color}">${esc(section.label || section.type)}</span>
+          ${hasRepeat ? `<span class="sh-section-repeat">×${section.repeat}</span>` : ''}
+          <button class="sh-loop-btn ${isLooping ? 'active' : ''}" data-si="${_si}" title="${isLooping ? 'Stop loop' : 'Loop this section'}" aria-label="${isLooping ? 'Stop loop' : 'Loop this section'}">
             <i data-lucide="repeat" style="width:13px;height:13px;"></i>
           </button>
         </div>`;
 
         // Repeat start sign (if section repeats)
         if (hasRepeat) {
-          html += `<div class="wc-repeat-start" aria-hidden="true"><span class="wc-repeat-line-thick"></span><span class="wc-repeat-line-thin"></span><span class="wc-repeat-dots"><span></span><span></span></span></div>`;
+          html += `<div class="sh-repeat-start" aria-hidden="true"><span class="sh-repeat-line-thick"></span><span class="sh-repeat-line-thin"></span><span class="sh-repeat-dots"><span></span><span></span></span></div>`;
         }
 
         // Ending brackets (rendered above the bars grid)
         if (hasEndings) {
-          html += `<div class="wc-endings-container">`;
+          html += `<div class="sh-endings-container">`;
           const barCount = (displaySection.bars || []).length;
           for (const ending of section.endings) {
             const startPct = ((ending.barStart - 1) / barCount) * 100;
             const widthPct = ((ending.barEnd - ending.barStart + 1) / barCount) * 100;
-            html += `<div class="wc-ending-bracket ending-${ending.number}" style="left:${startPct}%;width:${widthPct}%">
-              <span class="wc-ending-label">${ending.number}.</span>
+            html += `<div class="sh-ending-bracket ending-${ending.number}" style="left:${startPct}%;width:${widthPct}%">
+              <span class="sh-ending-label">${ending.number}.</span>
             </div>`;
           }
           html += `</div>`;
         }
 
         // Bars grid
-        html += `<div class="wc-bars">`;
+        html += `<div class="sh-bars">`;
         for (let bi = 0; bi < (displaySection.bars || []).length; bi++) {
           const bar = displaySection.bars[bi];
           let chordDisplay = bar.chord || '';
@@ -780,15 +780,15 @@ function renderWikiChartDetail(chart, opts) {
           let slashHtml = '';
           if (_showSlashes) {
             const beats = bar.beats || 4;
-            const slashes = beats > 1 ? ' <span class="wc-slashes">' + '/ '.repeat(beats - 1).trim() + '</span>' : '';
+            const slashes = beats > 1 ? ' <span class="sh-slashes">' + '/ '.repeat(beats - 1).trim() + '</span>' : '';
             slashHtml = slashes;
           }
           // Check for cues on this bar
           const cue = (section.cues || []).find(c => c.barIdx === bi);
-          html += `<div class="wc-bar ${cue ? 'has-cue' : ''}" data-chord="${esc(bar.chord || '')}" title="Click for chord diagram">`;
-          html += `<span class="wc-chord">${esc(chordDisplay)}${slashHtml}</span>`;
+          html += `<div class="sh-bar ${cue ? 'has-cue' : ''}" data-chord="${esc(bar.chord || '')}" title="Click for chord diagram">`;
+          html += `<span class="sh-chord">${esc(chordDisplay)}${slashHtml}</span>`;
           if (cue) {
-            html += `<span class="wc-cue" style="${cue.color ? 'background:' + cue.color : ''}">${esc(cue.text)}</span>`;
+            html += `<span class="sh-cue" style="${cue.color ? 'background:' + cue.color : ''}">${esc(cue.text)}</span>`;
           }
           html += `</div>`;
         }
@@ -796,7 +796,7 @@ function renderWikiChartDetail(chart, opts) {
 
         // Repeat end sign
         if (hasRepeat) {
-          html += `<div class="wc-repeat-end" aria-hidden="true"><span class="wc-repeat-dots"><span></span><span></span></span><span class="wc-repeat-line-thin"></span><span class="wc-repeat-line-thick"></span></div>`;
+          html += `<div class="sh-repeat-end" aria-hidden="true"><span class="sh-repeat-dots"><span></span><span></span></span><span class="sh-repeat-line-thin"></span><span class="sh-repeat-line-thick"></span></div>`;
         }
 
         html += `</div>`;
@@ -806,23 +806,23 @@ function renderWikiChartDetail(chart, opts) {
 
     // Notes
     if (chart.notes) {
-      html += `<div class="wc-notes"><strong>Notes:</strong> ${esc(chart.notes)}</div>`;
+      html += `<div class="sh-notes"><strong>Notes:</strong> ${esc(chart.notes)}</div>`;
     }
 
     // Reference Links
     if (chart.referenceLinks && chart.referenceLinks.length) {
-      html += `<div class="wc-ref-links">`;
-      html += `<div class="wc-ref-links-toggle" id="wc-ref-toggle">
+      html += `<div class="sh-ref-links">`;
+      html += `<div class="sh-ref-links-toggle" id="sh-ref-toggle">
         <span>Reference Links (${chart.referenceLinks.length})</span>
         <i data-lucide="chevron-down" style="width:16px;height:16px;"></i>
       </div>`;
-      html += `<div class="wc-ref-links-list">`;
+      html += `<div class="sh-ref-links-list">`;
       for (const link of chart.referenceLinks) {
         const iconName = link.type === 'youtube' ? 'play-circle' : link.type === 'spotify' ? 'music' : link.type === 'apple' ? 'smartphone' : 'link';
-        html += `<div class="wc-ref-link-row">
-          <span class="wc-ref-link-icon ${esc(link.type || 'other')}"><i data-lucide="${iconName}" style="width:16px;height:16px;"></i></span>
-          <span class="wc-ref-link-label"><a href="${esc(link.url || '#')}" target="_blank" rel="noopener noreferrer">${esc(link.label || link.url || 'Link')}</a></span>
-          <span class="wc-ref-link-type">${esc(link.type || 'other')}</span>
+        html += `<div class="sh-ref-link-row">
+          <span class="sh-ref-link-icon ${esc(link.type || 'other')}"><i data-lucide="${iconName}" style="width:16px;height:16px;"></i></span>
+          <span class="sh-ref-link-label"><a href="${esc(link.url || '#')}" target="_blank" rel="noopener noreferrer">${esc(link.label || link.url || 'Link')}</a></span>
+          <span class="sh-ref-link-type">${esc(link.type || 'other')}</span>
         </div>`;
       }
       html += `</div></div>`;
@@ -830,7 +830,7 @@ function renderWikiChartDetail(chart, opts) {
 
     // Delete button
     if (_canDelete(chart)) {
-      html += `<div class="wc-danger-zone"><button class="btn-danger" id="wc-btn-delete">Delete Chart</button></div>`;
+      html += `<div class="sh-danger-zone"><button class="btn-danger" id="sh-btn-delete">Delete Chart</button></div>`;
     }
 
     html += `</div>`;
@@ -838,44 +838,44 @@ function renderWikiChartDetail(chart, opts) {
     if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [container] });
 
     // Wire controls
-    container.querySelector('#wc-transpose-down')?.addEventListener('click', () => { transposeSemitones--; _detailState.transposeSemitones = transposeSemitones; _render(); });
-    container.querySelector('#wc-transpose-up')?.addEventListener('click', () => { transposeSemitones++; _detailState.transposeSemitones = transposeSemitones; _render(); });
-    container.querySelector('#wc-nashville')?.addEventListener('click', () => { showNashville = !showNashville; _detailState.showNashville = showNashville; _render(); });
-    container.querySelector('#wc-condensed')?.addEventListener('click', () => {
+    container.querySelector('#sh-transpose-down')?.addEventListener('click', () => { transposeSemitones--; _detailState.transposeSemitones = transposeSemitones; _render(); });
+    container.querySelector('#sh-transpose-up')?.addEventListener('click', () => { transposeSemitones++; _detailState.transposeSemitones = transposeSemitones; _render(); });
+    container.querySelector('#sh-nashville')?.addEventListener('click', () => { showNashville = !showNashville; _detailState.showNashville = showNashville; _render(); });
+    container.querySelector('#sh-condensed')?.addEventListener('click', () => {
       _condensedView = !_condensedView;
-      try { localStorage.setItem('ct_pref_wc_condensed', String(_condensedView)); } catch (_) {}
+      try { localStorage.setItem('ct_pref_sh_condensed', String(_condensedView)); } catch (_) {}
       _render();
     });
-    container.querySelector('#wc-slashes')?.addEventListener('click', () => {
+    container.querySelector('#sh-slashes')?.addEventListener('click', () => {
       _showSlashes = !_showSlashes;
-      try { localStorage.setItem('ct_pref_wc_slashes', String(_showSlashes)); } catch (_) {}
+      try { localStorage.setItem('ct_pref_sh_slashes', String(_showSlashes)); } catch (_) {}
       _render();
     });
-    container.querySelector('#wc-font-slider')?.addEventListener('input', (e) => {
+    container.querySelector('#sh-font-slider')?.addEventListener('input', (e) => {
       fontSize = parseInt(e.target.value, 10) || 18;
-      const detail = container.querySelector('.wc-detail');
-      if (detail) detail.style.setProperty('--wc-font-size', fontSize + 'px');
-      try { localStorage.setItem('ct_pref_wc_fontsize', String(fontSize)); } catch (_) {}
+      const detail = container.querySelector('.sh-detail');
+      if (detail) detail.style.setProperty('--sh-font-size', fontSize + 'px');
+      try { localStorage.setItem('ct_pref_sh_fontsize', String(fontSize)); } catch (_) {}
     });
-    container.querySelector('#wc-autoscroll')?.addEventListener('click', () => {
+    container.querySelector('#sh-autoscroll')?.addEventListener('click', () => {
       _scrolling = !_scrolling;
       if (_scrolling) _startAutoScroll(chart);
       else _stopAutoScroll();
       _render();
     });
-    container.querySelector('#wc-metronome')?.addEventListener('click', () => {
+    container.querySelector('#sh-metronome')?.addEventListener('click', () => {
       if (_metronomeActive) _stopMetronome();
       else _startMetronome(chart);
       _render();
     });
-    container.querySelector('#wc-playback')?.addEventListener('click', () => {
+    container.querySelector('#sh-playback')?.addEventListener('click', () => {
       if (_playbackActive) { _stopPlayback(); _stopMetronome(); }
       else _startPlayback(chart, _render);
       _render();
     });
-    container.querySelector('#wc-mute-metro')?.addEventListener('click', () => {
+    container.querySelector('#sh-mute-metro')?.addEventListener('click', () => {
       _playbackMuteMetro = !_playbackMuteMetro;
-      try { localStorage.setItem('ct_pref_wc_playback_mute_metro', String(_playbackMuteMetro)); } catch (_) {}
+      try { localStorage.setItem('ct_pref_sh_playback_mute_metro', String(_playbackMuteMetro)); } catch (_) {}
       // Restart playback to apply change
       if (_playbackActive) {
         _stopPlayback();
@@ -884,22 +884,22 @@ function renderWikiChartDetail(chart, opts) {
       _render();
     });
     // Wire loop buttons
-    container.querySelectorAll('.wc-loop-btn').forEach(btn => {
+    container.querySelectorAll('.sh-loop-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const si = parseInt(btn.dataset.si, 10);
         _toggleLoopSection(si, chart, _render);
       });
     });
-    container.querySelector('#wc-btn-delete')?.addEventListener('click', () => _deleteChart(chart));
+    container.querySelector('#sh-btn-delete')?.addEventListener('click', () => _deleteChart(chart));
 
     // Wire reference links toggle
-    container.querySelector('#wc-ref-toggle')?.addEventListener('click', (e) => {
+    container.querySelector('#sh-ref-toggle')?.addEventListener('click', (e) => {
       e.currentTarget.classList.toggle('open');
     });
 
     // Wire chord diagram popups
-    container.querySelectorAll('.wc-bar[data-chord]').forEach(barEl => {
+    container.querySelectorAll('.sh-bar[data-chord]').forEach(barEl => {
       barEl.addEventListener('click', () => {
         const chord = barEl.dataset.chord;
         if (chord && chord !== '/' && chord !== '%' && chord !== 'N.C.') {
@@ -918,7 +918,7 @@ function _startAutoScroll(chart) {
   _stopAutoScroll();
   _scrolling = true;
   // Re-read speed multiplier from settings
-  try { _scrollSpeed = parseFloat(localStorage.getItem('ct_pref_wc_scroll_speed')) || 1; } catch (_) { _scrollSpeed = 1; }
+  try { _scrollSpeed = parseFloat(localStorage.getItem('ct_pref_sh_scroll_speed')) || 1; } catch (_) { _scrollSpeed = 1; }
   const bpm = parseInt(chart.bpm, 10) || 120;
   // Pixels per frame at 60fps, scaled by BPM
   const baseSpeed = (bpm / 120) * 1.5;
@@ -928,7 +928,7 @@ function _startAutoScroll(chart) {
 
   function step() {
     if (!_scrolling) return;
-    const container = document.getElementById('wc-sections-container');
+    const container = document.getElementById('sh-sections-container');
     if (container) {
       const parent = container.closest('.view');
       if (parent) parent.scrollTop += baseSpeed * _scrollSpeed;
@@ -948,7 +948,7 @@ function _stopAutoScroll() {
 
 function _startSectionObserver() {
   _stopSectionObserver();
-  const sectionsContainer = document.getElementById('wc-sections-container');
+  const sectionsContainer = document.getElementById('sh-sections-container');
   if (!sectionsContainer) return;
   const viewEl = sectionsContainer.closest('.view');
   if (!viewEl) return;
@@ -966,15 +966,15 @@ function _startSectionObserver() {
       if (ratio > bestRatio) { bestRatio = ratio; best = el; }
     }
     // Apply active class
-    sectionsContainer.querySelectorAll('.wc-section, .wc-section-condensed').forEach(el => {
-      el.classList.toggle('wc-section-active', el === best && bestRatio > 0);
+    sectionsContainer.querySelectorAll('.sh-section, .sh-section-condensed').forEach(el => {
+      el.classList.toggle('sh-section-active', el === best && bestRatio > 0);
     });
   }, {
     root: viewEl,
     threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
   });
 
-  sectionsContainer.querySelectorAll('.wc-section, .wc-section-condensed').forEach(el => {
+  sectionsContainer.querySelectorAll('.sh-section, .sh-section-condensed').forEach(el => {
     _sectionObserver.observe(el);
   });
 }
@@ -985,17 +985,17 @@ function _stopSectionObserver() {
     _sectionObserver = null;
   }
   // Remove all active highlights
-  document.querySelectorAll('.wc-section-active').forEach(el => el.classList.remove('wc-section-active'));
+  document.querySelectorAll('.sh-section-active').forEach(el => el.classList.remove('sh-section-active'));
 }
 
 // ─── Metronome (Web Audio API) ───────────────────────────────
 
 function _getMetroVolume() {
-  try { return (parseInt(localStorage.getItem('ct_pref_wc_metro_vol') || '50', 10)) / 100; } catch (_) { return 0.5; }
+  try { return (parseInt(localStorage.getItem('ct_pref_sh_metro_vol') || '50', 10)) / 100; } catch (_) { return 0.5; }
 }
 
 function _getMetroSound() {
-  try { return localStorage.getItem('ct_pref_wc_metro_sound') || 'click'; } catch (_) { return 'click'; }
+  try { return localStorage.getItem('ct_pref_sh_metro_sound') || 'click'; } catch (_) { return 'click'; }
 }
 
 function _playClick(audioCtx, time, isAccent) {
@@ -1057,7 +1057,7 @@ function _startMetronome(chart) {
       const beatTime = _metronomeNextTime;
       const delay = (beatTime - _metronomeAudioCtx.currentTime) * 1000;
       setTimeout(() => {
-        const dot = document.getElementById('wc-metro-dot');
+        const dot = document.getElementById('sh-metro-dot');
         if (dot) {
           dot.classList.add('flash');
           setTimeout(() => dot.classList.remove('flash'), 80);
@@ -1081,7 +1081,7 @@ function _stopMetronome() {
   }
   _metronomeBeatCount = 0;
   // Remove visual flash
-  const dot = document.getElementById('wc-metro-dot');
+  const dot = document.getElementById('sh-metro-dot');
   if (dot) dot.classList.remove('flash');
 }
 
@@ -1456,13 +1456,13 @@ function _stopPlayback() {
 
 function _updatePlayhead(sectionIdx, barIdx) {
   _clearPlayhead();
-  const container = document.getElementById('wc-sections-container');
+  const container = document.getElementById('sh-sections-container');
   if (!container) return;
-  const sections = container.querySelectorAll('.wc-section:not(.wc-section-condensed)');
+  const sections = container.querySelectorAll('.sh-section:not(.sh-section-condensed)');
   if (sections[sectionIdx]) {
-    const bars = sections[sectionIdx].querySelectorAll('.wc-bar');
+    const bars = sections[sectionIdx].querySelectorAll('.sh-bar');
     if (bars[barIdx]) {
-      bars[barIdx].classList.add('wc-bar-playing');
+      bars[barIdx].classList.add('sh-bar-playing');
       // Scroll into view if needed
       bars[barIdx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -1470,7 +1470,7 @@ function _updatePlayhead(sectionIdx, barIdx) {
 }
 
 function _clearPlayhead() {
-  document.querySelectorAll('.wc-bar-playing').forEach(el => el.classList.remove('wc-bar-playing'));
+  document.querySelectorAll('.sh-bar-playing').forEach(el => el.classList.remove('sh-bar-playing'));
 }
 
 function _toggleLoopSection(sectionIdx, chart, renderCallback) {
@@ -1509,24 +1509,24 @@ function _showChordDiagram(chord) {
   let content;
   if (diagram) {
     content = `
-      <div class="modal wc-chord-modal">
+      <div class="modal sh-chord-modal">
         <h3>${esc(chord)}</h3>
-        <div class="wc-chord-diagram">${_renderChordSVG(chord, diagram)}</div>
-        <button class="btn-secondary wc-chord-close">Close</button>
+        <div class="sh-chord-diagram">${_renderChordSVG(chord, diagram)}</div>
+        <button class="btn-secondary sh-chord-close">Close</button>
       </div>`;
   } else {
     content = `
-      <div class="modal wc-chord-modal">
+      <div class="modal sh-chord-modal">
         <h3>${esc(chord)}</h3>
         <p class="muted">No diagram available for this chord.</p>
-        <button class="btn-secondary wc-chord-close">Close</button>
+        <button class="btn-secondary sh-chord-close">Close</button>
       </div>`;
   }
   overlay.innerHTML = content;
   document.body.appendChild(overlay);
 
   function close() { overlay.remove(); }
-  const closeBtn = overlay.querySelector('.wc-chord-close');
+  const closeBtn = overlay.querySelector('.sh-chord-close');
   closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
@@ -1538,7 +1538,7 @@ function _renderChordSVG(name, diagram) {
   const { frets, baseFret } = diagram;
   const w = 120, h = 150;
   const startX = 20, startY = 30, stringSpacing = 16, fretSpacing = 24;
-  let svg = `<svg viewBox="0 0 ${w} ${h}" class="wc-chord-svg" aria-label="${esc(name)} chord diagram">`;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" class="sh-chord-svg" aria-label="${esc(name)} chord diagram">`;
 
   // Fret indicator
   if (baseFret > 1) {
@@ -1627,21 +1627,21 @@ function _duplicateChart(chart) {
   clone.updatedAt = new Date().toISOString();
   const user = Auth.getUser();
   if (user) clone.createdBy = user.id;
-  _wikiCharts.push(clone);
-  _saveWikiCharts('Chart duplicated.');
+  _sheets.push(clone);
+  _saveSheets('Chart duplicated.');
   _renderCreateEdit(clone, { skipVersionSave: true });
 }
 
 // ─── Delete ─────────────────────────────────────────────────
 
 function _deleteChart(chart) {
-  Modal.confirm('Delete WikiChart', `Delete "${esc(chart.title || 'Untitled')}"? This cannot be undone.`, () => {
+  Modal.confirm('Delete Sheet', `Delete "${esc(chart.title || 'Untitled')}"? This cannot be undone.`, () => {
     _syncFromStore();
-    const idx = _wikiCharts.findIndex(c => c.id === chart.id);
+    const idx = _sheets.findIndex(c => c.id === chart.id);
     if (idx >= 0) {
-      _wikiCharts.splice(idx, 1);
-      _saveWikiCharts('Chart deleted.');
-      renderWikiChartsList();
+      _sheets.splice(idx, 1);
+      _saveSheets('Chart deleted.');
+      renderSheetsList();
     }
   });
 }
@@ -1656,25 +1656,25 @@ function _showVersionHistory(chart) {
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
 
-  let html = `<div class="modal wc-history-modal">
+  let html = `<div class="modal sh-history-modal">
     <h2>Version History</h2>
-    <div class="wc-version-list">`;
+    <div class="sh-version-list">`;
 
   chart.versions.forEach((ver, i) => {
     const date = ver._savedAt ? new Date(ver._savedAt).toLocaleString() : 'Unknown date';
     const sectionCount = (ver.sections || []).length;
-    html += `<div class="wc-version-row" data-idx="${i}">
-      <div class="wc-version-info">
-        <span class="wc-version-date">${esc(date)}</span>
-        <span class="wc-version-meta">${sectionCount} sections · Key: ${esc(ver.key || '?')}</span>
+    html += `<div class="sh-version-row" data-idx="${i}">
+      <div class="sh-version-info">
+        <span class="sh-version-date">${esc(date)}</span>
+        <span class="sh-version-meta">${sectionCount} sections · Key: ${esc(ver.key || '?')}</span>
       </div>
-      <button class="btn-ghost wc-version-restore" data-idx="${i}">Restore</button>
+      <button class="btn-ghost sh-version-restore" data-idx="${i}">Restore</button>
     </div>`;
   });
 
   html += `</div>
     <div class="modal-actions">
-      <button class="btn-secondary" id="wc-history-close">Close</button>
+      <button class="btn-secondary" id="sh-history-close">Close</button>
     </div>
   </div>`;
 
@@ -1682,10 +1682,10 @@ function _showVersionHistory(chart) {
   document.body.appendChild(overlay);
 
   function close() { overlay.remove(); }
-  overlay.querySelector('#wc-history-close').addEventListener('click', close);
+  overlay.querySelector('#sh-history-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
-  overlay.querySelectorAll('.wc-version-restore').forEach(btn => {
+  overlay.querySelectorAll('.sh-version-restore').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.idx, 10);
       const ver = chart.versions[idx];
@@ -1703,9 +1703,9 @@ function _showVersionHistory(chart) {
         chart.notes = ver.notes;
         chart.updatedAt = new Date().toISOString();
         chart._ts = Date.now();
-        _saveWikiCharts('Version restored.');
+        _saveSheets('Version restored.');
         close();
-        renderWikiChartDetail(chart);
+        renderSheetDetail(chart);
       });
     });
   });
@@ -1724,7 +1724,7 @@ function _renderCreateEdit(chart, opts) {
     chart = {
       id: _generateId(),
       title: '',
-      key: Sync.getOrchestraSetting('wikichart_default_key', ''),
+      key: Sync.getOrchestraSetting('sheet_default_key', ''),
       bpm: '',
       timeSig: '4/4',
       feel: '',
@@ -1744,24 +1744,24 @@ function _renderCreateEdit(chart, opts) {
 
   const editChart = deepClone(chart);
 
-  _showView('wikichart-detail');
-  _setTopbar(isNew ? 'New WikiChart' : 'Edit WikiChart', true);
+  _showView('sheet-detail');
+  _setTopbar(isNew ? 'New Sheet' : 'Edit Sheet', true);
   _pushNav(() => {
-    if (isNew) renderWikiChartsList();
-    else renderWikiChartDetail(chart);
+    if (isNew) renderSheetsList();
+    else renderSheetDetail(chart);
   });
 
-  const container = document.getElementById('wikichart-detail-content');
+  const container = document.getElementById('sheet-detail-content');
   if (!container) return;
 
   // Remove any topbar actions during edit
-  document.getElementById('wikichart-detail-topbar-actions')?.remove();
+  document.getElementById('sheet-detail-topbar-actions')?.remove();
 
   // Edit mode: grid mode vs text paste mode
   let editMode = 'grid';
 
   function _renderForm() {
-    let html = `<div class="wc-edit-form">`;
+    let html = `<div class="sh-edit-form">`;
 
     // Metadata
     html += `
@@ -1769,30 +1769,30 @@ function _renderCreateEdit(chart, opts) {
         <label class="form-label" for="wce-title">Title</label>
         <input class="form-input" id="wce-title" type="text" value="${esc(editChart.title)}" placeholder="Song title" maxlength="200" />
       </div>
-      <div class="wc-edit-row">
-        <div class="form-field wc-field-sm">
+      <div class="sh-edit-row">
+        <div class="form-field sh-field-sm">
           <label class="form-label" for="wce-key">Key</label>
           <input class="form-input" id="wce-key" type="text" value="${esc(editChart.key)}" placeholder="e.g. G" maxlength="10" />
         </div>
-        <div class="form-field wc-field-sm">
+        <div class="form-field sh-field-sm">
           <label class="form-label" for="wce-bpm">BPM</label>
           <input class="form-input" id="wce-bpm" type="number" value="${editChart.bpm || ''}" placeholder="120" min="20" max="400" />
         </div>
-        <div class="form-field wc-field-sm">
+        <div class="form-field sh-field-sm">
           <label class="form-label" for="wce-timesig">Time Sig</label>
-          <select class="form-input wc-select" id="wce-timesig">
+          <select class="form-input sh-select" id="wce-timesig">
             ${['4/4','3/4','6/8','2/4','5/4','7/8'].map(ts => `<option value="${ts}" ${editChart.timeSig === ts ? 'selected' : ''}>${ts}</option>`).join('')}
           </select>
         </div>
       </div>
-      <div class="wc-edit-row">
-        <div class="form-field wc-field-md">
+      <div class="sh-edit-row">
+        <div class="form-field sh-field-md">
           <label class="form-label" for="wce-feel">Feel</label>
           <input class="form-input" id="wce-feel" type="text" value="${esc(editChart.feel || '')}" placeholder="e.g. Straight Rock, Swing" maxlength="50" />
         </div>
-        <div class="form-field wc-field-md">
+        <div class="form-field sh-field-md">
           <label class="form-label" for="wce-structure">Structure</label>
-          <select class="form-input wc-select" id="wce-structure">
+          <select class="form-input sh-select" id="wce-structure">
             <option value="">None</option>
             ${STRUCTURE_TAGS.map(tag => `<option value="${tag}" ${editChart.structureTag === tag ? 'selected' : ''}>${tag}</option>`).join('')}
           </select>
@@ -1801,26 +1801,26 @@ function _renderCreateEdit(chart, opts) {
     `;
 
     // Mode toggle
-    html += `<div class="wc-mode-toggle">
-      <button class="btn-ghost wc-ctrl-btn ${editMode === 'grid' ? 'active' : ''}" id="wce-mode-grid">Grid Mode</button>
-      <button class="btn-ghost wc-ctrl-btn ${editMode === 'text' ? 'active' : ''}" id="wce-mode-text">Paste Text</button>
+    html += `<div class="sh-mode-toggle">
+      <button class="btn-ghost sh-ctrl-btn ${editMode === 'grid' ? 'active' : ''}" id="wce-mode-grid">Grid Mode</button>
+      <button class="btn-ghost sh-ctrl-btn ${editMode === 'text' ? 'active' : ''}" id="wce-mode-text">Paste Text</button>
     </div>`;
 
     if (editMode === 'text') {
       html += `
         <div class="form-field">
           <label class="form-label" for="wce-paste">Paste chords (from Ultimate Guitar, etc.)</label>
-          <textarea class="form-input wc-paste-area" id="wce-paste" rows="12" placeholder="[Verse 1]\nG  C  G  D\nEm C  D  G\n\n[Chorus]\nC  G  D  Em"></textarea>
+          <textarea class="form-input sh-paste-area" id="wce-paste" rows="12" placeholder="[Verse 1]\nG  C  G  D\nEm C  D  G\n\n[Chorus]\nC  G  D  Em"></textarea>
         </div>
         <button class="btn-secondary" id="wce-parse-btn">Parse & Import</button>`;
     } else {
       // Grid mode — section editor
-      html += `<div class="wc-sections-edit" id="wce-sections">`;
+      html += `<div class="sh-sections-edit" id="wce-sections">`;
       editChart.sections.forEach((section, si) => {
         html += _renderSectionEditor(section, si);
       });
       html += `</div>`;
-      html += `<div class="wc-add-section-bar">
+      html += `<div class="sh-add-section-bar">
         <button class="btn-ghost" id="wce-add-section">+ Add Section</button>
         <button class="btn-ghost" id="wce-add-progression">Insert Progression</button>
       </div>`;
@@ -1829,9 +1829,9 @@ function _renderCreateEdit(chart, opts) {
       if (editChart.key) {
         const diatonic = _getDiatonicChords(editChart.key);
         if (diatonic.length) {
-          html += `<div class="wc-diatonic-hint">
-            <span class="wc-ctrl-label">Diatonic chords in ${esc(editChart.key)}:</span>
-            <div class="wc-diatonic-chips">${diatonic.map(c => `<span class="wc-diatonic-chip">${esc(c)}</span>`).join('')}</div>
+          html += `<div class="sh-diatonic-hint">
+            <span class="sh-ctrl-label">Diatonic chords in ${esc(editChart.key)}:</span>
+            <div class="sh-diatonic-chips">${diatonic.map(c => `<span class="sh-diatonic-chip">${esc(c)}</span>`).join('')}</div>
           </div>`;
         }
       }
@@ -1854,7 +1854,7 @@ function _renderCreateEdit(chart, opts) {
     </button>`;
 
     // Actions
-    html += `<div class="wc-edit-actions">
+    html += `<div class="sh-edit-actions">
       <button class="btn-secondary" id="wce-cancel">Cancel</button>
       <button class="btn-primary" id="wce-save">Save</button>
     </div>`;
@@ -1925,13 +1925,13 @@ function _renderCreateEdit(chart, opts) {
     container.querySelector('#wce-ref-links-btn')?.addEventListener('click', () => {
       if (!editChart.referenceLinks) editChart.referenceLinks = [];
       function _refLinkRowHTML(link, idx) {
-        return `<div class="wc-ref-link-edit" data-rl-idx="${idx}">
-          <input class="form-input wc-ref-link-label-input" type="text" value="${esc(link.label || '')}" placeholder="Label" maxlength="100" />
-          <input class="form-input wc-ref-link-url-input" type="url" value="${esc(link.url || '')}" placeholder="https://..." maxlength="500" />
-          <select class="form-input wc-select wc-ref-link-type-select">
+        return `<div class="sh-ref-link-edit" data-rl-idx="${idx}">
+          <input class="form-input sh-ref-link-label-input" type="text" value="${esc(link.label || '')}" placeholder="Label" maxlength="100" />
+          <input class="form-input sh-ref-link-url-input" type="url" value="${esc(link.url || '')}" placeholder="https://..." maxlength="500" />
+          <select class="form-input sh-select sh-ref-link-type-select">
             ${['spotify', 'apple', 'youtube', 'other'].map(t => `<option value="${t}" ${link.type === t ? 'selected' : ''}>${t}</option>`).join('')}
           </select>
-          <button class="icon-btn wc-ref-link-delete" title="Remove link"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+          <button class="icon-btn sh-ref-link-delete" title="Remove link"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
         </div>`;
       }
       const rowsHTML = editChart.referenceLinks.map((l, i) => _refLinkRowHTML(l, i)).join('');
@@ -1955,16 +1955,16 @@ function _renderCreateEdit(chart, opts) {
       if (typeof lucide !== 'undefined' && overlay) lucide.createIcons({ nodes: [overlay] });
 
       function wireOneRow(rowEl, linkObj) {
-        rowEl.querySelector('.wc-ref-link-label-input').addEventListener('input', e => { linkObj.label = e.target.value; });
-        rowEl.querySelector('.wc-ref-link-url-input').addEventListener('input', e => { linkObj.url = e.target.value; });
-        rowEl.querySelector('.wc-ref-link-type-select').addEventListener('change', e => { linkObj.type = e.target.value; });
-        rowEl.querySelector('.wc-ref-link-delete').addEventListener('click', () => {
+        rowEl.querySelector('.sh-ref-link-label-input').addEventListener('input', e => { linkObj.label = e.target.value; });
+        rowEl.querySelector('.sh-ref-link-url-input').addEventListener('input', e => { linkObj.url = e.target.value; });
+        rowEl.querySelector('.sh-ref-link-type-select').addEventListener('change', e => { linkObj.type = e.target.value; });
+        rowEl.querySelector('.sh-ref-link-delete').addEventListener('click', () => {
           const idx = editChart.referenceLinks.indexOf(linkObj);
           if (idx > -1) editChart.referenceLinks.splice(idx, 1);
           rowEl.remove();
         });
       }
-      overlay.querySelectorAll('.wc-ref-link-edit').forEach((el, i) => wireOneRow(el, editChart.referenceLinks[i]));
+      overlay.querySelectorAll('.sh-ref-link-edit').forEach((el, i) => wireOneRow(el, editChart.referenceLinks[i]));
 
       document.getElementById('rl-add-link')?.addEventListener('click', () => {
         if (editChart.referenceLinks.length >= 5) { showToast('Maximum 5 links allowed.'); return; }
@@ -1984,8 +1984,8 @@ function _renderCreateEdit(chart, opts) {
 
     // Wire save/cancel
     container.querySelector('#wce-cancel')?.addEventListener('click', () => {
-      if (isNew) renderWikiChartsList();
-      else renderWikiChartDetail(chart);
+      if (isNew) renderSheetsList();
+      else renderSheetDetail(chart);
     });
 
     container.querySelector('#wce-save')?.addEventListener('click', () => {
@@ -2005,14 +2005,14 @@ function _renderCreateEdit(chart, opts) {
       editChart._ts = Date.now();
 
       // Upsert into store
-      const existingIdx = _wikiCharts.findIndex(c => c.id === editChart.id);
+      const existingIdx = _sheets.findIndex(c => c.id === editChart.id);
       if (existingIdx >= 0) {
-        _wikiCharts[existingIdx] = editChart;
+        _sheets[existingIdx] = editChart;
       } else {
-        _wikiCharts.push(editChart);
+        _sheets.push(editChart);
       }
-      _saveWikiCharts(isNew ? 'Chart created.' : 'Chart saved.');
-      renderWikiChartDetail(editChart);
+      _saveSheets(isNew ? 'Chart created.' : 'Chart saved.');
+      renderSheetDetail(editChart);
     });
   }
 
@@ -2020,44 +2020,44 @@ function _renderCreateEdit(chart, opts) {
 }
 
 function _renderSectionEditor(section, si) {
-  const color = SECTION_COLORS[section.type] || 'var(--wc-verse)';
-  let html = `<div class="wc-section-edit" data-section-idx="${si}" style="border-left-color: ${color}">`;
+  const color = SECTION_COLORS[section.type] || 'var(--sh-verse)';
+  let html = `<div class="sh-section-edit" data-section-idx="${si}" style="border-left-color: ${color}">`;
 
-  html += `<div class="wc-section-edit-header">
-    <select class="wc-select wc-section-type-select" data-si="${si}">
+  html += `<div class="sh-section-edit-header">
+    <select class="sh-select sh-section-type-select" data-si="${si}">
       ${SECTION_TYPES.map(t => `<option value="${t}" ${section.type === t ? 'selected' : ''}>${t}</option>`).join('')}
     </select>
-    <input class="form-input wc-section-label-input" data-si="${si}" type="text" value="${esc(section.label || '')}" placeholder="Label" maxlength="50" />
-    <div class="wc-section-repeat-ctrl">
-      <label class="wc-ctrl-label">×</label>
-      <input class="form-input wc-section-repeat-input" data-si="${si}" type="number" value="${section.repeat || 1}" min="1" max="16" style="width:50px" />
+    <input class="form-input sh-section-label-input" data-si="${si}" type="text" value="${esc(section.label || '')}" placeholder="Label" maxlength="50" />
+    <div class="sh-section-repeat-ctrl">
+      <label class="sh-ctrl-label">×</label>
+      <input class="form-input sh-section-repeat-input" data-si="${si}" type="number" value="${section.repeat || 1}" min="1" max="16" style="width:50px" />
     </div>
-    <button class="icon-btn wc-section-delete" data-si="${si}" title="Remove section" aria-label="Remove section"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red)"></i></button>
+    <button class="icon-btn sh-section-delete" data-si="${si}" title="Remove section" aria-label="Remove section"><i data-lucide="trash-2" style="width:14px;height:14px;color:var(--red)"></i></button>
   </div>`;
 
   // Bars
-  html += `<div class="wc-bars-edit" data-si="${si}">`;
+  html += `<div class="sh-bars-edit" data-si="${si}">`;
   (section.bars || []).forEach((bar, bi) => {
-    html += `<div class="wc-bar-edit">
-      <input class="form-input wc-chord-input" data-si="${si}" data-bi="${bi}" type="text" value="${esc(bar.chord || '')}" placeholder="chord" maxlength="20" />
+    html += `<div class="sh-bar-edit">
+      <input class="form-input sh-chord-input" data-si="${si}" data-bi="${bi}" type="text" value="${esc(bar.chord || '')}" placeholder="chord" maxlength="20" />
     </div>`;
   });
   html += `</div>`;
-  html += `<div class="wc-bar-actions">
-    <button class="btn-ghost wc-add-bar" data-si="${si}">+ Bar</button>
-    <button class="btn-ghost wc-remove-bar" data-si="${si}">- Bar</button>
-    <button class="btn-ghost wc-add-cue" data-si="${si}">+ Cue</button>
+  html += `<div class="sh-bar-actions">
+    <button class="btn-ghost sh-add-bar" data-si="${si}">+ Bar</button>
+    <button class="btn-ghost sh-remove-bar" data-si="${si}">- Bar</button>
+    <button class="btn-ghost sh-add-cue" data-si="${si}">+ Cue</button>
   </div>`;
 
   // Cues
   if (section.cues && section.cues.length) {
-    html += `<div class="wc-cues-edit">`;
+    html += `<div class="sh-cues-edit">`;
     section.cues.forEach((cue, ci) => {
-      html += `<div class="wc-cue-edit">
-        <input class="form-input wc-cue-text" data-si="${si}" data-ci="${ci}" type="text" value="${esc(cue.text || '')}" placeholder="Cue text" maxlength="50" />
-        <input class="form-input wc-cue-bar" data-si="${si}" data-ci="${ci}" type="number" value="${(cue.barIdx || 0) + 1}" min="1" max="${(section.bars || []).length}" style="width:50px" title="Bar #" />
-        <input class="form-input wc-cue-color" data-si="${si}" data-ci="${ci}" type="color" value="${cue.color || '#e74c3c'}" style="width:36px;height:30px;padding:2px" />
-        <button class="icon-btn wc-cue-delete" data-si="${si}" data-ci="${ci}" title="Remove cue"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+      html += `<div class="sh-cue-edit">
+        <input class="form-input sh-cue-text" data-si="${si}" data-ci="${ci}" type="text" value="${esc(cue.text || '')}" placeholder="Cue text" maxlength="50" />
+        <input class="form-input sh-cue-bar" data-si="${si}" data-ci="${ci}" type="number" value="${(cue.barIdx || 0) + 1}" min="1" max="${(section.bars || []).length}" style="width:50px" title="Bar #" />
+        <input class="form-input sh-cue-color" data-si="${si}" data-ci="${ci}" type="color" value="${cue.color || '#e74c3c'}" style="width:36px;height:30px;padding:2px" />
+        <button class="icon-btn sh-cue-delete" data-si="${si}" data-ci="${ci}" title="Remove cue"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
       </div>`;
     });
     html += `</div>`;
@@ -2066,24 +2066,24 @@ function _renderSectionEditor(section, si) {
   // Endings (1st / 2nd)
   const endings = section.endings || [];
   if (endings.length) {
-    html += `<div class="wc-endings-edit">`;
+    html += `<div class="sh-endings-edit">`;
     endings.forEach((ending, ei) => {
       const barMax = (section.bars || []).length;
-      html += `<div class="wc-ending-edit">
-        <span class="wc-ending-edit-label">${ending.number === 1 ? '1st' : '2nd'}:</span>
-        <label class="wc-ctrl-label">from bar</label>
-        <input class="form-input wc-ending-start" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barStart || 1}" min="1" max="${barMax}" />
-        <label class="wc-ctrl-label">to bar</label>
-        <input class="form-input wc-ending-end" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barEnd || barMax}" min="1" max="${barMax}" />
-        <button class="icon-btn wc-ending-delete" data-si="${si}" data-ei="${ei}" title="Remove ending"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
+      html += `<div class="sh-ending-edit">
+        <span class="sh-ending-edit-label">${ending.number === 1 ? '1st' : '2nd'}:</span>
+        <label class="sh-ctrl-label">from bar</label>
+        <input class="form-input sh-ending-start" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barStart || 1}" min="1" max="${barMax}" />
+        <label class="sh-ctrl-label">to bar</label>
+        <input class="form-input sh-ending-end" data-si="${si}" data-ei="${ei}" type="number" value="${ending.barEnd || barMax}" min="1" max="${barMax}" />
+        <button class="icon-btn sh-ending-delete" data-si="${si}" data-ei="${ei}" title="Remove ending"><i data-lucide="x" style="width:12px;height:12px;"></i></button>
       </div>`;
     });
     html += `</div>`;
   }
   if (endings.length < 2) {
     const nextNum = endings.length === 0 ? 1 : (endings.some(e => e.number === 1) ? 2 : 1);
-    html += `<div class="wc-bar-actions" style="margin-top:4px">
-      <button class="btn-ghost wc-add-ending" data-si="${si}" data-num="${nextNum}">+ ${nextNum === 1 ? '1st' : '2nd'} Ending</button>
+    html += `<div class="sh-bar-actions" style="margin-top:4px">
+      <button class="btn-ghost sh-add-ending" data-si="${si}" data-num="${nextNum}">+ ${nextNum === 1 ? '1st' : '2nd'} Ending</button>
     </div>`;
   }
 
@@ -2093,7 +2093,7 @@ function _renderSectionEditor(section, si) {
 
 function _wireSectionEditors(container, editChart, rerender) {
   // Section type change
-  container.querySelectorAll('.wc-section-type-select').forEach(sel => {
+  container.querySelectorAll('.sh-section-type-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const si = parseInt(sel.dataset.si, 10);
       if (editChart.sections[si]) editChart.sections[si].type = sel.value;
@@ -2101,7 +2101,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Section label change
-  container.querySelectorAll('.wc-section-label-input').forEach(input => {
+  container.querySelectorAll('.sh-section-label-input').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       if (editChart.sections[si]) editChart.sections[si].label = input.value;
@@ -2109,7 +2109,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Section repeat change
-  container.querySelectorAll('.wc-section-repeat-input').forEach(input => {
+  container.querySelectorAll('.sh-section-repeat-input').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const val = parseInt(input.value, 10);
@@ -2118,7 +2118,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Chord input change
-  container.querySelectorAll('.wc-chord-input').forEach(input => {
+  container.querySelectorAll('.sh-chord-input').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const bi = parseInt(input.dataset.bi, 10);
@@ -2130,7 +2130,7 @@ function _wireSectionEditors(container, editChart, rerender) {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Tab' && !e.shiftKey) {
         // Move to next chord input
-        const allInputs = [...container.querySelectorAll('.wc-chord-input')];
+        const allInputs = [...container.querySelectorAll('.sh-chord-input')];
         const idx = allInputs.indexOf(input);
         if (idx >= 0 && idx < allInputs.length - 1) {
           e.preventDefault();
@@ -2141,7 +2141,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Delete section
-  container.querySelectorAll('.wc-section-delete').forEach(btn => {
+  container.querySelectorAll('.sh-section-delete').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       editChart.sections.splice(si, 1);
@@ -2150,7 +2150,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Add bar
-  container.querySelectorAll('.wc-add-bar').forEach(btn => {
+  container.querySelectorAll('.sh-add-bar').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       if (editChart.sections[si]) {
@@ -2161,7 +2161,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Remove bar
-  container.querySelectorAll('.wc-remove-bar').forEach(btn => {
+  container.querySelectorAll('.sh-remove-bar').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       if (editChart.sections[si]?.bars?.length > 1) {
@@ -2172,7 +2172,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Add cue
-  container.querySelectorAll('.wc-add-cue').forEach(btn => {
+  container.querySelectorAll('.sh-add-cue').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       if (editChart.sections[si]) {
@@ -2184,14 +2184,14 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Cue edits
-  container.querySelectorAll('.wc-cue-text').forEach(input => {
+  container.querySelectorAll('.sh-cue-text').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const ci = parseInt(input.dataset.ci, 10);
       if (editChart.sections[si]?.cues?.[ci]) editChart.sections[si].cues[ci].text = input.value;
     });
   });
-  container.querySelectorAll('.wc-cue-bar').forEach(input => {
+  container.querySelectorAll('.sh-cue-bar').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const ci = parseInt(input.dataset.ci, 10);
@@ -2199,14 +2199,14 @@ function _wireSectionEditors(container, editChart, rerender) {
       if (editChart.sections[si]?.cues?.[ci]) editChart.sections[si].cues[ci].barIdx = (val > 0 ? val - 1 : 0);
     });
   });
-  container.querySelectorAll('.wc-cue-color').forEach(input => {
+  container.querySelectorAll('.sh-cue-color').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const ci = parseInt(input.dataset.ci, 10);
       if (editChart.sections[si]?.cues?.[ci]) editChart.sections[si].cues[ci].color = input.value;
     });
   });
-  container.querySelectorAll('.wc-cue-delete').forEach(btn => {
+  container.querySelectorAll('.sh-cue-delete').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       const ci = parseInt(btn.dataset.ci, 10);
@@ -2218,7 +2218,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Ending start bar
-  container.querySelectorAll('.wc-ending-start').forEach(input => {
+  container.querySelectorAll('.sh-ending-start').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const ei = parseInt(input.dataset.ei, 10);
@@ -2230,7 +2230,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Ending end bar
-  container.querySelectorAll('.wc-ending-end').forEach(input => {
+  container.querySelectorAll('.sh-ending-end').forEach(input => {
     input.addEventListener('input', () => {
       const si = parseInt(input.dataset.si, 10);
       const ei = parseInt(input.dataset.ei, 10);
@@ -2242,7 +2242,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Delete ending
-  container.querySelectorAll('.wc-ending-delete').forEach(btn => {
+  container.querySelectorAll('.sh-ending-delete').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       const ei = parseInt(btn.dataset.ei, 10);
@@ -2254,7 +2254,7 @@ function _wireSectionEditors(container, editChart, rerender) {
   });
 
   // Add ending
-  container.querySelectorAll('.wc-add-ending').forEach(btn => {
+  container.querySelectorAll('.sh-add-ending').forEach(btn => {
     btn.addEventListener('click', () => {
       const si = parseInt(btn.dataset.si, 10);
       const num = parseInt(btn.dataset.num, 10);
@@ -2283,23 +2283,23 @@ function _showProgressionPicker(editChart, rerender) {
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
 
-  let html = `<div class="modal wc-progression-modal">
+  let html = `<div class="modal sh-progression-modal">
     <h2>Insert Progression</h2>
-    <div class="wc-progression-list">`;
+    <div class="sh-progression-list">`;
 
   PROGRESSION_LIBRARY.forEach((prog, i) => {
-    html += `<div class="wc-progression-row" data-idx="${i}">
-      <div class="wc-progression-info">
-        <span class="wc-progression-name">${esc(prog.name)}</span>
-        <span class="wc-progression-genre">${esc(prog.genre)}</span>
+    html += `<div class="sh-progression-row" data-idx="${i}">
+      <div class="sh-progression-info">
+        <span class="sh-progression-name">${esc(prog.name)}</span>
+        <span class="sh-progression-genre">${esc(prog.genre)}</span>
       </div>
-      <span class="wc-progression-chords">${prog.chords.join(' - ')}</span>
+      <span class="sh-progression-chords">${prog.chords.join(' - ')}</span>
     </div>`;
   });
 
   html += `</div>
     <div class="modal-actions">
-      <button class="btn-secondary" id="wc-prog-close">Cancel</button>
+      <button class="btn-secondary" id="sh-prog-close">Cancel</button>
     </div>
   </div>`;
 
@@ -2307,10 +2307,10 @@ function _showProgressionPicker(editChart, rerender) {
   document.body.appendChild(overlay);
 
   function close() { overlay.remove(); }
-  overlay.querySelector('#wc-prog-close').addEventListener('click', close);
+  overlay.querySelector('#sh-prog-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
-  overlay.querySelectorAll('.wc-progression-row').forEach(row => {
+  overlay.querySelectorAll('.sh-progression-row').forEach(row => {
     row.addEventListener('click', () => {
       const idx = parseInt(row.dataset.idx, 10);
       const prog = PROGRESSION_LIBRARY[idx];
@@ -2369,9 +2369,9 @@ function _romanToChords(romanNumerals, key) {
 // ═══════════════════════════════════════════════════════════
 
 /**
- * Render a WikiChart as an HTML chord grid for embedding.
+ * Render a Sheet as an HTML chord grid for embedding.
  * Used by setlist detail and live mode.
- * @param {Object} chart - WikiChart object
+ * @param {Object} chart - Sheet object
  * @param {Object} [opts] - { keyOverride, annotations, fontSize }
  * @returns {string} HTML string
  */
@@ -2379,37 +2379,37 @@ function renderChordGrid(chart, opts = {}) {
   if (!chart || !chart.sections) return '';
   const transposeSemitones = opts.keyOverride ? _getSemitonesForKeyChange(chart.key, opts.keyOverride) : 0;
   const useFlats = FLAT_KEYS.has(opts.keyOverride || chart.key || 'C');
-  const fontSize = opts.fontSize || parseInt(localStorage.getItem('ct_pref_wc_fontsize') || '18', 10);
+  const fontSize = opts.fontSize || parseInt(localStorage.getItem('ct_pref_sh_fontsize') || '18', 10);
 
-  let html = `<div class="wc-grid-embed" style="--wc-font-size: ${fontSize}px">`;
+  let html = `<div class="sh-grid-embed" style="--sh-font-size: ${fontSize}px">`;
   // Header
-  html += `<div class="wc-grid-header">
-    <span class="wc-grid-title">${esc(chart.title || '')}</span>`;
+  html += `<div class="sh-grid-header">
+    <span class="sh-grid-title">${esc(chart.title || '')}</span>`;
   const displayKey = transposeSemitones !== 0 ? _transposeChord(chart.key, transposeSemitones, useFlats) : chart.key;
   const meta = [];
   if (displayKey) meta.push(displayKey);
   if (chart.bpm) meta.push(chart.bpm + ' BPM');
   if (chart.timeSig) meta.push(chart.timeSig);
-  if (meta.length) html += `<span class="wc-grid-meta">${meta.map(m => esc(m)).join(' · ')}</span>`;
+  if (meta.length) html += `<span class="sh-grid-meta">${meta.map(m => esc(m)).join(' · ')}</span>`;
   html += `</div>`;
 
   for (const section of chart.sections) {
     const displaySection = transposeSemitones !== 0 ? _transposeSection(section, transposeSemitones, useFlats) : section;
-    const color = SECTION_COLORS[section.type] || 'var(--wc-verse)';
-    html += `<div class="wc-grid-section" style="border-left-color: ${color}">`;
-    html += `<span class="wc-grid-section-label" style="color: ${color}">${esc(section.label || section.type)}${section.repeat > 1 ? ' ×' + section.repeat : ''}</span>`;
-    html += `<div class="wc-grid-bars">`;
+    const color = SECTION_COLORS[section.type] || 'var(--sh-verse)';
+    html += `<div class="sh-grid-section" style="border-left-color: ${color}">`;
+    html += `<span class="sh-grid-section-label" style="color: ${color}">${esc(section.label || section.type)}${section.repeat > 1 ? ' ×' + section.repeat : ''}</span>`;
+    html += `<div class="sh-grid-bars">`;
     for (const bar of (displaySection.bars || [])) {
-      html += `<span class="wc-grid-bar">${esc(bar.chord || '/')}</span>`;
+      html += `<span class="sh-grid-bar">${esc(bar.chord || '/')}</span>`;
     }
     html += `</div></div>`;
   }
 
   // Annotations
   if (opts.annotations && opts.annotations.length) {
-    html += `<div class="wc-grid-annotations">`;
+    html += `<div class="sh-grid-annotations">`;
     for (const ann of opts.annotations) {
-      html += `<div class="wc-grid-annotation">${esc(ann.text || '')}</div>`;
+      html += `<div class="sh-grid-annotation">${esc(ann.text || '')}</div>`;
     }
     html += `</div>`;
   }
@@ -2433,21 +2433,21 @@ function _getSemitonesForKeyChange(fromKey, toKey) {
 // ROUTER REGISTRATION
 // ═══════════════════════════════════════════════════════════
 
-Router.register('wikicharts', (route) => {
-  renderWikiChartsList(route);
+Router.register('sheets', (route) => {
+  renderSheetsList(route);
 });
 
-Router.register('wikichart-detail', (route) => {
+Router.register('sheet-detail', (route) => {
   _syncFromStore();
-  if (route?.wikiChartId) {
-    const chart = _wikiCharts.find(c => c.id === route.wikiChartId);
-    if (chart) { renderWikiChartDetail(chart); return; }
+  if (route?.sheetId) {
+    const chart = _sheets.find(c => c.id === route.sheetId);
+    if (chart) { renderSheetDetail(chart); return; }
   }
-  renderWikiChartsList();
+  renderSheetsList();
 });
 
 // ─── Cleanup hook (stop auto-scroll + metronome when navigating away) ───
-Router.registerHook('cleanupWikiCharts', () => {
+Router.registerHook('cleanupSheets', () => {
   _stopAutoScroll();
   _stopMetronome();
   _stopPlayback();
@@ -2457,8 +2457,8 @@ Router.registerHook('cleanupWikiCharts', () => {
 
 // ─── Public API ─────────────────────────────────────────────
 
-export { renderWikiChartsList, renderWikiChartDetail, renderChordGrid, loadWikiCharts };
+export { renderSheetsList, renderSheetDetail, renderChordGrid, loadSheets };
 
-async function loadWikiCharts() {
-  return Sync.loadWikiChartsInstant();
+async function loadSheets() {
+  return Sync.loadSheetsInstant();
 }

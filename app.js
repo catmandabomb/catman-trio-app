@@ -2,27 +2,27 @@
  * app.js — Main application logic (ES module entry point)
  */
 
-import * as Store from './js/store.js?v=20.42';
-import { esc, haptic, showToast, showTechnicalToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.42';
-import * as Modal from './js/modal.js?v=20.42';
-import * as Router from './js/router.js?v=20.42';
-import * as Sync from './js/sync.js?v=20.42';
-import * as Drive from './drive.js?v=20.42';
-import * as GitHub from './github.js?v=20.42';
-import * as Admin from './admin.js?v=20.42';
-import * as Auth from './auth.js?v=20.42';
-import * as Player from './player.js?v=20.42';
-import * as Songs from './js/songs.js?v=20.42';
-import * as Setlists from './js/setlists.js?v=20.42';
-import * as Practice from './js/practice.js?v=20.42';
-import * as Dashboard from './js/dashboard.js?v=20.42';
-import * as Migrate from './js/migrate.js?v=20.42';
-import * as WikiCharts from './js/wikicharts.js?v=20.42';
-import * as IDB from './idb.js?v=20.42';
-import * as Orchestra from './js/orchestra.js?v=20.42';
-import * as Instruments from './js/instruments.js?v=20.42';
-import * as Messages from './js/messages.js?v=20.42';
-import * as MutationQueue from './js/mutation-queue.js?v=20.42';
+import * as Store from './js/store.js?v=20.43';
+import { esc, haptic, showToast, showTechnicalToast, isIOS, isPWAInstalled, isMobile as isMobileUtil, detectPlatform } from './js/utils.js?v=20.43';
+import * as Modal from './js/modal.js?v=20.43';
+import * as Router from './js/router.js?v=20.43';
+import * as Sync from './js/sync.js?v=20.43';
+import * as Drive from './drive.js?v=20.43';
+import * as GitHub from './github.js?v=20.43';
+import * as Admin from './admin.js?v=20.43';
+import * as Auth from './auth.js?v=20.43';
+import * as Player from './player.js?v=20.43';
+import * as Songs from './js/songs.js?v=20.43';
+import * as Setlists from './js/setlists.js?v=20.43';
+import * as Practice from './js/practice.js?v=20.43';
+import * as Dashboard from './js/dashboard.js?v=20.43';
+import * as Migrate from './js/migrate.js?v=20.43';
+import * as Sheets from './js/sheets.js?v=20.43';
+import * as IDB from './idb.js?v=20.43';
+import * as Orchestra from './js/orchestra.js?v=20.43';
+import * as Instruments from './js/instruments.js?v=20.43';
+import * as Messages from './js/messages.js?v=20.43';
+import * as MutationQueue from './js/mutation-queue.js?v=20.43';
 
 const APP_VERSION = Store.get('APP_VERSION');
 
@@ -141,7 +141,7 @@ let _cachedPdfSet = new Set();
     const accountBtn = document.getElementById('btn-account');
     const setlistsBtn = document.getElementById('btn-setlists');
     const practiceBtn = document.getElementById('btn-practice');
-    const wikichartsBtn = document.getElementById('btn-wikicharts');
+    const sheetsBtn = document.getElementById('btn-sheets');
     const loggedIn = Auth.isLoggedIn();
     const messagesBtn = document.getElementById('btn-messages');
     const offlineQueueBtn = document.getElementById('btn-offline-queue');
@@ -158,10 +158,10 @@ let _cachedPdfSet = new Set();
       accountBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
-      wikichartsBtn?.classList.remove('hidden');
+      sheetsBtn?.classList.remove('hidden');
       setlistsBtn?.classList.remove('disabled-nav');
       practiceBtn?.classList.remove('disabled-nav');
-      wikichartsBtn?.classList.remove('disabled-nav');
+      sheetsBtn?.classList.remove('disabled-nav');
       // Messages: visible only for non-guest logged-in users
       const role = Auth.getRole?.() || 'guest';
       messagesBtn?.classList.toggle('hidden', role === 'guest');
@@ -176,10 +176,10 @@ let _cachedPdfSet = new Set();
       // Keep buttons visible but styled as disabled for unauth users
       setlistsBtn?.classList.remove('hidden');
       practiceBtn?.classList.remove('hidden');
-      wikichartsBtn?.classList.remove('hidden');
+      sheetsBtn?.classList.remove('hidden');
       setlistsBtn?.classList.add('disabled-nav');
       practiceBtn?.classList.add('disabled-nav');
-      wikichartsBtn?.classList.add('disabled-nav');
+      sheetsBtn?.classList.add('disabled-nav');
     }
 
     // Show/hide the unauth message on the main page
@@ -1260,9 +1260,9 @@ let _cachedPdfSet = new Set();
           </div>
         </div>
 
-        <!-- WIKICHARTS -->
+        <!-- SHEETS -->
         <div class="settings-section">
-          <div class="settings-section-title"><i data-lucide="file-music" style="width:16px;height:16px;"></i> WikiCharts</div>
+          <div class="settings-section-title"><i data-lucide="file-music" style="width:16px;height:16px;"></i> Sheets</div>
 
           <div class="settings-row">
             <div class="settings-row-label">
@@ -1270,8 +1270,8 @@ let _cachedPdfSet = new Set();
               <div class="settings-hint">Chart text size (14-32px)</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <input type="range" id="pref-wc-fontsize" min="14" max="32" value="${_getPref('wc_fontsize', '18')}" class="wc-slider" style="width:80px;accent-color:var(--accent);">
-              <span class="settings-hint" id="pref-wc-fontsize-val" style="min-width:28px;text-align:right;">${_getPref('wc_fontsize', '18')}px</span>
+              <input type="range" id="pref-sh-fontsize" min="14" max="32" value="${_getPref('sh_fontsize', '18')}" class="sh-slider" style="width:80px;accent-color:var(--accent);">
+              <span class="settings-hint" id="pref-sh-fontsize-val" style="min-width:28px;text-align:right;">${_getPref('sh_fontsize', '18')}px</span>
             </div>
           </div>
 
@@ -1280,8 +1280,8 @@ let _cachedPdfSet = new Set();
               <div class="settings-label">Auto-scroll speed</div>
               <div class="settings-hint">Speed multiplier for teleprompter</div>
             </div>
-            <select class="settings-select" id="pref-wc-scroll-speed">
-              ${['0.5', '0.75', '1', '1.25', '1.5', '2'].map(v => `<option value="${v}" ${_getPref('wc_scroll_speed', '1') === v ? 'selected' : ''}>${v}x</option>`).join('')}
+            <select class="settings-select" id="pref-sh-scroll-speed">
+              ${['0.5', '0.75', '1', '1.25', '1.5', '2'].map(v => `<option value="${v}" ${_getPref('sh_scroll_speed', '1') === v ? 'selected' : ''}>${v}x</option>`).join('')}
             </select>
           </div>
 
@@ -1291,8 +1291,8 @@ let _cachedPdfSet = new Set();
               <div class="settings-hint">Click volume (0-100%)</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <input type="range" id="pref-wc-metro-vol" min="0" max="100" value="${_getPref('wc_metro_vol', '50')}" style="width:80px;accent-color:var(--accent);">
-              <span class="settings-hint" id="pref-wc-metro-vol-val" style="min-width:28px;text-align:right;">${_getPref('wc_metro_vol', '50')}%</span>
+              <input type="range" id="pref-sh-metro-vol" min="0" max="100" value="${_getPref('sh_metro_vol', '50')}" style="width:80px;accent-color:var(--accent);">
+              <span class="settings-hint" id="pref-sh-metro-vol-val" style="min-width:28px;text-align:right;">${_getPref('sh_metro_vol', '50')}%</span>
             </div>
           </div>
 
@@ -1301,8 +1301,8 @@ let _cachedPdfSet = new Set();
               <div class="settings-label">Metronome sound</div>
               <div class="settings-hint">Click tone type</div>
             </div>
-            <select class="settings-select" id="pref-wc-metro-sound">
-              ${[['click','Click'],['woodblock','Woodblock'],['hihat','Hi-hat']].map(([v,l]) => `<option value="${v}" ${_getPref('wc_metro_sound', 'click') === v ? 'selected' : ''}>${l}</option>`).join('')}
+            <select class="settings-select" id="pref-sh-metro-sound">
+              ${[['click','Click'],['woodblock','Woodblock'],['hihat','Hi-hat']].map(([v,l]) => `<option value="${v}" ${_getPref('sh_metro_sound', 'click') === v ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </div>
 
@@ -1312,7 +1312,7 @@ let _cachedPdfSet = new Set();
               <div class="settings-hint">Colored borders on chart sections</div>
             </div>
             <label class="settings-toggle">
-              <input type="checkbox" id="pref-wc-section-colors" ${_getPref('wc_section_colors', '1') === '1' ? 'checked' : ''}>
+              <input type="checkbox" id="pref-sh-section-colors" ${_getPref('sh_section_colors', '1') === '1' ? 'checked' : ''}>
               <span class="settings-toggle-track"></span>
             </label>
           </div>
@@ -1573,12 +1573,12 @@ let _cachedPdfSet = new Set();
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <div class="settings-row-label">
-                <div class="settings-label">WikiChart default key</div>
-                <div class="settings-hint">Pre-selected key when creating new WikiCharts</div>
+                <div class="settings-label">Sheet default key</div>
+                <div class="settings-hint">Pre-selected key when creating new Sheets</div>
               </div>
             </div>
-            <select class="settings-select" id="orch-wc-default-key" style="width:100%;max-width:160px;">
-              ${['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'].map(k => `<option value="${k}" ${Sync.getOrchestraSetting('wikichart_default_key', 'C') === k ? 'selected' : ''}>${k}</option>`).join('')}
+            <select class="settings-select" id="orch-sh-default-key" style="width:100%;max-width:160px;">
+              ${['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B'].map(k => `<option value="${k}" ${Sync.getOrchestraSetting('sheet_default_key', 'C') === k ? 'selected' : ''}>${k}</option>`).join('')}
             </select>
           </div>
 
@@ -1756,28 +1756,28 @@ let _cachedPdfSet = new Set();
     wire('pref-practice-single-expand', 'practice_single_expand');
     wireSelect('pref-list-density', 'list_density');
 
-    // WikiCharts settings
-    wireSelect('pref-wc-scroll-speed', 'wc_scroll_speed');
-    wireSelect('pref-wc-metro-sound', 'wc_metro_sound');
-    wire('pref-wc-section-colors', 'wc_section_colors');
+    // Sheets settings
+    wireSelect('pref-sh-scroll-speed', 'sh_scroll_speed');
+    wireSelect('pref-sh-metro-sound', 'sh_metro_sound');
+    wire('pref-sh-section-colors', 'sh_section_colors');
 
-    // WikiCharts font size slider
-    const wcFontSlider = container.querySelector('#pref-wc-fontsize');
-    if (wcFontSlider) {
-      wcFontSlider.addEventListener('input', () => {
-        _setPref('wc_fontsize', wcFontSlider.value);
-        const label = container.querySelector('#pref-wc-fontsize-val');
-        if (label) label.textContent = wcFontSlider.value + 'px';
+    // Sheets font size slider
+    const shFontSlider = container.querySelector('#pref-sh-fontsize');
+    if (shFontSlider) {
+      shFontSlider.addEventListener('input', () => {
+        _setPref('sh_fontsize', shFontSlider.value);
+        const label = container.querySelector('#pref-sh-fontsize-val');
+        if (label) label.textContent = shFontSlider.value + 'px';
       });
     }
 
-    // WikiCharts metronome volume slider
-    const wcVolSlider = container.querySelector('#pref-wc-metro-vol');
-    if (wcVolSlider) {
-      wcVolSlider.addEventListener('input', () => {
-        _setPref('wc_metro_vol', wcVolSlider.value);
-        const label = container.querySelector('#pref-wc-metro-vol-val');
-        if (label) label.textContent = wcVolSlider.value + '%';
+    // Sheets metronome volume slider
+    const shVolSlider = container.querySelector('#pref-sh-metro-vol');
+    if (shVolSlider) {
+      shVolSlider.addEventListener('input', () => {
+        _setPref('sh_metro_vol', shVolSlider.value);
+        const label = container.querySelector('#pref-sh-metro-vol-val');
+        if (label) label.textContent = shVolSlider.value + '%';
       });
     }
 
@@ -1812,7 +1812,7 @@ let _cachedPdfSet = new Set();
     wireOrchToggle('orch-quick-add', 'quick_add_mode');
     wireOrchToggle('orch-member-suggestions', 'member_suggestions');
     wireOrchToggle('orch-new-material-alert', 'new_material_alert');
-    wireOrchSelect('orch-wc-default-key', 'wikichart_default_key');
+    wireOrchSelect('orch-sh-default-key', 'sheet_default_key');
     wireOrchSelect('orch-live-theme', 'live_default_theme');
     wireOrchSlider('orch-live-fontsize', 'live_font_size', 'orch-live-fontsize-val', v => v + 'px');
     wireOrchSlider('orch-live-auto-advance', 'live_auto_advance_secs', 'orch-live-auto-advance-val', v => v == 0 ? 'Manual' : v + 's');
@@ -2366,9 +2366,9 @@ let _cachedPdfSet = new Set();
   function _migratePracticeData() { Practice.migratePracticeData(); _practice = Store.get('practice'); }
   async function savePractice(toastMsg) { return Practice.savePractice(toastMsg); }
 
-  // ─── WIKICHARTS (delegated to WikiCharts module) ──────────
-  function renderWikiCharts() { WikiCharts.renderWikiChartsList(); }
-  async function loadWikiChartsInstant() { await Sync.loadWikiChartsInstant(); }
+  // ─── SHEETS (delegated to Sheets module) ──────────
+  function renderSheets() { Sheets.renderSheetsList(); }
+  async function loadSheetsInstant() { await Sync.loadSheetsInstant(); }
 
   // ─── Init ──────────────────────────────────────────────────
 
@@ -3252,15 +3252,15 @@ let _cachedPdfSet = new Set();
       renderPractice();
     });
 
-    // WikiCharts button (auth-gated + email verification)
-    document.getElementById('btn-wikicharts').addEventListener('click', () => {
+    // Sheets button (auth-gated + email verification)
+    document.getElementById('btn-sheets').addEventListener('click', () => {
       if (!Auth.isLoggedIn()) {
-        showToast('Log in to view WikiCharts');
+        showToast('Log in to view Sheets');
         return;
       }
-      if (!_checkEmailVerified('WikiCharts')) return;
+      if (!_checkEmailVerified('Sheets')) return;
       if (Store.get('selectionMode')) _exitSelectionMode();
-      renderWikiCharts();
+      renderSheets();
     });
 
     // Messages button (auth-gated, no guest)
@@ -3331,7 +3331,7 @@ let _cachedPdfSet = new Set();
     }
 
     // Load all data sources in parallel for faster cold start
-    await Promise.all([loadSongsInstant(), loadSetlistsInstant(), loadPracticeInstant(), loadWikiChartsInstant()]);
+    await Promise.all([loadSongsInstant(), loadSetlistsInstant(), loadPracticeInstant(), loadSheetsInstant()]);
     _migratePracticeData();
 
     // Feature 9: Welcome overlay for brand-new users

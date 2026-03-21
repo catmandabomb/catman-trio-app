@@ -65,10 +65,36 @@ function _bbToCt() {
 }
 
 /**
+ * v20.43: Rename WikiCharts → Sheets localStorage keys.
+ */
+function _wikiChartsToSheets() {
+  if (localStorage.getItem('ct_wc_to_sh_migrated')) return;
+  const map = {
+    'ct_wikicharts': 'ct_sheets',
+    'ct_pref_wc_fontsize': 'ct_pref_sh_fontsize',
+    'ct_pref_wc_scroll_speed': 'ct_pref_sh_scroll_speed',
+    'ct_pref_wc_metro_vol': 'ct_pref_sh_metro_vol',
+    'ct_pref_wc_metro_sound': 'ct_pref_sh_metro_sound',
+    'ct_pref_wc_section_colors': 'ct_pref_sh_section_colors',
+  };
+  try {
+    for (const [oldKey, newKey] of Object.entries(map)) {
+      const val = localStorage.getItem(oldKey);
+      if (val !== null && localStorage.getItem(newKey) === null) {
+        localStorage.setItem(newKey, val);
+      }
+      localStorage.removeItem(oldKey);
+    }
+  } catch (_) {}
+  try { localStorage.setItem('ct_wc_to_sh_migrated', '1'); } catch (_) {}
+}
+
+/**
  * Run all migrations. Called once at app startup before init.
  */
 function runAll() {
   _bbToCt();
+  _wikiChartsToSheets();
 }
 
 export { runAll };

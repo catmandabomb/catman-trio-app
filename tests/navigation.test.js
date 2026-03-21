@@ -38,8 +38,10 @@ function resolveHash(hash) {
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
-    case 'wikicharts': return { view: 'wikicharts' };
-    case 'wikichart': return { view: 'wikichart-detail', wikiChartId: parts[1] };
+    case 'sheets': return { view: 'sheets' };
+    case 'sheet': return { view: 'sheet-detail', sheetId: parts[1] };
+    case 'sheets': return { view: 'sheets' };
+    case 'wikichart': return { view: 'sheet-detail', sheetId: parts[1] };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
     case 'orchestra': return parts[1] ? { view: 'orchestra-detail', orchestraId: parts[1] } : { view: 'orchestra' };
@@ -76,7 +78,7 @@ function createRouter() {
 const ROLE_HIERARCHY = ['owner', 'admin', 'conductr', 'member', 'guest'];
 
 function canAccessView(role, view) {
-  const publicViews = ['list', 'detail', 'setlists', 'setlist-detail', 'wikicharts', 'wikichart-detail', 'account', 'settings', 'reset-password', 'verify-email'];
+  const publicViews = ['list', 'detail', 'setlists', 'setlist-detail', 'sheets', 'sheet-detail', 'account', 'settings', 'reset-password', 'verify-email'];
   const memberViews = ['practice', 'practice-detail', 'practice-edit', 'messages', 'orchestra', 'orchestra-detail'];
   const adminViews = ['dashboard'];
 
@@ -170,7 +172,7 @@ describe('Navigation: navigateToRoute dispatching', () => {
     // Register all app views
     const views = ['list', 'detail', 'setlists', 'setlist-detail', 'practice',
       'practice-detail', 'dashboard', 'messages', 'account', 'settings',
-      'wikicharts', 'wikichart-detail', 'orchestra', 'orchestra-detail'];
+      'sheets', 'sheet-detail', 'orchestra', 'orchestra-detail'];
     views.forEach(v => router.register(v, () => {}));
   });
 
@@ -228,10 +230,10 @@ describe('Navigation: deep link resolution', () => {
     assert.equal(route.practiceListId, 'pl_999');
   });
 
-  it('wikichart deep link resolves with correct wikiChartId', () => {
-    const route = resolveHash('#wikichart/wc_chart1');
-    assert.equal(route.view, 'wikichart-detail');
-    assert.equal(route.wikiChartId, 'wc_chart1');
+  it('sheet deep link resolves with correct sheetId', () => {
+    const route = resolveHash('#sheet/wc_chart1');
+    assert.equal(route.view, 'sheet-detail');
+    assert.equal(route.sheetId, 'wc_chart1');
   });
 
   it('orchestra deep link resolves with correct orchestraId', () => {
@@ -267,8 +269,8 @@ describe('Navigation: role-based view access', () => {
     assert.ok(canAccessView('guest', 'setlists'));
   });
 
-  it('guest can access wikicharts', () => {
-    assert.ok(canAccessView('guest', 'wikicharts'));
+  it('guest can access sheets', () => {
+    assert.ok(canAccessView('guest', 'sheets'));
   });
 
   it('guest can access account page', () => {
@@ -336,7 +338,7 @@ describe('Navigation: role-based view access', () => {
   // Owner has full access to everything
   it('owner can access ALL views', () => {
     const allViews = ['list', 'detail', 'setlists', 'setlist-detail', 'practice',
-      'practice-detail', 'messages', 'dashboard', 'wikicharts', 'wikichart-detail',
+      'practice-detail', 'messages', 'dashboard', 'sheets', 'sheet-detail',
       'orchestra', 'orchestra-detail', 'account', 'settings'];
     for (const view of allViews) {
       assert.ok(canAccessView('owner', view), `owner should access ${view}`);
@@ -413,8 +415,8 @@ describe('Navigation: view transition cleanup hooks', () => {
     } else if (fromView === 'practice-detail' && toView !== 'practice-detail') {
       hooks.push('cleanupPractice');
     }
-    if ((fromView === 'wikicharts' || fromView === 'wikichart-detail') && !toView.startsWith('wikichart')) {
-      hooks.push('cleanupWikiCharts');
+    if ((fromView === 'sheets' || fromView === 'sheet-detail') && !toView.startsWith('sheet')) {
+      hooks.push('cleanupSheets');
     }
     return hooks;
   }
@@ -441,14 +443,14 @@ describe('Navigation: view transition cleanup hooks', () => {
     assert.includes(hooks, 'cleanupPractice');
   });
 
-  it('leaving wikicharts to list triggers cleanupWikiCharts', () => {
-    const hooks = getCleanupHooks('wikicharts', 'list');
-    assert.includes(hooks, 'cleanupWikiCharts');
+  it('leaving sheets to list triggers cleanupSheets', () => {
+    const hooks = getCleanupHooks('sheets', 'list');
+    assert.includes(hooks, 'cleanupSheets');
   });
 
-  it('leaving wikichart-detail to wikicharts does NOT trigger cleanupWikiCharts', () => {
-    const hooks = getCleanupHooks('wikichart-detail', 'wikicharts');
-    assert.notIncludes(hooks, 'cleanupWikiCharts');
+  it('leaving sheet-detail to sheets does NOT trigger cleanupSheets', () => {
+    const hooks = getCleanupHooks('sheet-detail', 'sheets');
+    assert.notIncludes(hooks, 'cleanupSheets');
   });
 
   it('leaving setlist-live triggers cleanupLiveMode', () => {
@@ -465,7 +467,7 @@ describe('Navigation: view transition cleanup hooks', () => {
     const hooks = getCleanupHooks('list', 'setlists');
     assert.includes(hooks, 'cleanupSelection'); // list always triggers cleanupSelection on leave
     assert.notIncludes(hooks, 'cleanupPractice');
-    assert.notIncludes(hooks, 'cleanupWikiCharts');
+    assert.notIncludes(hooks, 'cleanupSheets');
     assert.notIncludes(hooks, 'cleanupLiveMode');
   });
 });
@@ -518,8 +520,8 @@ describe('Navigation: aria-current mapping', () => {
     if (['practice', 'practice-detail', 'practice-edit'].includes(viewName)) {
       return 'btn-practice';
     }
-    if (['wikicharts', 'wikichart-detail'].includes(viewName)) {
-      return 'btn-wikicharts';
+    if (['sheets', 'sheet-detail'].includes(viewName)) {
+      return 'btn-sheets';
     }
     if (viewName === 'messages') {
       return 'btn-messages';
@@ -547,12 +549,12 @@ describe('Navigation: aria-current mapping', () => {
     assert.equal(getAriaCurrent('practice-detail'), 'btn-practice');
   });
 
-  it('wikicharts highlights wikicharts button', () => {
-    assert.equal(getAriaCurrent('wikicharts'), 'btn-wikicharts');
+  it('sheets highlights sheets button', () => {
+    assert.equal(getAriaCurrent('sheets'), 'btn-sheets');
   });
 
-  it('wikichart-detail highlights wikicharts button', () => {
-    assert.equal(getAriaCurrent('wikichart-detail'), 'btn-wikicharts');
+  it('sheet-detail highlights sheets button', () => {
+    assert.equal(getAriaCurrent('sheet-detail'), 'btn-sheets');
   });
 
   it('messages highlights messages button', () => {
@@ -582,15 +584,15 @@ describe('Navigation: hash ↔ view consistency check', () => {
     'list', 'detail', 'setlists', 'setlist-detail',
     'practice', 'practice-detail',
     'dashboard', 'messages', 'account', 'settings',
-    'wikicharts', 'wikichart-detail',
+    'sheets', 'sheet-detail',
     'orchestra', 'orchestra-detail',
   ];
 
   const ALL_HASH_ROUTES = [
     '', '#', '#setlists', '#practice', '#dashboard', '#messages',
-    '#account', '#settings', '#wikicharts', '#orchestra',
+    '#account', '#settings', '#sheets', '#orchestra',
     '#song/id1', '#setlist/id1', '#practice/id1',
-    '#wikichart/id1', '#orchestra/id1',
+    '#sheet/id1', '#orchestra/id1',
     '#reset-password?token=t', '#verify-email?token=t',
   ];
 
@@ -688,7 +690,7 @@ describe('Navigation: topbar button visibility', () => {
       backVisible: showBack,
       setlistsVisible: !showBack,
       practiceVisible: !showBack,
-      wikichartsVisible: !showBack,
+      sheetsVisible: !showBack,
     };
   }
 
@@ -697,7 +699,7 @@ describe('Navigation: topbar button visibility', () => {
     assert.notOk(state.backVisible);
     assert.ok(state.setlistsVisible);
     assert.ok(state.practiceVisible);
-    assert.ok(state.wikichartsVisible);
+    assert.ok(state.sheetsVisible);
   });
 
   it('sub-view shows back, hides nav buttons', () => {
@@ -705,7 +707,7 @@ describe('Navigation: topbar button visibility', () => {
     assert.ok(state.backVisible);
     assert.notOk(state.setlistsVisible);
     assert.notOk(state.practiceVisible);
-    assert.notOk(state.wikichartsVisible);
+    assert.notOk(state.sheetsVisible);
   });
 });
 
@@ -719,8 +721,8 @@ describe('Navigation: view-specific topbar cleanup', () => {
     'practice-topbar-actions',
     'practice-list-detail-topbar-actions',
     'song-detail-topbar-actions',
-    'wikicharts-topbar-actions',
-    'wikichart-detail-topbar-actions',
+    'sheets-topbar-actions',
+    'sheet-detail-topbar-actions',
     'messages-topbar-actions',
   ];
 

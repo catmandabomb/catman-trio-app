@@ -42,8 +42,8 @@ function _shouldSync(cooldownMs) {
 }
 
 function _saveToD1PathAndKey(type) {
-  const pathMap = { wikicharts: 'wikicharts' };
-  const keyMap = { wikicharts: 'wikiCharts' };
+  const pathMap = { sheets: 'sheets' };
+  const keyMap = { sheets: 'sheets' };
   return {
     apiPath: pathMap[type] || type,
     bodyKey: keyMap[type] || type,
@@ -206,10 +206,10 @@ describe('Sync — D1 API path/key mapping', () => {
     assert.equal(r.bodyKey, 'practice');
   });
 
-  it('wikicharts maps to wikicharts/wikiCharts (camelCase body key)', () => {
-    const r = _saveToD1PathAndKey('wikicharts');
-    assert.equal(r.apiPath, 'wikicharts');
-    assert.equal(r.bodyKey, 'wikiCharts');
+  it('sheets maps to sheets/sheets', () => {
+    const r = _saveToD1PathAndKey('sheets');
+    assert.equal(r.apiPath, 'sheets');
+    assert.equal(r.bodyKey, 'sheets');
   });
 });
 

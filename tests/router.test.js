@@ -19,8 +19,8 @@ function viewToHash(viewName, params) {
     case 'account': return '#account';
     case 'settings': return '#settings';
     case 'messages': return '#messages';
-    case 'wikicharts': return '#wikicharts';
-    case 'wikichart-detail': return params?.wikiChartId ? `#wikichart/${params.wikiChartId}` : '#wikicharts';
+    case 'sheets': return '#sheets';
+    case 'sheet-detail': return params?.sheetId ? `#sheet/${params.sheetId}` : '#sheets';
     case 'orchestra': return '#orchestra';
     case 'orchestra-detail': return params?.orchestraId ? `#orchestra/${params.orchestraId}` : '#orchestra';
     default: return '#';
@@ -49,8 +49,11 @@ function resolveHash(hash) {
     case 'dashboard': return { view: 'dashboard' };
     case 'account': return { view: 'account' };
     case 'settings': return { view: 'settings' };
-    case 'wikicharts': return { view: 'wikicharts' };
-    case 'wikichart': return { view: 'wikichart-detail', wikiChartId: parts[1] };
+    case 'sheets': return { view: 'sheets' };
+    case 'sheet': return { view: 'sheet-detail', sheetId: parts[1] };
+    // Backwards compat
+    case 'wikicharts': return { view: 'sheets' };
+    case 'wikichart': return { view: 'sheet-detail', sheetId: parts[1] };
     case 'reset-password': return { view: 'reset-password', token: params.token };
     case 'verify-email': return { view: 'verify-email', token: params.token };
     case 'orchestra': return parts[1] ? { view: 'orchestra-detail', orchestraId: parts[1] } : { view: 'orchestra' };
@@ -97,8 +100,12 @@ describe('Router — resolveHash basics', () => {
     assert.equal(resolveHash('#settings').view, 'settings');
   });
 
-  it('#wikicharts resolves to wikicharts', () => {
-    assert.equal(resolveHash('#wikicharts').view, 'wikicharts');
+  it('#sheets resolves to sheets', () => {
+    assert.equal(resolveHash('#sheets').view, 'sheets');
+  });
+
+  it('#wikicharts backwards compat resolves to sheets', () => {
+    assert.equal(resolveHash('#wikicharts').view, 'sheets');
   });
 
   it('#orchestra resolves to orchestra', () => {
@@ -119,10 +126,16 @@ describe('Router — resolveHash with IDs', () => {
     assert.equal(r.setlistId, 'sl42');
   });
 
-  it('#wikichart/wc_abcd1234 resolves to wikichart-detail', () => {
+  it('#sheet/wc_abcd1234 resolves to sheet-detail', () => {
+    const r = resolveHash('#sheet/wc_abcd1234');
+    assert.equal(r.view, 'sheet-detail');
+    assert.equal(r.sheetId, 'wc_abcd1234');
+  });
+
+  it('#wikichart/wc_abcd1234 backwards compat resolves to sheet-detail', () => {
     const r = resolveHash('#wikichart/wc_abcd1234');
-    assert.equal(r.view, 'wikichart-detail');
-    assert.equal(r.wikiChartId, 'wc_abcd1234');
+    assert.equal(r.view, 'sheet-detail');
+    assert.equal(r.sheetId, 'wc_abcd1234');
   });
 
   it('#orchestra/orch123 resolves to orchestra-detail', () => {
@@ -263,12 +276,12 @@ describe('Router — viewToHash', () => {
     assert.equal(viewToHash('messages'), '#messages');
   });
 
-  it('wikichart-detail with ID maps correctly', () => {
-    assert.equal(viewToHash('wikichart-detail', { wikiChartId: 'wc_123' }), '#wikichart/wc_123');
+  it('sheet-detail with ID maps correctly', () => {
+    assert.equal(viewToHash('sheet-detail', { sheetId: 'wc_123' }), '#sheet/wc_123');
   });
 
-  it('wikichart-detail without ID maps to #wikicharts', () => {
-    assert.equal(viewToHash('wikichart-detail'), '#wikicharts');
+  it('sheet-detail without ID maps to #sheets', () => {
+    assert.equal(viewToHash('sheet-detail'), '#sheets');
   });
 
   it('orchestra-detail with ID maps correctly', () => {
@@ -321,11 +334,11 @@ describe('Router — viewToHash/resolveHash roundtrip', () => {
     assert.equal(r.setlistId, 'sl99');
   });
 
-  it('wikichart-detail roundtrips', () => {
-    const hash = viewToHash('wikichart-detail', { wikiChartId: 'wc_abc' });
+  it('sheet-detail roundtrips', () => {
+    const hash = viewToHash('sheet-detail', { sheetId: 'wc_abc' });
     const r = resolveHash(hash);
-    assert.equal(r.view, 'wikichart-detail');
-    assert.equal(r.wikiChartId, 'wc_abc');
+    assert.equal(r.view, 'sheet-detail');
+    assert.equal(r.sheetId, 'wc_abc');
   });
 
   it('dashboard roundtrips', () => {

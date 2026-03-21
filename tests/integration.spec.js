@@ -225,15 +225,15 @@ test.describe('Navigation', () => {
     await page.waitForTimeout(1000);
   });
 
-  test('WikiCharts page loads with content', async ({ page }) => {
-    await page.locator('button:has-text("Charts")').click();
+  test('Sheets page loads with content', async ({ page }) => {
+    await page.locator('button:has-text("Sheets")').click();
     await page.waitForTimeout(600);
 
-    expect(page.url()).toContain('#wikicharts');
+    expect(page.url()).toContain('#sheets');
 
     // Should have a back button and title
     await expect(page.locator('button:has-text("Back")')).toBeVisible();
-    // Search bar on wikicharts
+    // Search bar on sheets
     await expect(page.locator('input[placeholder*="Search"]')).toBeVisible();
   });
 
@@ -297,10 +297,10 @@ test.describe('Navigation', () => {
   });
 
   test('back navigation returns to song list', async ({ page }) => {
-    // Go to Charts
-    await page.locator('button:has-text("Charts")').click();
+    // Go to Sheets
+    await page.locator('button:has-text("Sheets")').click();
     await page.waitForTimeout(600);
-    expect(page.url()).toContain('#wikicharts');
+    expect(page.url()).toContain('#sheets');
 
     // Go back
     await page.locator('button:has-text("Back")').click();
@@ -315,7 +315,7 @@ test.describe('Navigation', () => {
     const countBefore = await countSongs(page);
 
     // Navigate away and back through each section
-    for (const route of ['#wikicharts', '#practice', '#setlists', '#messages']) {
+    for (const route of ['#sheets', '#practice', '#setlists', '#messages']) {
       await navigateTo(page, route);
     }
 

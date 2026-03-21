@@ -22,7 +22,7 @@ tests/
   router.test.js       — Hash parsing, route matching, navStack, roundtrips
   utils.test.js        — esc, highlight, duration, timeAgo, levenshtein, wake lock
   setlists.test.js     — Key distance, jarring transitions, last-played formatting
-  wikicharts.test.js   — Transpose, chord parsing, Nashville numbers, diatonic chords
+  sheets.test.js       — Transpose, chord parsing, Nashville numbers, diatonic chords
   player.test.js       — Speed steps, volume clamping, format helpers
   pdf-viewer.test.js   — Zoom clamping, page bounds, DPR caps, cache sizing
   sync.test.js         — useCloudflare detection, fingerprinting, schema migration

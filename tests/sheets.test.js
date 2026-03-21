@@ -1,10 +1,10 @@
 /**
- * wikicharts.test.js — Tests for js/wikicharts.js (transpose/capo, chord parsing, Nashville)
+ * sheets.test.js — Tests for js/sheets.js (transpose/capo, chord parsing, Nashville)
  */
 
 const { describe, it, beforeEach, assert } = require('./test-runner');
 
-// ─── Replicate wikicharts transposition logic ────────────────
+// ─── Replicate sheets transposition logic ────────────────
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -85,7 +85,7 @@ function _getDiatonicChords(key) {
 
 // ─── Tests ───────────────────────────────────────────────────
 
-describe('WikiCharts — _parseChordRoot', () => {
+describe('Sheets — _parseChordRoot', () => {
   it('parses simple major chord', () => {
     const r = _parseChordRoot('C');
     assert.equal(r.root, 'C');
@@ -125,7 +125,7 @@ describe('WikiCharts — _parseChordRoot', () => {
   it('returns null for number', () => { assert.isNull(_parseChordRoot('7')); });
 });
 
-describe('WikiCharts — _rootToIndex', () => {
+describe('Sheets — _rootToIndex', () => {
   it('maps C to 0', () => { assert.equal(_rootToIndex('C'), 0); });
   it('maps B to 11', () => { assert.equal(_rootToIndex('B'), 11); });
   it('maps sharps correctly', () => {
@@ -151,7 +151,7 @@ describe('WikiCharts — _rootToIndex', () => {
   });
 });
 
-describe('WikiCharts — _indexToRoot', () => {
+describe('Sheets — _indexToRoot', () => {
   it('returns sharp names by default', () => {
     assert.equal(_indexToRoot(0, false), 'C');
     assert.equal(_indexToRoot(1, false), 'C#');
@@ -179,7 +179,7 @@ describe('WikiCharts — _indexToRoot', () => {
   });
 });
 
-describe('WikiCharts — _transposeChord', () => {
+describe('Sheets — _transposeChord', () => {
   it('transposes up by 1 semitone', () => {
     assert.equal(_transposeChord('C', 1, false), 'C#');
     assert.equal(_transposeChord('E', 1, false), 'F');
@@ -240,7 +240,7 @@ describe('WikiCharts — _transposeChord', () => {
   });
 });
 
-describe('WikiCharts — _chordToNashville', () => {
+describe('Sheets — _chordToNashville', () => {
   it('C in key of C = 1', () => {
     assert.equal(_chordToNashville('C', 'C'), '1');
   });
@@ -288,7 +288,7 @@ describe('WikiCharts — _chordToNashville', () => {
   });
 });
 
-describe('WikiCharts — _getDiatonicChords', () => {
+describe('Sheets — _getDiatonicChords', () => {
   it('C major diatonic chords', () => {
     const chords = _getDiatonicChords('C');
     assert.equal(chords.length, 7);
@@ -338,7 +338,7 @@ describe('WikiCharts — _getDiatonicChords', () => {
   });
 });
 
-describe('WikiCharts — transposition edge cases', () => {
+describe('Sheets — transposition edge cases', () => {
   it('all 12 semitones cycle back to original', () => {
     const original = 'Dm7';
     let chord = original;

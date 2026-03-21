@@ -62,14 +62,14 @@
 
 const _state = {
   // ─── Version / Schema ────────────────────────────────────
-  APP_VERSION:        'v20.41',
+  APP_VERSION:        'v20.43',
   DATA_SCHEMA_VERSION: 1,
 
   // ─── Core data arrays ────────────────────────────────────
   songs:              [],
   setlists:           [],
   practice:           [],
-  wikiCharts:         [],
+  sheets:             [],
 
   // ─── View / Navigation ───────────────────────────────────
   view:               'list',
@@ -105,8 +105,8 @@ const _state = {
   editPracticeListIsNew: false,
   practiceList:       null,
 
-  // ─── WikiChart state ────────────────────────────────────
-  activeWikiChart:    null,
+  // ─── Sheet state ────────────────────────────────────────
+  activeSheet:        null,
 
   // ─── Orchestra state ──────────────────────────────────
   activeOrchestraId:    null,
@@ -122,7 +122,7 @@ const _state = {
   savingSongs:        false,
   savingSetlists:     false,
   savingPractice:     false,
-  savingWikiCharts:   false,
+  savingSheets:       false,
   autoConfigAttempted: false,
   manualSyncHistory:  [],
 

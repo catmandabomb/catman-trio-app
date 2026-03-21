@@ -15,8 +15,8 @@
  * File format on GitHub: { "iv": "<base64>", "data": "<base64>" }
  */
 
-import * as IDB from './idb.js?v=20.42';
-import * as Auth from './auth.js?v=20.42';
+import * as IDB from './idb.js?v=20.43';
+import * as Auth from './auth.js?v=20.43';
 
 // ─── Worker Proxy ─────────────────────────────────────────
 //
@@ -35,7 +35,7 @@ const FILES = {
   songs:      'data/songs.enc',
   setlists:   'data/setlists.enc',
   practice:   'data/practice.enc',
-  wikiCharts: 'data/wikiCharts.enc',
+  sheets: 'data/wikiCharts.enc',  // File path kept for backwards compat with existing repos
 };
 
 const DEBOUNCE_BASE_MS  = 1500;
@@ -53,9 +53,9 @@ const RATE_PAUSE_THRESHOLD = 4500; // 90%
 
 let _cryptoKey = null;
 let _keySeed = null; // Cached encryption key seed from Worker (memory only)
-let _shaCache = { songs: null, setlists: null, practice: null, wikiCharts: null };
-let _pending  = { songs: null, setlists: null, practice: null, wikiCharts: null };
-let _deletions = { songs: new Set(), setlists: new Set(), practice: new Set(), wikiCharts: new Set() };
+let _shaCache = { songs: null, setlists: null, practice: null, sheets: null };
+let _pending  = { songs: null, setlists: null, practice: null, sheets: null };
+let _deletions = { songs: new Set(), setlists: new Set(), practice: new Set(), sheets: new Set() };
 
 let _debounceTimer = null;
 let _debounceCount = 0;
@@ -121,7 +121,7 @@ function saveConfig({ pat, owner, repo }) {
   localStorage.setItem('ct_github_repo',  (repo || DEFAULT_REPO).trim());
   _cryptoKey = null; // Force re-derive on next use
   _keySeed = null;
-  _shaCache = { songs: null, setlists: null, practice: null, wikiCharts: null };
+  _shaCache = { songs: null, setlists: null, practice: null, sheets: null };
 }
 
 function clearConfig() {
@@ -130,7 +130,7 @@ function clearConfig() {
   localStorage.removeItem('ct_github_repo');
   _cryptoKey = null;
   _keySeed = null;
-  _shaCache = { songs: null, setlists: null, practice: null, wikiCharts: null };
+  _shaCache = { songs: null, setlists: null, practice: null, sheets: null };
 }
 
 function isConfigured() {
@@ -416,16 +416,16 @@ async function _loadType(type) {
 async function loadSongs()      { return _loadType('songs'); }
 async function loadSetlists()   { return _loadType('setlists'); }
 async function loadPractice()   { return _loadType('practice'); }
-async function loadWikiCharts() { return _loadType('wikiCharts'); }
+async function loadSheets() { return _loadType('sheets'); }
 
 async function loadAllData() {
-  const [songs, setlists, practice, wikiCharts] = await Promise.all([
+  const [songs, setlists, practice, sheets] = await Promise.all([
     _loadType('songs').catch(e => { console.warn('GitHub loadSongs failed:', e); return null; }),
     _loadType('setlists').catch(e => { console.warn('GitHub loadSetlists failed:', e); return null; }),
     _loadType('practice').catch(e => { console.warn('GitHub loadPractice failed:', e); return null; }),
-    _loadType('wikiCharts').catch(e => { console.warn('GitHub loadWikiCharts failed:', e); return null; }),
+    _loadType('sheets').catch(e => { console.warn('GitHub loadSheets failed:', e); return null; }),
   ]);
-  return { songs, setlists, practice, wikiCharts };
+  return { songs, setlists, practice, sheets };
 }
 
 /**
@@ -439,13 +439,13 @@ async function _peekType(type) {
 }
 
 async function peekAllData() {
-  const [songs, setlists, practice, wikiCharts] = await Promise.all([
+  const [songs, setlists, practice, sheets] = await Promise.all([
     _peekType('songs').catch(() => null),
     _peekType('setlists').catch(() => null),
     _peekType('practice').catch(() => null),
-    _peekType('wikiCharts').catch(() => null),
+    _peekType('sheets').catch(() => null),
   ]);
-  return { songs, setlists, practice, wikiCharts };
+  return { songs, setlists, practice, sheets };
 }
 
 // ─── Save data (queued + debounced) ───────────────────────
@@ -453,7 +453,7 @@ async function peekAllData() {
 function saveSongs(data)      { _queueWrite('songs', data); return Promise.resolve(); }
 function saveSetlists(data)   { _queueWrite('setlists', data); return Promise.resolve(); }
 function savePractice(data)   { _queueWrite('practice', data); return Promise.resolve(); }
-function saveWikiCharts(data) { _queueWrite('wikiCharts', data); return Promise.resolve(); }
+function saveSheets(data) { _queueWrite('sheets', data); return Promise.resolve(); }
 
 function _queueWrite(type, data) {
   _pending[type] = data;
@@ -526,7 +526,7 @@ async function _flushInner() {
   const snapshot = {};
   const deletionSnapshot = {};
   const types = [];
-  for (const k of ['songs', 'setlists', 'practice', 'wikiCharts']) {
+  for (const k of ['songs', 'setlists', 'practice', 'sheets']) {
     if (_pending[k] !== null) {
       snapshot[k] = _pending[k];
       deletionSnapshot[k] = new Set(_deletions[k]);
@@ -770,7 +770,7 @@ async function _restorePending() {
       if (raw) {
         const parsed = JSON.parse(raw);
         let hasPending = false;
-        for (const type of ['songs', 'setlists', 'practice', 'wikiCharts']) {
+        for (const type of ['songs', 'setlists', 'practice', 'sheets']) {
           if (parsed[type] !== null && parsed[type] !== undefined) {
             _pending[type] = parsed[type];
             hasPending = true;
@@ -789,7 +789,7 @@ async function _restorePending() {
     const delRaw = localStorage.getItem('ct_github_deletions');
     if (delRaw) {
       const delParsed = JSON.parse(delRaw);
-      for (const type of ['songs', 'setlists', 'practice', 'wikiCharts']) {
+      for (const type of ['songs', 'setlists', 'practice', 'sheets']) {
         if (Array.isArray(delParsed[type])) {
           _deletions[type] = new Set(delParsed[type]);
         }
@@ -875,8 +875,8 @@ async function migrateData({ songs, setlists, practice }) {
     await new Promise(r => setTimeout(r, 100));
   }
   // Clear pending writes — migration is the canonical source
-  _pending = { songs: null, setlists: null, practice: null, wikiCharts: null };
-  _deletions = { songs: new Set(), setlists: new Set(), practice: new Set(), wikiCharts: new Set() };
+  _pending = { songs: null, setlists: null, practice: null, sheets: null };
+  _deletions = { songs: new Set(), setlists: new Set(), practice: new Set(), sheets: new Set() };
   _persistPending();
 
   // Step 1: Create data branch
@@ -961,7 +961,7 @@ async function flushNow() {
 
 // ─── Public API ───────────────────────────────────────────
 
-export { isConfigured, getConfig, saveConfig, clearConfig, testConnection, init, loadSongs, loadSetlists, loadPractice, loadWikiCharts, loadAllData, peekAllData, saveSongs, saveSetlists, savePractice, saveWikiCharts, trackDeletion, migrateData, getRateLimitStatus, getWriteQueueStatus, flushNow };
+export { isConfigured, getConfig, saveConfig, clearConfig, testConnection, init, loadSongs, loadSetlists, loadPractice, loadSheets, loadAllData, peekAllData, saveSongs, saveSetlists, savePractice, saveSheets, trackDeletion, migrateData, getRateLimitStatus, getWriteQueueStatus, flushNow };
 export { USE_WORKER as useWorker, WORKER_URL as workerUrl };
 export function setOnFlushError(fn) { _onFlushError = fn; }
 export function setOnFlushSuccess(fn) { _onFlushSuccess = fn; }

@@ -1,5 +1,5 @@
 /**
- * app-data.js — D1-backed CRUD for songs, setlists, practice, wikicharts
+ * app-data.js — D1-backed CRUD for songs, setlists, practice, sheets
  *
  * Replaces GitHub data branch as the primary data store.
  * All endpoints require session auth. Write operations require admin/owner/conductr role.
@@ -280,9 +280,9 @@ export async function savePractice(request, env, currentUser, orchestraId) {
   return json({ ok: true, count: body.practice.length });
 }
 
-// ─── WikiCharts ─────────────────────────────────────────
+// ─── Sheets (DB table: wiki_charts) ─────────────────────
 
-export async function listWikiCharts(env, orchestraId) {
+export async function listSheets(env, orchestraId) {
   let query, bind;
   if (orchestraId) {
     query = 'SELECT id, title, key, bpm, time_sig, feel, sections, structure_tag, notes, versions, created_by, orchestra_id, version, updated_at, created_at FROM wiki_charts WHERE orchestra_id = ? ORDER BY title COLLATE NOCASE';
@@ -293,26 +293,28 @@ export async function listWikiCharts(env, orchestraId) {
   }
   const stmt = env.DB.prepare(query);
   const { results } = bind.length ? await stmt.bind(...bind).all() : await stmt.all();
-  const wikiCharts = (results || []).map(_rowToWikiChart);
-  return json({ wikiCharts });
+  const sheets = (results || []).map(_rowToSheet);
+  return json({ sheets });
 }
 
-export async function saveWikiCharts(request, env, currentUser, orchestraId) {
+export async function saveSheets(request, env, currentUser, orchestraId) {
   const body = await _parseBody(request);
-  if (!body || !Array.isArray(body.wikiCharts)) {
-    return json({ error: 'wikiCharts array required' }, 400);
+  // Accept both 'sheets' (new) and 'wikiCharts' (backwards compat)
+  const items = body?.sheets || body?.wikiCharts;
+  if (!body || !Array.isArray(items)) {
+    return json({ error: 'sheets array required' }, 400);
   }
 
-  const useVersioning = body.wikiCharts.some(w => w.version != null);
+  const useVersioning = items.some(w => w.version != null);
   if (useVersioning) {
-    const conflict = await _checkVersionConflicts(env, 'wiki_charts', body.wikiCharts);
+    const conflict = await _checkVersionConflicts(env, 'wiki_charts', items);
     if (conflict) return conflict;
   }
 
   const batch = [];
   const now = new Date().toISOString();
 
-  for (const wc of body.wikiCharts) {
+  for (const wc of items) {
     if (!wc.id) continue;
     batch.push(
       env.DB.prepare(`
@@ -363,7 +365,7 @@ export async function saveWikiCharts(request, env, currentUser, orchestraId) {
     await env.DB.batch(batch);
   }
 
-  return json({ ok: true, count: body.wikiCharts.length });
+  return json({ ok: true, count: items.length });
 }
 
 // ─── Change detection (lightweight poll endpoint) ───────
@@ -386,7 +388,7 @@ export async function getChangeTimestamps(env, orchestraId) {
     songs: { latest: songsRes?.latest || null, count: songsRes?.count || 0 },
     setlists: { latest: setlistsRes?.latest || null, count: setlistsRes?.count || 0 },
     practice: { latest: practiceRes?.latest || null, count: practiceRes?.count || 0 },
-    wikiCharts: { latest: wikiRes?.latest || null, count: wikiRes?.count || 0 },
+    sheets: { latest: wikiRes?.latest || null, count: wikiRes?.count || 0 },
   });
 }
 
@@ -1287,7 +1289,7 @@ function _rowToPractice(row) {
   };
 }
 
-function _rowToWikiChart(row) {
+function _rowToSheet(row) {
   return {
     id: row.id,
     title: row.title,

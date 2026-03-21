@@ -5,7 +5,7 @@
  * then flushes them in FIFO order when connectivity returns.
  *
  * Two queue types:
- * - Bulk saves (songs, setlists, practice, wikicharts): one-per-type in pendingWrites
+ * - Bulk saves (songs, setlists, practice, sheets): one-per-type in pendingWrites
  * - Discrete mutations (messages, settings, suggestions): FIFO in mutationQueue
  *
  * Flush triggers:
@@ -17,9 +17,9 @@
  * @module mutation-queue
  */
 
-import * as IDB from '../idb.js?v=20.42';
-import * as Auth from '../auth.js?v=20.42';
-import { showToast } from './utils.js?v=20.42';
+import * as IDB from '../idb.js?v=20.43';
+import * as Auth from '../auth.js?v=20.43';
+import { showToast } from './utils.js?v=20.43';
 
 // ─── State ──────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ function _updateBadge() {
 /**
  * Queue a bulk data save for later sync.
  * Overwrites any previous pending save of the same type.
- * @param {'songs'|'setlists'|'practice'|'wikicharts'} type
+ * @param {'songs'|'setlists'|'practice'|'sheets'} type
  * @param {Array} data
  * @param {string[]} [deletions]
  */
@@ -218,7 +218,7 @@ async function _rawWorkerFetch(path, options = {}) {
 }
 
 function _bodyKey(type) {
-  return type === 'wikicharts' ? 'wikiCharts' : type;
+  return type;
 }
 
 // ─── Background Sync registration ──────────────────────

@@ -22,7 +22,7 @@ function createStore() {
     songs: [],
     setlists: [],
     practice: [],
-    wikiCharts: [],
+    sheets: [],
     view: 'list',
     showViewCalled: false,
     navStack: [],
@@ -49,14 +49,14 @@ function createStore() {
     editPracticeList: null,
     editPracticeListIsNew: false,
     practiceList: null,
-    activeWikiChart: null,
+    activeSheet: null,
     orchestraSettings: {},
     syncing: false,
     lastDriveSnapshot: null,
     savingSongs: false,
     savingSetlists: false,
     savingPractice: false,
-    savingWikiCharts: false,
+    savingSheets: false,
     autoConfigAttempted: false,
     blobCache: {},
     playerRefs: [],
@@ -207,7 +207,7 @@ describe('Store — initial state integrity', () => {
     assert.deepEqual(store.get('songs'), []);
     assert.deepEqual(store.get('setlists'), []);
     assert.deepEqual(store.get('practice'), []);
-    assert.deepEqual(store.get('wikiCharts'), []);
+    assert.deepEqual(store.get('sheets'), []);
     assert.deepEqual(store.get('activeTags'), []);
     assert.deepEqual(store.get('activeKeys'), []);
     assert.deepEqual(store.get('navStack'), []);
@@ -230,7 +230,7 @@ describe('Store — initial state integrity', () => {
     assert.equal(store.get('savingSongs'), false);
     assert.equal(store.get('savingSetlists'), false);
     assert.equal(store.get('savingPractice'), false);
-    assert.equal(store.get('savingWikiCharts'), false);
+    assert.equal(store.get('savingSheets'), false);
     assert.equal(store.get('autoConfigAttempted'), false);
   });
 
@@ -248,7 +248,7 @@ describe('Store — initial state integrity', () => {
     assert.isNull(store.get('activePracticeList'));
     assert.isNull(store.get('editPracticeList'));
     assert.isNull(store.get('practiceList'));
-    assert.isNull(store.get('activeWikiChart'));
+    assert.isNull(store.get('activeSheet'));
     assert.isNull(store.get('lastDriveSnapshot'));
     assert.isNull(store.get('activeOrchestraId'));
     assert.isNull(store.get('instrumentHierarchy'));
