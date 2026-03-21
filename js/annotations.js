@@ -11,7 +11,7 @@
  * @module annotations
  */
 
-import * as Auth from '../auth.js?v=20.39';
+import * as Auth from '../auth.js?v=20.40';
 
 // ─── Constants ───────────────────────────────────────────────
 const MAX_ANNOTATION_SIZE = 800 * 1024; // 800KB per song per user

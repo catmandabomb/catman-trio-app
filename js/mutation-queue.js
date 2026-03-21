@@ -17,9 +17,9 @@
  * @module mutation-queue
  */
 
-import * as IDB from '../idb.js?v=20.39';
-import * as Auth from '../auth.js?v=20.39';
-import { showToast } from './utils.js?v=20.39';
+import * as IDB from '../idb.js?v=20.40';
+import * as Auth from '../auth.js?v=20.40';
+import { showToast } from './utils.js?v=20.40';
 
 // ─── State ──────────────────────────────────────────────
 

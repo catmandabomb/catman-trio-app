@@ -8,16 +8,16 @@
  * @module sync
  */
 
-import * as Store from './store.js?v=20.39';
-import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.39';
-import * as GitHub from '../github.js?v=20.39';
-import * as Drive from '../drive.js?v=20.39';
-import * as Router from './router.js?v=20.39';
-import * as IDB from '../idb.js?v=20.39';
-import * as OPFS from './opfs.js?v=20.39';
-import * as Auth from '../auth.js?v=20.39';
-import * as Admin from '../admin.js?v=20.39';
-import * as MutationQueue from './mutation-queue.js?v=20.39';
+import * as Store from './store.js?v=20.40';
+import { showToast, isMobile, timeAgo, isHybridKey } from './utils.js?v=20.40';
+import * as GitHub from '../github.js?v=20.40';
+import * as Drive from '../drive.js?v=20.40';
+import * as Router from './router.js?v=20.40';
+import * as IDB from '../idb.js?v=20.40';
+import * as OPFS from './opfs.js?v=20.40';
+import * as Auth from '../auth.js?v=20.40';
+import * as Admin from '../admin.js?v=20.40';
+import * as MutationQueue from './mutation-queue.js?v=20.40';
 
 // ─── Compression Streams (progressive enhancement) ──────────
 // Gzip-compress JSON for localStorage to avoid ~5MB limit on large datasets.
@@ -777,8 +777,14 @@ async function syncAll(force) {
     const { songs, setlists, practice, wikiCharts } = remoteData;
     let dataChanged = false;
 
-    if (songs !== null) {
-      if (_fingerprint(songs) !== _fingerprint(Store.get('songs'))) dataChanged = true;
+    // Safety: never replace existing data with empty arrays from a potentially bad response
+    const _existingSongs = Store.get('songs');
+    const _existingSetlists = Store.get('setlists');
+    const _existingPractice = Store.get('practice');
+    const _existingWikiCharts = Store.get('wikiCharts');
+
+    if (songs !== null && !(songs.length === 0 && _existingSongs.length > 0)) {
+      if (_fingerprint(songs) !== _fingerprint(_existingSongs)) dataChanged = true;
       Store.set('songs', songs);
       _saveLocal(songs);
       const activeKeys = Store.get('activeKeys');
@@ -786,22 +792,30 @@ async function syncAll(force) {
         const validKeys = new Set(songs.map(s => (s.key || '').trim()).filter(k => k && !isHybridKey(k)));
         Store.set('activeKeys', activeKeys.filter(k => validKeys.has(k)));
       }
+    } else if (songs !== null && songs.length === 0 && _existingSongs.length > 0) {
+      console.warn('Sync returned empty songs but local has', _existingSongs.length, '— keeping local data');
     }
-    if (setlists !== null) {
-      if (_fingerprint(setlists) !== _fingerprint(Store.get('setlists'))) dataChanged = true;
+    if (setlists !== null && !(setlists.length === 0 && _existingSetlists.length > 0)) {
+      if (_fingerprint(setlists) !== _fingerprint(_existingSetlists)) dataChanged = true;
       Store.set('setlists', setlists);
       _saveSetlistsLocal(setlists);
+    } else if (setlists !== null && setlists.length === 0 && _existingSetlists.length > 0) {
+      console.warn('Sync returned empty setlists but local has', _existingSetlists.length, '— keeping local data');
     }
-    if (practice !== null) {
-      if (_fingerprint(practice) !== _fingerprint(Store.get('practice'))) dataChanged = true;
+    if (practice !== null && !(practice.length === 0 && _existingPractice.length > 0)) {
+      if (_fingerprint(practice) !== _fingerprint(_existingPractice)) dataChanged = true;
       Store.set('practice', practice);
       migratePracticeData();
       _savePracticeLocal(Store.get('practice'));
+    } else if (practice !== null && practice.length === 0 && _existingPractice.length > 0) {
+      console.warn('Sync returned empty practice but local has', _existingPractice.length, '— keeping local data');
     }
-    if (wikiCharts !== null && wikiCharts !== undefined) {
-      if (_fingerprint(wikiCharts) !== _fingerprint(Store.get('wikiCharts'))) dataChanged = true;
+    if (wikiCharts !== null && wikiCharts !== undefined && !(wikiCharts.length === 0 && _existingWikiCharts.length > 0)) {
+      if (_fingerprint(wikiCharts) !== _fingerprint(_existingWikiCharts)) dataChanged = true;
       Store.set('wikiCharts', wikiCharts);
       _saveWikiChartsLocal(wikiCharts);
+    } else if (wikiCharts !== null && wikiCharts !== undefined && wikiCharts.length === 0 && _existingWikiCharts.length > 0) {
+      console.warn('Sync returned empty wikiCharts but local has', _existingWikiCharts.length, '— keeping local data');
     }
 
     if (_useGitHub && (songs !== null || setlists !== null || practice !== null)) {

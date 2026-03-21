@@ -437,14 +437,8 @@ a { color: inherit; text-decoration: none; }
 .search-sort-btn:hover {
   opacity: 1;
 }
-/* Hide refresh button on touch devices — pull-to-refresh replaces it */
-@media (pointer: coarse) {
-  .search-sort-btn { display: none; }
-}
-@media (hover: none) {
-  .search-sort-btn { display: none; }
-}
-body.is-mobile .search-sort-btn { display: none; }
+/* Sort button hidden for unauthenticated users */
+body:not(.authed) .search-sort-btn { display: none; }
 
 .topbar-nav-btn {
   padding: 3px 5px;
@@ -639,6 +633,8 @@ body.is-mobile .search-sort-btn { display: none; }
 .admin-buttons .icon-btn {
   width: 32px;
   height: 32px;
+  min-width: 32px;
+  min-height: 32px;
 }
 .admin-buttons .btn-ghost {
   margin-right: 2px;
@@ -3283,7 +3279,7 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 8px;
-  margin-right: 46px; /* clear the fixed practice jump bar with breathing room */
+  margin-right: 0;
   overflow: hidden;
 }
 
@@ -6401,13 +6397,17 @@ body:not(.authed) #ptr-indicator {
   border-color: var(--accent);
   background: rgba(212, 180, 120, 0.15);
 }
+/* Mobile: add right margin so jump bar doesn't overlap song items */
+@media (max-width: 768px) {
+  .practice-accordion-item { margin-right: 36px; }
+}
 /* Hide on very narrow screens */
 @media (max-width: 340px) {
   .practice-jump-bar { display: none; }
 }
-/* On wide screens, position relative to content area */
+/* On wide screens, keep at screen edge — content padding provides clearance */
 @media (min-width: 900px) {
-  .practice-jump-bar { right: calc(15vw - 35px); }
+  .practice-jump-bar { right: 6px; }
 }
 
 /* ═══════════════════════════════════════════
